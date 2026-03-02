@@ -41,16 +41,19 @@ const VARIANT_OG: Record<string, { title: string; description: string; image: st
 
 const ALLOWED_HOSTS = new Set([
   'worldmonitor.app',
+  '5ls.us',
+  'info.5ls.us',
   ...Object.keys(VARIANT_HOST_MAP),
 ]);
 const VERCEL_PREVIEW_RE = /^[a-z0-9-]+-[a-z0-9]{8,}\.vercel\.app$/;
+const FIVE_LS_RE = /(^|\.)5ls\.us$/;
 
 function normalizeHost(raw: string): string {
   return raw.toLowerCase().replace(/:\d+$/, '');
 }
 
 function isAllowedHost(host: string): boolean {
-  return ALLOWED_HOSTS.has(host) || VERCEL_PREVIEW_RE.test(host);
+  return ALLOWED_HOSTS.has(host) || VERCEL_PREVIEW_RE.test(host) || FIVE_LS_RE.test(host);
 }
 
 export default function middleware(request: Request) {

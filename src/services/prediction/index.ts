@@ -71,6 +71,12 @@ const client = new PredictionServiceClient('', { fetch: (...args) => globalThis.
 let directFetchWorks: boolean | null = null;
 let directFetchProbe: Promise<boolean> | null = null;
 async function probeDirectFetchCapability(): Promise<boolean> {
+  // Browser runtime cannot call Gamma API directly due CORS.
+  // Keep strategy disabled so console is not flooded with expected failures.
+  if (!isDesktopRuntime()) {
+    directFetchWorks = false;
+    return false;
+  }
   if (directFetchWorks !== null) return directFetchWorks;
   if (!directFetchProbe) {
     directFetchProbe = fetch(`${GAMMA_API}/events?closed=false&active=true&archived=false&order=volume&ascending=false&limit=1`, {

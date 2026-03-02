@@ -27,6 +27,21 @@ test('allows desktop Tauri origins', () => {
   }
 });
 
+test('allows 5ls browser origins', () => {
+  const origins = [
+    'https://5ls.us',
+    'https://info.5ls.us',
+    'https://app.info.5ls.us',
+  ];
+
+  for (const origin of origins) {
+    const req = makeRequest(origin);
+    assert.equal(isDisallowedOrigin(req), false, `origin should be allowed: ${origin}`);
+    const cors = getCorsHeaders(req);
+    assert.equal(cors['Access-Control-Allow-Origin'], origin);
+  }
+});
+
 test('rejects unrelated external origins', () => {
   const req = makeRequest('https://evil.example.com');
   assert.equal(isDisallowedOrigin(req), true);
