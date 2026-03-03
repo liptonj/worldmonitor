@@ -60,11 +60,9 @@ export async function getSecret(secretName: string): Promise<string | undefined>
   // 2. Supabase Vault
   try {
     const supabase = createServiceClient();
-    const { data, error } = await supabase.rpc(
-      'get_vault_secret',
-      { secret_name: secretName },
-      { schema: 'wm_admin' },
-    );
+    const { data, error } = await supabase
+      .schema('wm_admin')
+      .rpc('get_vault_secret', { secret_name: secretName });
     if (!error && data) {
       if (redis) {
         try { await redis.setex(vaultCacheKey(secretName), CACHE_TTL_SECONDS, data); } catch { /* non-fatal */ }

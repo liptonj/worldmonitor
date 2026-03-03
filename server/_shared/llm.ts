@@ -33,7 +33,7 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
   // 1. Redis cache
   if (redis) {
     try {
-      const cached = await redis.get('wm:llm:active-provider:v1');
+      const cached = await redis.get<string>('wm:llm:active-provider:v1');
       if (cached) {
         const parsed = JSON.parse(cached) as LlmProvider;
         return parsed;
@@ -92,7 +92,7 @@ export async function getLlmPrompt(
   // 1. Redis cache
   if (redis) {
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await redis.get<string>(cacheKey);
       if (cached) {
         const parsed = JSON.parse(cached) as LlmPromptResult;
         return parsed;
