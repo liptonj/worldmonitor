@@ -455,7 +455,7 @@ export function getSourcePanelId(sourceName: string): string {
   return _sourcePanelMap.get(sourceName) ?? 'politics';
 }
 
-const FULL_FEEDS: Record<string, Feed[]> = {
+export const FULL_FEEDS: Record<string, Feed[]> = {
   politics: [
     { name: 'BBC World', url: rss('https://feeds.bbci.co.uk/news/world/rss.xml') },
     { name: 'Guardian World', url: rss('https://www.theguardian.com/world/rss') },
@@ -711,7 +711,7 @@ const FULL_FEEDS: Record<string, Feed[]> = {
 };
 
 // Tech/AI variant feeds
-const TECH_FEEDS: Record<string, Feed[]> = {
+export const TECH_FEEDS: Record<string, Feed[]> = {
   tech: [
     { name: 'TechCrunch', url: rss('https://techcrunch.com/feed/') },
     { name: 'The Verge', url: rss('https://www.theverge.com/rss/index.xml') },
@@ -934,7 +934,7 @@ const TECH_FEEDS: Record<string, Feed[]> = {
 };
 
 // Finance/Trading variant feeds (all free RSS / Google News proxies)
-const FINANCE_FEEDS: Record<string, Feed[]> = {
+export const FINANCE_FEEDS: Record<string, Feed[]> = {
   markets: [
     { name: 'CNBC', url: rss('https://www.cnbc.com/id/100003114/device/rss/rss.html') },
     // Direct MarketWatch RSS returns frequent 403s from cloud IPs; use Google News fallback.
@@ -1021,7 +1021,7 @@ const FINANCE_FEEDS: Record<string, Feed[]> = {
   ],
 };
 
-const HAPPY_FEEDS: Record<string, Feed[]> = {
+export const HAPPY_FEEDS: Record<string, Feed[]> = {
   positive: [
     { name: 'Good News Network', url: rss('https://www.goodnewsnetwork.org/feed/') },
     { name: 'Positive.News', url: rss('https://www.positive.news/feed/') },
@@ -1210,7 +1210,7 @@ export function getTotalFeedCount(): number {
   return all.size;
 }
 
-if (import.meta.env.DEV) {
+if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
   const allFeedNames = new Set<string>();
   for (const feeds of Object.values(FULL_FEEDS)) for (const f of feeds) allFeedNames.add(f.name);
   for (const f of INTEL_SOURCES) allFeedNames.add(f.name);
