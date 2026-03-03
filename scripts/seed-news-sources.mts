@@ -1,10 +1,8 @@
 // scripts/seed-news-sources.mts
 import { createClient } from '@supabase/supabase-js';
-import { SOURCE_TIERS } from '../src/config/feeds.ts';
-
-// Import the actual feed dicts (not the runtime conditional FEEDS export)
-const { FULL_FEEDS, TECH_FEEDS, FINANCE_FEEDS, HAPPY_FEEDS, INTEL_SOURCES } =
-  await import('../src/config/feeds.ts');
+// Static feed data for seeding — runtime config comes from Supabase via feed-client
+const { SOURCE_TIERS, FULL_FEEDS, TECH_FEEDS, FINANCE_FEEDS, HAPPY_FEEDS, INTEL_SOURCES } =
+  await import('../src/config/feeds-seed.ts');
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;

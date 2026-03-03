@@ -1,7 +1,56 @@
 // src/services/feed-client.ts
 import type { Feed } from '@/types';
 import { SITE_VARIANT } from '@/config/variant';
-import { SOURCE_REGION_MAP } from '@/config/feeds';
+
+// Static structural config — region keys to label keys and feed category keys
+export const SOURCE_REGION_MAP: Record<string, { labelKey: string; feedKeys: string[] }> = {
+  // Full (geopolitical) variant regions
+  worldwide: { labelKey: 'header.sourceRegionWorldwide', feedKeys: ['politics', 'crisis'] },
+  us: { labelKey: 'header.sourceRegionUS', feedKeys: ['us', 'gov'] },
+  europe: { labelKey: 'header.sourceRegionEurope', feedKeys: ['europe'] },
+  middleeast: { labelKey: 'header.sourceRegionMiddleEast', feedKeys: ['middleeast'] },
+  africa: { labelKey: 'header.sourceRegionAfrica', feedKeys: ['africa'] },
+  latam: { labelKey: 'header.sourceRegionLatAm', feedKeys: ['latam'] },
+  asia: { labelKey: 'header.sourceRegionAsiaPacific', feedKeys: ['asia'] },
+  topical: { labelKey: 'header.sourceRegionTopical', feedKeys: ['energy', 'tech', 'ai', 'finance', 'layoffs', 'thinktanks'] },
+  intel: { labelKey: 'header.sourceRegionIntel', feedKeys: [] },
+
+  // Tech variant regions
+  techNews: { labelKey: 'header.sourceRegionTechNews', feedKeys: ['tech', 'hardware'] },
+  aiMl: { labelKey: 'header.sourceRegionAiMl', feedKeys: ['ai'] },
+  startupsVc: { labelKey: 'header.sourceRegionStartupsVc', feedKeys: ['startups', 'vcblogs', 'funding', 'unicorns', 'accelerators', 'ipo'] },
+  regionalTech: { labelKey: 'header.sourceRegionRegionalTech', feedKeys: ['regionalStartups'] },
+  developer: { labelKey: 'header.sourceRegionDeveloper', feedKeys: ['github', 'cloud', 'dev', 'producthunt', 'outages'] },
+  cybersecurity: { labelKey: 'header.sourceRegionCybersecurity', feedKeys: ['security'] },
+  techPolicy: { labelKey: 'header.sourceRegionTechPolicy', feedKeys: ['policy', 'thinktanks'] },
+  techMedia: { labelKey: 'header.sourceRegionTechMedia', feedKeys: ['podcasts', 'layoffs', 'finance'] },
+
+  // Finance variant regions
+  marketsAnalysis: { labelKey: 'header.sourceRegionMarkets', feedKeys: ['markets', 'analysis', 'ipo'] },
+  fixedIncomeFx: { labelKey: 'header.sourceRegionFixedIncomeFx', feedKeys: ['forex', 'bonds'] },
+  commoditiesRegion: { labelKey: 'header.sourceRegionCommodities', feedKeys: ['commodities'] },
+  cryptoDigital: { labelKey: 'header.sourceRegionCryptoDigital', feedKeys: ['crypto', 'fintech'] },
+  centralBanksEcon: { labelKey: 'header.sourceRegionCentralBanks', feedKeys: ['centralbanks', 'economic'] },
+  dealsCorpFin: { labelKey: 'header.sourceRegionDeals', feedKeys: ['institutional', 'derivatives'] },
+  finRegulation: { labelKey: 'header.sourceRegionFinRegulation', feedKeys: ['regulation'] },
+  gulfMena: { labelKey: 'header.sourceRegionGulfMena', feedKeys: ['gccNews'] },
+};
+
+// Keywords that trigger alert status - must be specific to avoid false positives
+export const ALERT_KEYWORDS = [
+  'war', 'invasion', 'military', 'nuclear', 'sanctions', 'missile',
+  'airstrike', 'drone strike', 'troops deployed', 'armed conflict', 'bombing', 'casualties',
+  'ceasefire', 'peace treaty', 'nato', 'coup', 'martial law',
+  'assassination', 'terrorist', 'terror attack', 'cyber attack', 'hostage', 'evacuation order',
+];
+
+// Patterns that indicate non-alert content (lifestyle, entertainment, etc.)
+export const ALERT_EXCLUSIONS = [
+  'protein', 'couples', 'relationship', 'dating', 'diet', 'fitness',
+  'recipe', 'cooking', 'shopping', 'fashion', 'celebrity', 'movie',
+  'tv show', 'sports', 'game', 'concert', 'festival', 'wedding',
+  'vacation', 'travel tips', 'life hack', 'self-care', 'wellness',
+];
 
 export type SourceType = 'wire' | 'gov' | 'intel' | 'mainstream' | 'market' | 'tech' | 'other';
 export type PropagandaRisk = 'low' | 'medium' | 'high';
@@ -142,6 +191,3 @@ export function getTotalFeedCount(): number {
 export function areFeedsLoaded(): boolean {
   return _sources !== null;
 }
-
-// Re-export static structural config (still lives in feeds until Task 33)
-export { SOURCE_REGION_MAP };

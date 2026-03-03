@@ -38,8 +38,9 @@ export {
   areFeedsLoaded,
   type SourceRiskProfile,
   type SourceType,
+  ALERT_KEYWORDS,
+  ALERT_EXCLUSIONS,
 } from '@/services/feed-client';
-export { ALERT_KEYWORDS, ALERT_EXCLUSIONS } from './feeds';
 
 // Panel configuration - imported from panels.ts
 export {
