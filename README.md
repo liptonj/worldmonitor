@@ -1826,6 +1826,30 @@ If you discover a vulnerability, please see our [Security Policy](./SECURITY.md)
 
 ---
 
+## Admin Portal
+
+A password-protected admin portal is available at `/admin.html`.
+
+**Setup:** Create a Supabase Auth account, then insert the user UUID into `wm_admin.admin_users`.
+
+**What you can manage:**
+- **API Keys & Secrets** — stored in Supabase Vault (encrypted); values never returned after save
+- **Feature Flags** — ML feature toggles, site configuration
+- **News Sources** — add/edit/disable RSS feeds; bulk JSON import
+- **LLM Config & Prompts** — provider selection (Groq/OpenRouter), model, system prompts per variant/mode
+- **App Access Keys** — generate/revoke desktop cloud fallback keys (replaces `WORLDMONITOR_VALID_KEYS`)
+
+**Required Vercel env vars:**
+```
+SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+```
+
+**Secrets that must stay in env (not Vault):**
+`UPSTASH_REDIS_*`, `RELAY_SHARED_SECRET`, `RELAY_AUTH_HEADER`, all `SUPABASE_*`, `CONVEX_URL`
+
+---
+
 <p align="center">
   <a href="https://worldmonitor.app">worldmonitor.app</a> &nbsp;·&nbsp;
   <a href="https://tech.worldmonitor.app">tech.worldmonitor.app</a> &nbsp;·&nbsp;

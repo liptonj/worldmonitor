@@ -8,7 +8,7 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/news/v1/service_server';
 import { cachedFetchJson } from '../../../_shared/redis';
 import { CHROME_UA } from '../../../_shared/constants';
-import { VARIANT_FEEDS, INTEL_SOURCES, type ServerFeed } from './_feeds';
+import { getNewsSources, getIntelSources, type DynamicFeed } from '../../../_shared/news-sources';
 import { classifyByKeyword, type ThreatLevel } from './_classifier';
 
 const VALID_VARIANTS = new Set(['full', 'tech', 'finance', 'happy']);
@@ -40,7 +40,7 @@ interface ParsedItem {
 }
 
 async function fetchAndParseRss(
-  feed: ServerFeed,
+  feed: DynamicFeed,
   variant: string,
   signal: AbortSignal,
 ): Promise<ParsedItem[]> {
@@ -79,7 +79,7 @@ async function fetchAndParseRss(
   }
 }
 
-function parseRssXml(xml: string, feed: ServerFeed, variant: string): ParsedItem[] | null {
+function parseRssXml(xml: string, feed: DynamicFeed, variant: string): ParsedItem[] | null {
   const items: ParsedItem[] = [];
 
   const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
@@ -202,7 +202,7 @@ export async function listFeedDigest(
 }
 
 async function buildDigest(variant: string, lang: string): Promise<ListFeedDigestResponse> {
-  const feedsByCategory = VARIANT_FEEDS[variant] ?? {};
+  const feedsByCategory = await getNewsSources(variant, lang);
   const feedStatuses: Record<string, string> = {};
   const categories: Record<string, CategoryBucket> = {};
 
@@ -210,18 +210,17 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
   const deadlineTimeout = setTimeout(() => deadlineController.abort(), OVERALL_DEADLINE_MS);
 
   try {
-    const allEntries: Array<{ category: string; feed: ServerFeed }> = [];
+    const allEntries: Array<{ category: string; feed: DynamicFeed }> = [];
 
     for (const [category, feeds] of Object.entries(feedsByCategory)) {
-      const filtered = feeds.filter(f => !f.lang || f.lang === lang);
-      for (const feed of filtered) {
+      for (const feed of feeds) {
         allEntries.push({ category, feed });
       }
     }
 
     if (variant === 'full') {
-      const filteredIntel = INTEL_SOURCES.filter(f => !f.lang || f.lang === lang);
-      for (const feed of filteredIntel) {
+      const intelFeeds = await getIntelSources(lang);
+      for (const feed of intelFeeds) {
         allEntries.push({ category: 'intel', feed });
       }
     }

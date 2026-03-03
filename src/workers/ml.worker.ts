@@ -4,8 +4,17 @@
  */
 
 import { pipeline, env } from '@xenova/transformers';
-import { MODEL_CONFIGS, type ModelConfig } from '@/config/ml-config';
+import type { ModelConfig } from '@/config/ml-config';
 import { storeVectors, searchVectors, getCount, resetStore, sanitizeTitle, type VectorSearchResult } from './vector-db';
+
+/** Safe default model configs so worker can initialize without crashing. Runtime config can be passed via postMessage later. */
+const DEFAULT_MODEL_CONFIGS: ModelConfig[] = [
+  { id: 'embeddings', name: 'all-MiniLM-L6-v2', hfModel: 'Xenova/all-MiniLM-L6-v2', size: 23_000_000, priority: 1, required: true, task: 'feature-extraction' },
+  { id: 'sentiment', name: 'DistilBERT-SST2', hfModel: 'Xenova/distilbert-base-uncased-finetuned-sst-2-english', size: 65_000_000, priority: 2, required: false, task: 'text-classification' },
+  { id: 'summarization', name: 'Flan-T5-base', hfModel: 'Xenova/flan-t5-base', size: 250_000_000, priority: 3, required: false, task: 'text2text-generation' },
+  { id: 'summarization-beta', name: 'Flan-T5-small', hfModel: 'Xenova/flan-t5-small', size: 60_000_000, priority: 3, required: false, task: 'text2text-generation' },
+  { id: 'ner', name: 'BERT-NER', hfModel: 'Xenova/bert-base-NER', size: 65_000_000, priority: 4, required: false, task: 'token-classification' },
+];
 
 // Configure transformers.js
 env.allowLocalModels = false;
@@ -122,7 +131,7 @@ const loadedPipelines = new Map<string, any>();
 const loadingPromises = new Map<string, Promise<void>>();
 
 function getModelConfig(modelId: string): ModelConfig | undefined {
-  return MODEL_CONFIGS.find(m => m.id === modelId);
+  return DEFAULT_MODEL_CONFIGS.find(m => m.id === modelId);
 }
 
 async function loadModel(modelId: string): Promise<void> {

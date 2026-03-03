@@ -5,6 +5,7 @@ import type {
   AircraftDetails,
 } from '../../../../src/generated/server/worldmonitor/military/v1/service_server';
 
+import { getSecret } from '../../../_shared/secrets';
 import { mapWingbitsDetails } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
 import { getCachedJsonBatch, cachedFetchJson } from '../../../_shared/redis';
@@ -19,7 +20,7 @@ export async function getAircraftDetailsBatch(
   req: GetAircraftDetailsBatchRequest,
 ): Promise<GetAircraftDetailsBatchResponse> {
   try {
-    const apiKey = process.env.WINGBITS_API_KEY;
+    const apiKey = await getSecret('WINGBITS_API_KEY');
     if (!apiKey) return { results: {}, fetched: 0, requested: 0, configured: false };
 
     const normalized = req.icao24s

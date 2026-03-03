@@ -1,6 +1,6 @@
 import type { NewsItem } from '@/types';
 import type { OrefAlert } from '@/services/oref-alerts';
-import { getSourceTier } from '@/config/feeds';
+import { getSourceTier } from '@/services/feed-client';
 
 export interface BreakingAlert {
   id: string;

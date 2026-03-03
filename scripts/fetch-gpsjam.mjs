@@ -152,8 +152,11 @@ function classifyRegion(lat, lon) {
 // Env + Redis helpers (pattern from seed-iran-events.mjs)
 // ---------------------------------------------------------------------------
 function loadEnvFile() {
-  const envPath = path.join(__dirname, '..', '.env.local');
-  if (!existsSync(envPath)) return;
+  const candidates = ['.env.local', '.env'];
+  const envPath = candidates
+    .map(f => path.join(__dirname, '..', f))
+    .find(p => existsSync(p));
+  if (!envPath) return;
   const lines = readFileSync(envPath, 'utf8').split('\n');
   for (const line of lines) {
     const trimmed = line.trim();

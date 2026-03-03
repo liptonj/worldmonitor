@@ -255,9 +255,13 @@ function main() {
   if (mirtaRaw) console.log(`  MIRTA unwrapped: ${mirtaRaw.length} installations`);
   const curatedRaw = loadJson(CURATED_PATH, 'curated-bases.json');
 
-  if (!pizzintRaw && !osmRaw) {
-    console.error('FATAL: at least one of pizzint-processed.json or osm-military-processed.json is required.');
+  if (!pizzintRaw && !osmRaw && !mirtaRaw && !curatedRaw) {
+    console.error('FATAL: at least one data source is required.');
     process.exit(1);
+  }
+
+  if (!pizzintRaw && !osmRaw) {
+    console.warn('  NOTE: No pizzint or OSM data — building from MIRTA + curated only.');
   }
 
   console.log('');

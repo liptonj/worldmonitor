@@ -23,8 +23,8 @@ import {
   STORAGE_KEYS,
   SITE_VARIANT,
   LAYER_TO_SOURCE,
-  FEEDS,
-  INTEL_SOURCES,
+  getFeeds,
+  getIntelSources,
   DEFAULT_PANELS,
 } from '@/config';
 import {
@@ -792,10 +792,10 @@ export class EventHandlerManager implements AppModule {
 
   getAllSourceNames(): string[] {
     const sources = new Set<string>();
-    Object.values(FEEDS).forEach(feeds => {
+    Object.values(getFeeds()).forEach(feeds => {
       if (feeds) feeds.forEach(f => sources.add(f.name));
     });
-    INTEL_SOURCES.forEach(f => sources.add(f.name));
+    getIntelSources().forEach(f => sources.add(f.name));
     return Array.from(sources).sort((a, b) => a.localeCompare(b));
   }
 

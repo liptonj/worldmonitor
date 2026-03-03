@@ -14,6 +14,7 @@ import type {
   FireConfidence,
 } from '../../../../src/generated/server/worldmonitor/wildfire/v1/service_server';
 
+import { getSecret } from '../../../_shared/secrets';
 import { CHROME_UA } from '../../../_shared/constants';
 import { cachedFetchJson } from '../../../_shared/redis';
 
@@ -87,7 +88,7 @@ export const listFireDetections: WildfireServiceHandler['listFireDetections'] = 
   _req: ListFireDetectionsRequest,
 ): Promise<ListFireDetectionsResponse> => {
   const apiKey =
-    process.env.NASA_FIRMS_API_KEY || process.env.FIRMS_API_KEY || '';
+    (await getSecret('NASA_FIRMS_API_KEY')) ?? (await getSecret('FIRMS_API_KEY')) ?? '';
 
   if (!apiKey) {
     return { fireDetections: [], pagination: undefined };

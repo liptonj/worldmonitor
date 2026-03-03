@@ -138,7 +138,7 @@ export function createDomainGateway(
     }
 
     // API key validation (origin-aware)
-    const keyCheck = validateApiKey(request);
+    const keyCheck = await validateApiKey(request);
     if (keyCheck.required && !keyCheck.valid) {
       return new Response(JSON.stringify({ error: keyCheck.error }), {
         status: 401,

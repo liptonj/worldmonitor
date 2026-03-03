@@ -32,7 +32,42 @@ function extractOriginFromReferer(referer) {
   }
 }
 
-export function validateApiKey(req) {
+async function sha256hex(input) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function isValidKey(rawKey) {
+  // 1. Fast env var check (WORLDMONITOR_VALID_KEYS remains as fallback/override)
+  const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
+  if (validKeys.includes(rawKey)) return true;
+
+  // 2. Supabase app_keys table check
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) return false;
+
+  try {
+    const keyHash = await sha256hex(rawKey);
+    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/verify_app_key`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Accept-Profile': 'wm_admin',
+      },
+      body: JSON.stringify({ p_key_hash: keyHash }),
+    });
+    if (!res.ok) return false;
+    const result = await res.json();
+    return result === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function validateApiKey(req) {
   const key = req.headers.get('X-WorldMonitor-Key');
   // Same-origin browser requests don't send Origin (per CORS spec).
   // Fall back to Referer to identify trusted same-origin callers.
@@ -41,24 +76,21 @@ export function validateApiKey(req) {
   // Desktop app — always require API key
   if (isDesktopOrigin(origin)) {
     if (!key) return { valid: false, required: true, error: 'API key required for desktop access' };
-    const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
-    if (!validKeys.includes(key)) return { valid: false, required: true, error: 'Invalid API key' };
+    if (!(await isValidKey(key))) return { valid: false, required: true, error: 'Invalid API key' };
     return { valid: true, required: true };
   }
 
   // Trusted browser origin (worldmonitor.app, Vercel previews, localhost dev) — no key needed
   if (isTrustedBrowserOrigin(origin)) {
     if (key) {
-      const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
-      if (!validKeys.includes(key)) return { valid: false, required: true, error: 'Invalid API key' };
+      if (!(await isValidKey(key))) return { valid: false, required: true, error: 'Invalid API key' };
     }
     return { valid: true, required: false };
   }
 
   // Explicit key provided from unknown origin — validate it
   if (key) {
-    const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
-    if (!validKeys.includes(key)) return { valid: false, required: true, error: 'Invalid API key' };
+    if (!(await isValidKey(key))) return { valid: false, required: true, error: 'Invalid API key' };
     return { valid: true, required: true };
   }
 

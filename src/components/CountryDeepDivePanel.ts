@@ -1,5 +1,5 @@
 import type { CountryBriefSignals } from '@/app/app-context';
-import { getSourcePropagandaRisk, getSourceTier } from '@/config/feeds';
+import { getSourcePropagandaRisk, getSourceTier } from '@/services/feed-client';
 import { getCountryCentroid, ME_STRIKE_BOUNDS } from '@/services/country-geometry';
 import type { CountryScore } from '@/services/country-instability';
 import { t } from '@/services/i18n';

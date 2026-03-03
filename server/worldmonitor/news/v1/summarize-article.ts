@@ -5,6 +5,7 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/news/v1/service_server';
 
 import { cachedFetchJsonWithMeta } from '../../../_shared/redis';
+import { getLlmPrompt } from '../../../_shared/llm';
 import {
   CACHE_TTL_SECONDS,
   deduplicateHeadlines,
@@ -53,7 +54,7 @@ export async function summarizeArticle(
     openrouter: 'OPENROUTER_API_KEY not configured',
   };
 
-  const credentials = getProviderCredentials(provider);
+  const credentials = await getProviderCredentials(provider);
   if (!credentials) {
     return {
       summary: '',
@@ -97,12 +98,13 @@ export async function summarizeArticle(
       CACHE_TTL_SECONDS,
       async () => {
         const uniqueHeadlines = deduplicateHeadlines(headlines.slice(0, 5));
+        const dbPrompt = await getLlmPrompt('article_summary', variant, mode);
         const { systemPrompt, userPrompt } = buildArticlePrompts(headlines, uniqueHeadlines, {
           mode,
           geoContext: sanitizedGeoContext,
           variant,
           lang,
-        });
+        }, dbPrompt);
 
         const response = await fetch(apiUrl, {
           method: 'POST',
@@ -114,7 +116,6 @@ export async function summarizeArticle(
               { role: 'user', content: userPrompt },
             ],
             temperature: 0.3,
-            max_tokens: 100,
             top_p: 0.9,
             ...extraBody,
           }),

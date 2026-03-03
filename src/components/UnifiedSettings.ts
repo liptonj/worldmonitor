@@ -1,4 +1,4 @@
-import { FEEDS, INTEL_SOURCES, SOURCE_REGION_MAP } from '@/config/feeds';
+import { getFeeds, getIntelSources, SOURCE_REGION_MAP } from '@/services/feed-client';
 import { PANEL_CATEGORY_MAP } from '@/config/panels';
 import { SITE_VARIANT } from '@/config/variant';
 import { LANGUAGES, changeLanguage, getCurrentLanguage, t } from '@/services/i18n';
@@ -530,14 +530,14 @@ export class UnifiedSettings {
   }
 
   private getAvailableRegions(): Array<{ key: string; label: string }> {
-    const feedKeys = new Set(Object.keys(FEEDS));
+    const feedKeys = new Set(Object.keys(getFeeds()));
     const regions: Array<{ key: string; label: string }> = [
       { key: 'all', label: t('header.sourceRegionAll') }
     ];
 
     for (const [regionKey, regionDef] of Object.entries(SOURCE_REGION_MAP)) {
       if (regionKey === 'intel') {
-        if (INTEL_SOURCES.length > 0) {
+        if (getIntelSources().length > 0) {
           regions.push({ key: regionKey, label: t(regionDef.labelKey) });
         }
         continue;
@@ -553,16 +553,18 @@ export class UnifiedSettings {
 
   private getSourcesByRegion(): Map<string, string[]> {
     const map = new Map<string, string[]>();
-    const feedKeys = new Set(Object.keys(FEEDS));
+    const feeds = getFeeds();
+    const intelSources = getIntelSources();
+    const feedKeys = new Set(Object.keys(feeds));
 
     for (const [regionKey, regionDef] of Object.entries(SOURCE_REGION_MAP)) {
       const sources: string[] = [];
       if (regionKey === 'intel') {
-        INTEL_SOURCES.forEach(f => sources.push(f.name));
+        intelSources.forEach(f => sources.push(f.name));
       } else {
         for (const fk of regionDef.feedKeys) {
           if (feedKeys.has(fk)) {
-            FEEDS[fk]!.forEach(f => sources.push(f.name));
+            feeds[fk]!.forEach(f => sources.push(f.name));
           }
         }
       }

@@ -4,7 +4,17 @@
  */
 
 import { detectMLCapabilities, type MLCapabilities } from './ml-capabilities';
-import { ML_THRESHOLDS, MODEL_CONFIGS } from '@/config/ml-config';
+import { getMLThresholds } from '@/services/feature-flag-client';
+import type { ModelConfig } from '@/config/ml-config';
+
+/** Safe default model configs for unloadOptionalModels. Runtime config can come from feature flags later. */
+const DEFAULT_MODEL_CONFIGS: ModelConfig[] = [
+  { id: 'embeddings', name: 'all-MiniLM-L6-v2', hfModel: 'Xenova/all-MiniLM-L6-v2', size: 23_000_000, priority: 1, required: true, task: 'feature-extraction' },
+  { id: 'sentiment', name: 'DistilBERT-SST2', hfModel: 'Xenova/distilbert-base-uncased-finetuned-sst-2-english', size: 65_000_000, priority: 2, required: false, task: 'text-classification' },
+  { id: 'summarization', name: 'Flan-T5-base', hfModel: 'Xenova/flan-t5-base', size: 250_000_000, priority: 3, required: false, task: 'text2text-generation' },
+  { id: 'summarization-beta', name: 'Flan-T5-small', hfModel: 'Xenova/flan-t5-small', size: 60_000_000, priority: 3, required: false, task: 'text2text-generation' },
+  { id: 'ner', name: 'BERT-NER', hfModel: 'Xenova/bert-base-NER', size: 65_000_000, priority: 4, required: false, task: 'token-classification' },
+];
 
 // Import worker using Vite's worker syntax
 import MLWorkerClass from '@/workers/ml.worker?worker';
@@ -211,7 +221,7 @@ class MLWorkerManager {
   private request<T>(
     type: string,
     data: Record<string, unknown>,
-    timeoutMs = ML_THRESHOLDS.inferenceTimeoutMs
+    timeoutMs = getMLThresholds().inferenceTimeoutMs
   ): Promise<T> {
     return new Promise((resolve, reject) => {
       if (!this.worker || !this.isReady) {
@@ -253,7 +263,7 @@ class MLWorkerManager {
       return await this.request<boolean>(
         'load-model',
         { modelId },
-        ML_THRESHOLDS.modelLoadTimeoutMs
+        getMLThresholds().modelLoadTimeoutMs
       );
     } finally {
       this.modelProgressCallbacks.delete(modelId);
@@ -277,7 +287,7 @@ class MLWorkerManager {
    * Unload all optional models (non-required)
    */
   async unloadOptionalModels(): Promise<void> {
-    const optionalModels = MODEL_CONFIGS.filter(m => !m.required);
+    const optionalModels = DEFAULT_MODEL_CONFIGS.filter(m => !m.required);
     for (const model of optionalModels) {
       if (this.loadedModels.has(model.id)) {
         await this.unloadModel(model.id);
@@ -322,7 +332,7 @@ class MLWorkerManager {
    */
   async semanticCluster(
     embeddings: number[][],
-    threshold = ML_THRESHOLDS.semanticClusterThreshold
+    threshold = getMLThresholds().semanticClusterThreshold
   ): Promise<number[][]> {
     if (!this.isReady) throw new Error('ML Worker not ready');
     return this.request<number[][]>('cluster-semantic', { embeddings, threshold });
@@ -333,7 +343,7 @@ class MLWorkerManager {
    */
   async clusterBySemanticSimilarity(
     items: Array<{ id: string; text: string }>,
-    threshold = ML_THRESHOLDS.semanticClusterThreshold
+    threshold = getMLThresholds().semanticClusterThreshold
   ): Promise<string[][]> {
     const embeddings = await this.embedTexts(items.map(i => i.text));
     const clusterIndices = await this.semanticCluster(embeddings, threshold);

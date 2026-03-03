@@ -21,8 +21,11 @@ const projectRoot = path.resolve(__dirname, '..');
 // .env.local loader (manual dotenv for ESM)
 // ---------------------------------------------------------------------------
 function loadEnvLocal() {
-  const envPath = path.join(projectRoot, '.env.local');
-  if (!existsSync(envPath)) return;
+  const candidates = ['.env.local', '.env'];
+  const envPath = candidates
+    .map(f => path.join(projectRoot, f))
+    .find(p => existsSync(p));
+  if (!envPath) return;
   const lines = readFileSync(envPath, 'utf-8').split('\n');
   for (const raw of lines) {
     const line = raw.trim();

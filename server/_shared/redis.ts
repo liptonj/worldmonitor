@@ -1,3 +1,24 @@
+import { Redis } from '@upstash/redis';
+
+/**
+ * @upstash/redis SDK client — talks to the self-hosted serverless-redis-http
+ * container (SRH) at UPSTASH_REDIS_REST_URL. SRH proxies to native Redis.
+ * Used by admin helpers (secrets, LLM, news-sources) for .get(), .setex(), .del().
+ * Existing raw fetch helpers below remain for backward compatibility.
+ */
+let _redis: Redis | null = null;
+
+export function getRedisClient(): Redis | null {
+  if (_redis) return _redis;
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  _redis = new Redis({ url, token });
+  return _redis;
+}
+
+export { _redis as redis };
+
 const REDIS_OP_TIMEOUT_MS = 1_500;
 const REDIS_PIPELINE_TIMEOUT_MS = 5_000;
 

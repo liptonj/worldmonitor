@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FEEDS_PATH = join(__dirname, '..', 'src', 'config', 'feeds.ts');
+const FEEDS_PATH = join(__dirname, '..', 'src', 'config', 'feeds-seed.ts');
 
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const FETCH_TIMEOUT = 15_000;

@@ -4,7 +4,7 @@
  */
 
 import { isMobileDevice } from '@/utils';
-import { ML_THRESHOLDS } from '@/config/ml-config';
+import { getMLThresholds } from '@/services/feature-flag-client';
 
 export interface MLCapabilities {
   isSupported: boolean;
@@ -104,7 +104,7 @@ function estimateAvailableMemory(): number {
 
   const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
   if (deviceMemory) {
-    return Math.min(deviceMemory * 256, ML_THRESHOLDS.memoryBudgetMB);
+    return Math.min(deviceMemory * 256, getMLThresholds().memoryBudgetMB);
   }
 
   return 256;

@@ -10,6 +10,7 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
 import { fetchFinnhubQuote, fetchYahooQuotesBatch } from './_shared';
 import { cachedFetchJson } from '../../../_shared/redis';
+import { getSecret } from '../../../_shared/secrets';
 
 const REDIS_CACHE_KEY = 'market:sectors:v1';
 const REDIS_CACHE_TTL = 600; // 10 min — Finnhub rate-limited
@@ -20,10 +21,9 @@ export async function getSectorSummary(
   _ctx: ServerContext,
   _req: GetSectorSummaryRequest,
 ): Promise<GetSectorSummaryResponse> {
-  const apiKey = process.env.FINNHUB_API_KEY;
-
   try {
   const result = await cachedFetchJson<GetSectorSummaryResponse>(REDIS_CACHE_KEY, REDIS_CACHE_TTL, async () => {
+    const apiKey = await getSecret('FINNHUB_API_KEY');
     const sectorSymbols = ['XLK', 'XLF', 'XLE', 'XLV', 'XLY', 'XLI', 'XLP', 'XLU', 'XLB', 'XLRE', 'XLC', 'SMH'];
     const sectors: SectorPerformance[] = [];
 

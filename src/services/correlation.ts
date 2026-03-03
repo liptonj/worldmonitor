@@ -5,7 +5,7 @@
 
 import type { ClusteredEvent, MarketData } from '@/types';
 import type { PredictionMarket } from '@/services/prediction';
-import { getSourceType } from '@/config/feeds';
+import { getSourceType } from '@/services/feed-client';
 import {
   analyzeCorrelationsCore,
   type CorrelationSignalCore,

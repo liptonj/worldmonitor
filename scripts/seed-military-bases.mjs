@@ -54,8 +54,11 @@ function maskToken(token) {
 }
 
 function loadEnvFile() {
-  const envPath = join(__dirname, '..', '.env.local');
-  if (!existsSync(envPath)) return;
+  const candidates = ['.env.local', '.env'];
+  const envPath = candidates
+    .map(f => join(__dirname, '..', f))
+    .find(p => existsSync(p));
+  if (!envPath) return;
 
   const lines = readFileSync(envPath, 'utf8').split('\n');
   for (const line of lines) {

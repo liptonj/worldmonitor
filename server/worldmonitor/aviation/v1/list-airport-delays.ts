@@ -23,6 +23,7 @@ import {
 } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
 import { cachedFetchJson } from '../../../_shared/redis';
+import { getSecret } from '../../../_shared/secrets';
 
 const FAA_CACHE_KEY = 'aviation:delays:faa:v1';
 const INTL_CACHE_KEY = 'aviation:delays:intl:v3';
@@ -93,7 +94,7 @@ export async function listAirportDelays(
     const result = await cachedFetchJson<{ alerts: AirportDelayAlert[] }>(
       INTL_CACHE_KEY, CACHE_TTL, async () => {
         const nonUs = MONITORED_AIRPORTS.filter(a => a.country !== 'USA');
-        const apiKey = process.env.AVIATIONSTACK_API;
+        const apiKey = await getSecret('AVIATIONSTACK_API');
 
         if (!apiKey) {
           console.log('[Aviation] No AVIATIONSTACK_API key — using simulation');

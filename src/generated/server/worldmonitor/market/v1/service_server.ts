@@ -235,7 +235,7 @@ export function createMarketServiceRoutes(
           const url = new URL(req.url, "http://localhost");
           const params = url.searchParams;
           const body: ListMarketQuotesRequest = {
-            symbols: params.get("symbols") ?? "",
+            symbols: (params.get("symbols") ?? "").split(",").filter(Boolean),
           };
           if (options?.validateRequest) {
             const bodyViolations = options.validateRequest("listMarketQuotes", body);
@@ -282,7 +282,7 @@ export function createMarketServiceRoutes(
           const url = new URL(req.url, "http://localhost");
           const params = url.searchParams;
           const body: ListCryptoQuotesRequest = {
-            ids: params.get("ids") ?? "",
+            ids: (params.get("ids") ?? "").split(",").filter(Boolean),
           };
           if (options?.validateRequest) {
             const bodyViolations = options.validateRequest("listCryptoQuotes", body);
@@ -329,7 +329,7 @@ export function createMarketServiceRoutes(
           const url = new URL(req.url, "http://localhost");
           const params = url.searchParams;
           const body: ListCommodityQuotesRequest = {
-            symbols: params.get("symbols") ?? "",
+            symbols: (params.get("symbols") ?? "").split(",").filter(Boolean),
           };
           if (options?.validateRequest) {
             const bodyViolations = options.validateRequest("listCommodityQuotes", body);
@@ -423,7 +423,7 @@ export function createMarketServiceRoutes(
           const url = new URL(req.url, "http://localhost");
           const params = url.searchParams;
           const body: ListStablecoinMarketsRequest = {
-            coins: params.get("coins") ?? "",
+            coins: (params.get("coins") ?? "").split(",").filter(Boolean),
           };
           if (options?.validateRequest) {
             const bodyViolations = options.validateRequest("listStablecoinMarkets", body);

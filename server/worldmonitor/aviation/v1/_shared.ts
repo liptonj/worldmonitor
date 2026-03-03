@@ -13,6 +13,7 @@ import {
   DELAY_SEVERITY_THRESHOLDS,
 } from '../../../../src/config/airports';
 import { CHROME_UA } from '../../../_shared/constants';
+import { getSecret } from '../../../_shared/secrets';
 
 // ---------- Constants ----------
 
@@ -200,7 +201,7 @@ export interface AviationStackResult {
 export async function fetchAviationStackDelays(
   allAirports: MonitoredAirport[]
 ): Promise<AviationStackResult> {
-  const apiKey = process.env.AVIATIONSTACK_API;
+  const apiKey = await getSecret('AVIATIONSTACK_API');
   if (!apiKey) {
     console.log('[Aviation] No AVIATIONSTACK_API key — skipping');
     return { alerts: [], healthy: false };
