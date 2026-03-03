@@ -1,3 +1,5 @@
+import type { RuntimeFeatureId } from '@/services/runtime-config';
+
 export interface DeductContextDetail {
   query?: string;
   geoContext: string;
@@ -497,6 +499,7 @@ export interface PanelConfig {
   name: string;
   enabled: boolean;
   priority?: number;
+  requiredFeature?: RuntimeFeatureId;
 }
 
 export interface MapLayers {
