@@ -30,6 +30,7 @@ export { hashString };
 export { deduplicateHeadlines } from './dedup.mjs';
 
 import { buildPrompt } from '../../../_shared/llm';
+import { getSecret } from '../../../_shared/secrets';
 
 // ========================================================================
 // SummarizeArticle: Full prompt builder (ported from _summarize-handler.js)
@@ -151,27 +152,27 @@ export interface ProviderCredentials {
   extraBody?: Record<string, unknown>;
 }
 
-export function getProviderCredentials(provider: string): ProviderCredentials | null {
+export async function getProviderCredentials(provider: string): Promise<ProviderCredentials | null> {
   if (provider === 'ollama') {
-    const baseUrl = process.env.OLLAMA_API_URL;
+    const baseUrl = await getSecret('OLLAMA_API_URL');
     if (!baseUrl) return null;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const apiKey = process.env.OLLAMA_API_KEY;
+    const apiKey = await getSecret('OLLAMA_API_KEY');
     if (apiKey) {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
-    const rawMax = parseInt(process.env.OLLAMA_MAX_TOKENS || '300', 10);
-    const ollamaMaxTokens = Number.isFinite(rawMax) ? Math.min(Math.max(rawMax, 50), 2000) : 300;
+    const rawMax = parseInt(process.env.OLLAMA_MAX_TOKENS || '1500', 10);
+    const ollamaMaxTokens = Number.isFinite(rawMax) ? Math.min(Math.max(rawMax, 100), 4000) : 1500;
     return {
       apiUrl: new URL('/v1/chat/completions', baseUrl).toString(),
-      model: process.env.OLLAMA_MODEL || 'llama3.1:8b',
+      model: (await getSecret('OLLAMA_MODEL')) || 'llama3.1:8b',
       headers,
-      extraBody: { think: false, max_tokens: ollamaMaxTokens },
+      extraBody: { max_tokens: ollamaMaxTokens },
     };
   }
 
   if (provider === 'groq') {
-    const apiKey = process.env.GROQ_API_KEY;
+    const apiKey = await getSecret('GROQ_API_KEY');
     if (!apiKey) return null;
     return {
       apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
@@ -184,7 +185,7 @@ export function getProviderCredentials(provider: string): ProviderCredentials | 
   }
 
   if (provider === 'openrouter') {
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const apiKey = await getSecret('OPENROUTER_API_KEY');
     if (!apiKey) return null;
     return {
       apiUrl: 'https://openrouter.ai/api/v1/chat/completions',

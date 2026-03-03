@@ -54,7 +54,7 @@ export async function summarizeArticle(
     openrouter: 'OPENROUTER_API_KEY not configured',
   };
 
-  const credentials = getProviderCredentials(provider);
+  const credentials = await getProviderCredentials(provider);
   if (!credentials) {
     return {
       summary: '',
@@ -116,7 +116,6 @@ export async function summarizeArticle(
               { role: 'user', content: userPrompt },
             ],
             temperature: 0.3,
-            max_tokens: 100,
             top_p: 0.9,
             ...extraBody,
           }),
