@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve, dirname, extname } from 'path';
+import { createHash } from 'crypto';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { brotliCompress } from 'zlib';
 import { promisify } from 'util';
@@ -567,6 +568,29 @@ function youtubeLivePlugin(): Plugin {
   };
 }
 
+function cspHashPlugin(): Plugin {
+  return {
+    name: 'csp-hash-inject',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html: string): string {
+        const hashes: string[] = [];
+        const re = /<script(?:\s[^>]*)?>([^]*?)<\/script>/gi;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(html)) !== null) {
+          const content = m[1];
+          if (content.trim()) {
+            const hash = createHash('sha256').update(content, 'utf8').digest('base64');
+            hashes.push(`'sha256-${hash}'`);
+          }
+        }
+        return html.replace('__JSON_LD_CSP_HASHES__', hashes.join(' '));
+      },
+    },
+  };
+}
+
 function devCspStripPlugin(): Plugin {
   return {
     name: 'dev-csp-strip',
@@ -588,6 +612,7 @@ export default defineConfig({
   plugins: [
     devCspStripPlugin(),
     htmlVariantPlugin(),
+    cspHashPlugin(),
     polymarketPlugin(),
     rssProxyPlugin(),
     youtubeLivePlugin(),
