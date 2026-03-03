@@ -6,6 +6,7 @@ import type {
   ShippingRatePoint,
 } from '../../../../src/generated/server/worldmonitor/supply_chain/v1/service_server';
 
+import { getSecret } from '../../../_shared/secrets';
 import { cachedFetchJson } from '../../../_shared/redis';
 import { CHROME_UA } from '../../../_shared/constants';
 // @ts-expect-error — .mjs module, no declaration file
@@ -28,7 +29,7 @@ const SHIPPING_SERIES: FredSeriesConfig[] = [
 ];
 
 async function fetchFredSeries(cfg: FredSeriesConfig): Promise<ShippingIndex | null> {
-  const apiKey = process.env.FRED_API_KEY;
+  const apiKey = await getSecret('FRED_API_KEY');
   if (!apiKey) return null;
 
   try {

@@ -10,6 +10,7 @@ import type {
   EnergyCapacityYear,
 } from '../../../../src/generated/server/worldmonitor/economic/v1/service_server';
 
+import { getSecret } from '../../../_shared/secrets';
 import { CHROME_UA } from '../../../_shared/constants';
 import { cachedFetchJson } from '../../../_shared/redis';
 
@@ -119,7 +120,7 @@ export async function getEnergyCapacity(
   req: GetEnergyCapacityRequest,
 ): Promise<GetEnergyCapacityResponse> {
   try {
-    const apiKey = process.env.EIA_API_KEY;
+    const apiKey = await getSecret('EIA_API_KEY');
     if (!apiKey) return { series: [] };
 
     const years = req.years > 0 ? req.years : DEFAULT_YEARS;

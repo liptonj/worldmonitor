@@ -5,6 +5,7 @@
  * acled-events) with overlapping queries. This shared layer ensures
  * identical queries hit Redis instead of making redundant upstream calls.
  */
+import { getSecret } from './secrets';
 import { CHROME_UA } from './constants';
 import { cachedFetchJson } from './redis';
 
@@ -44,7 +45,7 @@ interface FetchAcledOptions {
  * different handlers share the same cached result.
  */
 export async function fetchAcledCached(opts: FetchAcledOptions): Promise<AcledRawEvent[]> {
-  const token = process.env.ACLED_ACCESS_TOKEN;
+  const token = await getSecret('ACLED_ACCESS_TOKEN');
   if (!token) return [];
 
   const cacheKey = `acled:shared:${opts.eventTypes}:${opts.startDate}:${opts.endDate}:${opts.country || 'all'}:${opts.limit || 500}`;

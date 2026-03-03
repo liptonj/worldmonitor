@@ -29,6 +29,8 @@ export { hashString };
 // @ts-ignore -- plain JS module, no .d.mts needed for this pure function
 export { deduplicateHeadlines } from './dedup.mjs';
 
+import { buildPrompt } from '../../../_shared/llm';
+
 // ========================================================================
 // SummarizeArticle: Full prompt builder (ported from _summarize-handler.js)
 // ========================================================================
@@ -37,7 +39,23 @@ export function buildArticlePrompts(
   headlines: string[],
   uniqueHeadlines: string[],
   opts: { mode: string; geoContext: string; variant: string; lang: string },
+  dbPrompt?: { systemPrompt: string; userPrompt: string } | null,
 ): { systemPrompt: string; userPrompt: string } {
+  // If a DB-managed prompt is provided, use it with placeholder substitution
+  if (dbPrompt?.systemPrompt) {
+    const headlineText = uniqueHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n');
+    const intelSection = opts.geoContext ? `\n\n${opts.geoContext}` : '';
+    const dateContext = `Current date: ${new Date().toISOString().split('T')[0]}.`;
+    const langInstruction = opts.lang && opts.lang !== 'en'
+      ? `\nIMPORTANT: Output the summary in ${opts.lang.toUpperCase()} language.`
+      : '';
+
+    return {
+      systemPrompt: buildPrompt(dbPrompt.systemPrompt, { dateContext, langInstruction }),
+      userPrompt: buildPrompt(dbPrompt.userPrompt ?? '', { headlineText, intelSection }),
+    };
+  }
+
   const headlineText = uniqueHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n');
   const intelSection = opts.geoContext ? `\n\n${opts.geoContext}` : '';
   const isTechVariant = opts.variant === 'tech';

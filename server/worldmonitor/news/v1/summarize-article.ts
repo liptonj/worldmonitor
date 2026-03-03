@@ -5,6 +5,7 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/news/v1/service_server';
 
 import { cachedFetchJsonWithMeta } from '../../../_shared/redis';
+import { getLlmPrompt } from '../../../_shared/llm';
 import {
   CACHE_TTL_SECONDS,
   deduplicateHeadlines,
@@ -97,12 +98,13 @@ export async function summarizeArticle(
       CACHE_TTL_SECONDS,
       async () => {
         const uniqueHeadlines = deduplicateHeadlines(headlines.slice(0, 5));
+        const dbPrompt = await getLlmPrompt('article_summary', variant, mode);
         const { systemPrompt, userPrompt } = buildArticlePrompts(headlines, uniqueHeadlines, {
           mode,
           geoContext: sanitizedGeoContext,
           variant,
           lang,
-        });
+        }, dbPrompt);
 
         const response = await fetch(apiUrl, {
           method: 'POST',

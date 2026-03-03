@@ -4,6 +4,7 @@ import type {
   GetCountryIntelBriefResponse,
 } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
 
+import { getSecret } from '../../../_shared/secrets';
 import { cachedFetchJson } from '../../../_shared/redis';
 import { UPSTREAM_TIMEOUT_MS, GROQ_API_URL, GROQ_MODEL, TIER1_COUNTRIES, hashString } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
@@ -32,7 +33,7 @@ export async function getCountryIntelBrief(
 
   if (!req.countryCode) return empty;
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = await getSecret('GROQ_API_KEY');
   if (!apiKey) return empty;
 
   let contextSnapshot = '';

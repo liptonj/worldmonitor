@@ -2,6 +2,7 @@
  * Shared helpers for the trade domain RPCs.
  * WTO Timeseries API integration.
  */
+import { getSecret } from '../../../_shared/secrets';
 import { CHROME_UA } from '../../../_shared/constants';
 
 /** WTO Timeseries API base URL. */
@@ -47,7 +48,7 @@ export async function wtoFetch(
   path: string,
   params?: Record<string, string>,
 ): Promise<any | null> {
-  const apiKey = process.env.WTO_API_KEY;
+  const apiKey = await getSecret('WTO_API_KEY');
   if (!apiKey) {
     console.warn('[WTO] WTO_API_KEY not set in process.env');
     return null;

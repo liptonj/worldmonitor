@@ -21,6 +21,7 @@ import type {
   CriticalityLevel,
 } from '../../../../src/generated/server/worldmonitor/cyber/v1/service_server';
 
+import { getSecret } from '../../../_shared/secrets';
 import { CHROME_UA } from '../../../_shared/constants';
 
 // ========================================================================
@@ -527,7 +528,7 @@ function parseUrlhausRecord(record: any, cutoffMs: number): RawThreat | null {
 }
 
 export async function fetchUrlhausSource(limit: number, cutoffMs: number): Promise<SourceResult> {
-  const authKey = cleanString(process.env.URLHAUS_AUTH_KEY || '', 200);
+  const authKey = cleanString((await getSecret('URLHAUS_AUTH_KEY')) ?? '', 200);
   if (!authKey) return { ok: false, threats: [] };
 
   try {
@@ -622,7 +623,7 @@ export async function fetchC2IntelSource(limit: number): Promise<SourceResult> {
 // ========================================================================
 
 export async function fetchOtxSource(limit: number, days: number): Promise<SourceResult> {
-  const apiKey = cleanString(process.env.OTX_API_KEY || '', 200);
+  const apiKey = cleanString((await getSecret('OTX_API_KEY')) ?? '', 200);
   if (!apiKey) return { ok: false, threats: [] };
 
   try {
@@ -678,7 +679,7 @@ export async function fetchOtxSource(limit: number, days: number): Promise<Sourc
 // ========================================================================
 
 export async function fetchAbuseIpDbSource(limit: number): Promise<SourceResult> {
-  const apiKey = cleanString(process.env.ABUSEIPDB_API_KEY || '', 200);
+  const apiKey = cleanString((await getSecret('ABUSEIPDB_API_KEY')) ?? '', 200);
   if (!apiKey) return { ok: false, threats: [] };
 
   try {

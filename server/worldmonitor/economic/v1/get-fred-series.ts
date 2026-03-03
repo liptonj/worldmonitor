@@ -10,6 +10,7 @@ import type {
   FredObservation,
 } from '../../../../src/generated/server/worldmonitor/economic/v1/service_server';
 
+import { getSecret } from '../../../_shared/secrets';
 import { cachedFetchJson } from '../../../_shared/redis';
 
 const FRED_API_BASE = 'https://api.stlouisfed.org/fred';
@@ -18,7 +19,7 @@ const REDIS_CACHE_TTL = 3600; // 1 hr — FRED data updates infrequently
 
 async function fetchFredSeries(req: GetFredSeriesRequest): Promise<FredSeries | undefined> {
   try {
-    const apiKey = process.env.FRED_API_KEY;
+    const apiKey = await getSecret('FRED_API_KEY');
     if (!apiKey) return undefined;
 
     const limit = req.limit > 0 ? Math.min(req.limit, 1000) : 120;

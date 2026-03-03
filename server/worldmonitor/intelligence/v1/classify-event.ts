@@ -5,6 +5,7 @@ import type {
   SeverityLevel,
 } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
 
+import { getSecret } from '../../../_shared/secrets';
 import { cachedFetchJson } from '../../../_shared/redis';
 import { markNoCacheResponse } from '../../../_shared/response-headers';
 import { UPSTREAM_TIMEOUT_MS, GROQ_API_URL, GROQ_MODEL, hashString } from './_shared';
@@ -40,7 +41,7 @@ export async function classifyEvent(
   ctx: ServerContext,
   req: ClassifyEventRequest,
 ): Promise<ClassifyEventResponse> {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = await getSecret('GROQ_API_KEY');
   if (!apiKey) { markNoCacheResponse(ctx.request); return { classification: undefined }; }
 
   // Input sanitization (M-14 fix): limit title length

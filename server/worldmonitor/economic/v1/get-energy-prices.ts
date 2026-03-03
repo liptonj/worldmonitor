@@ -9,6 +9,7 @@ import type {
   EnergyPrice,
 } from '../../../../src/generated/server/worldmonitor/economic/v1/service_server';
 
+import { getSecret } from '../../../_shared/secrets';
 import { CHROME_UA } from '../../../_shared/constants';
 import { cachedFetchJson } from '../../../_shared/redis';
 
@@ -91,7 +92,7 @@ async function fetchEiaSeries(
 }
 
 async function fetchEnergyPrices(commodities: string[]): Promise<EnergyPrice[]> {
-  const apiKey = process.env.EIA_API_KEY;
+  const apiKey = await getSecret('EIA_API_KEY');
   if (!apiKey) return [];
 
   const series = commodities.length > 0
