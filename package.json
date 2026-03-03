@@ -1,6 +1,9 @@
 {
   "name": "world-monitor",
   "private": true,
+  "engines": {
+    "node": ">=18 <25"
+  },
   "version": "2.5.23",
   "license": "AGPL-3.0-only",
   "type": "module",
