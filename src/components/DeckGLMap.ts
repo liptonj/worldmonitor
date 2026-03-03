@@ -603,9 +603,10 @@ export class DeckGLMap {
     items: T[],
     getTime: (item: T) => Date | string | number | undefined | null
   ): T[] {
-    if (this.state.timeRange === 'all') return items;
+    const validItems = items.filter(Boolean) as T[];
+    if (this.state.timeRange === 'all') return validItems;
     const cutoff = Date.now() - this.getTimeRangeMs();
-    return items.filter((item) => {
+    return validItems.filter((item) => {
       const ts = this.parseTime(getTime(item));
       return ts == null ? true : ts >= cutoff;
     });
@@ -1014,15 +1015,6 @@ export class DeckGLMap {
     const filteredMilitaryFlightClusters = mapLayers.military ? this.filterMilitaryFlightClustersByTime(this.militaryFlightClusters) : [];
     const filteredMilitaryVesselClusters = mapLayers.military ? this.filterMilitaryVesselClustersByTime(this.militaryVesselClusters) : [];
     const filteredUcdpEvents = mapLayers.ucdpEvents ? this.filterByTime(this.ucdpEvents, (event) => event.date_start) : [];
-
-    // Day/night overlay (rendered first as background)
-    if (mapLayers.dayNight) {
-      if (!this.dayNightIntervalId) this.startDayNightTimer();
-      layers.push(this.createDayNightLayer());
-    } else {
-      if (this.dayNightIntervalId) this.stopDayNightTimer();
-      this.layerCache.delete('day-night-layer');
-    }
 
     // Day/night overlay (rendered first as background)
     if (mapLayers.dayNight) {

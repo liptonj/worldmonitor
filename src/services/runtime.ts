@@ -391,12 +391,14 @@ export function installRuntimeFetchPatch(): void {
   (window as unknown as Record<string, unknown>).__wmFetchPatched = true;
 }
 
-const ALLOWED_REDIRECT_HOSTS = /^https:\/\/([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*(worldmonitor\.app|5ls\.us)(:\d+)?$/;
+const ALLOWED_REDIRECT_HOSTS = /^(https|wss):\/\/([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*(worldmonitor\.app|5ls\.us)(:\d+)?$/;
 
 function isAllowedRedirectTarget(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return ALLOWED_REDIRECT_HOSTS.test(parsed.origin) || parsed.hostname === 'localhost';
+    // parsed.origin returns 'null' for wss:// in some environments; use protocol+host instead.
+    const normalized = `${parsed.protocol}//${parsed.host}`;
+    return ALLOWED_REDIRECT_HOSTS.test(normalized) || parsed.hostname === 'localhost';
   } catch {
     return false;
   }

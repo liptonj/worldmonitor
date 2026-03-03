@@ -19,6 +19,7 @@ const PRODUCTION_PATTERNS: RegExp[] = [
 const DEV_PATTERNS: RegExp[] = [
   /^https?:\/\/localhost(:\d+)?$/,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+  /^http:\/\/(.*\.)?5ls\.us(:\d+)?$/,
 ];
 
 const ALLOWED_ORIGIN_PATTERNS: RegExp[] =

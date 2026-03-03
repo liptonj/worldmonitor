@@ -567,11 +567,26 @@ function youtubeLivePlugin(): Plugin {
   };
 }
 
+function devCspStripPlugin(): Plugin {
+  return {
+    name: 'dev-csp-strip',
+    apply: 'serve',
+    transformIndexHtml(html) {
+      return html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*\/?>/i, '');
+    },
+  };
+}
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __URL_FULL__: JSON.stringify(process.env.VITE_URL_FULL || 'https://worldmonitor.app'),
+    __URL_TECH__: JSON.stringify(process.env.VITE_URL_TECH || 'https://tech.worldmonitor.app'),
+    __URL_FINANCE__: JSON.stringify(process.env.VITE_URL_FINANCE || 'https://finance.worldmonitor.app'),
+    __URL_HAPPY__: JSON.stringify(process.env.VITE_URL_HAPPY || 'https://happy.worldmonitor.app'),
   },
   plugins: [
+    devCspStripPlugin(),
     htmlVariantPlugin(),
     polymarketPlugin(),
     rssProxyPlugin(),
