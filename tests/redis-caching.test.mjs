@@ -644,6 +644,7 @@ describe('country intel brief caching behavior', { concurrency: 1 }, () => {
       './_shared': resolve(root, 'server/worldmonitor/intelligence/v1/_shared.ts'),
       '../../../_shared/constants': resolve(root, 'server/_shared/constants.ts'),
       '../../../_shared/redis': resolve(root, 'server/_shared/redis.ts'),
+      '../../../_shared/secrets': resolve(root, 'tests/_stubs/secrets.mjs'),
     });
   }
 
