@@ -14,8 +14,24 @@ export default async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const id = url.searchParams.get('id');
   const key = url.searchParams.get('key');
+  const showHistory = url.searchParams.get('history') === 'true';
 
   if (req.method === 'GET') {
+    // Support ?id=UUID&history=true to return history for a specific prompt
+    if (id && showHistory) {
+      const { data, error } = await supabase
+        .schema('wm_admin')
+        .from('llm_prompt_history')
+        .select('id, prompt_id, system_prompt, changed_by, changed_at')
+        .eq('prompt_id', id)
+        .order('changed_at', { ascending: false })
+        .limit(20);
+
+      if (error)
+        return new Response(JSON.stringify({ error: 'Failed to load history' }), { status: 500, headers });
+      return new Response(JSON.stringify(data), { status: 200, headers });
+    }
+
     let query = supabase
       .schema('wm_admin')
       .from('llm_prompts')

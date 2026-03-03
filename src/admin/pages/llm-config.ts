@@ -112,6 +112,67 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
       });
     }
 
+    async function showPromptHistory(promptId: string): Promise<void> {
+      const res = await fetch(`/api/admin/llm-prompts?id=${promptId}&history=true`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const history = (await res.json()) as Array<{
+        id: string;
+        prompt_id: string;
+        system_prompt: string;
+        changed_by: string | null;
+        changed_at: string;
+      }>;
+
+      const panel = document.createElement('div');
+      panel.className = 'admin-history-panel';
+      panel.style.cssText =
+        'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000';
+      const inner = document.createElement('div');
+      inner.style.cssText =
+        'background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:600px;max-height:80vh;overflow-y:auto';
+      inner.innerHTML = '<h3 style="margin:0 0 16px">Prompt History</h3>';
+      panel.appendChild(inner);
+
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = '✕ Close';
+      closeBtn.style.cssText =
+        'padding:6px 12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;margin-bottom:16px';
+      closeBtn.addEventListener('click', () => panel.remove());
+      inner.insertBefore(closeBtn, inner.firstChild);
+
+      for (const entry of history) {
+        const entryEl = document.createElement('div');
+        entryEl.style.cssText =
+          'border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px';
+        const date = new Date(entry.changed_at).toLocaleString();
+        const preview = (entry.system_prompt ?? '').slice(0, 100) + (entry.system_prompt?.length > 100 ? '...' : '');
+        const meta = document.createElement('div');
+        meta.style.cssText = 'color:var(--text-muted);font-size:12px;margin-bottom:4px';
+        meta.textContent = `${date} — ${entry.changed_by ?? 'unknown'}`;
+        const previewDiv = document.createElement('div');
+        previewDiv.style.cssText = 'font-size:12px;color:var(--text);margin-bottom:8px';
+        previewDiv.textContent = preview;
+        entryEl.appendChild(meta);
+        entryEl.appendChild(previewDiv);
+        const revertBtn = document.createElement('button');
+        revertBtn.textContent = 'Revert to this version';
+        revertBtn.style.cssText =
+          'padding:6px 12px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);cursor:pointer;font-size:12px';
+        revertBtn.addEventListener('click', () => {
+          const block = promptsEl.querySelector<HTMLElement>(`[data-prompt-id="${promptId}"]`);
+          const textarea = block?.querySelector<HTMLTextAreaElement>('[data-field="system_prompt"]');
+          if (textarea) textarea.value = entry.system_prompt ?? '';
+          panel.remove();
+        });
+        entryEl.appendChild(revertBtn);
+        inner.appendChild(entryEl);
+      }
+
+      document.body.appendChild(panel);
+    }
+
     function renderPrompts(): void {
       const rows = prompts.filter(p => p.prompt_key === activeKey);
       promptsEl.innerHTML = rows
@@ -130,6 +191,7 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
           <label style="color:var(--text-muted);font-size:12px">User Prompt</label>
           <textarea data-field="user_prompt" rows="4" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:monospace;font-size:12px;resize:vertical;margin:4px 0 12px">${p.user_prompt}</textarea>` : ''}
           <button data-save-prompt="${p.id}" style="padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);cursor:pointer">Save</button>
+          <button data-history-prompt="${p.id}" style="padding:6px 12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;margin-left:8px">History</button>
           <span data-prompt-msg="${p.id}" style="margin-left:10px;font-size:12px"></span>
         </div>
       `
@@ -152,6 +214,13 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
           const msgEl = promptsEl.querySelector<HTMLElement>(`[data-prompt-msg="${id}"]`)!;
           msgEl.textContent = res.ok ? 'Saved!' : 'Error';
           msgEl.style.color = res.ok ? 'var(--success)' : 'var(--danger)';
+        });
+      });
+
+      promptsEl.querySelectorAll('button[data-history-prompt]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = (btn as HTMLElement).dataset['historyPrompt']!;
+          await showPromptHistory(id);
         });
       });
     }
