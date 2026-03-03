@@ -5,7 +5,7 @@
  */
 
 import { getRedisClient } from './redis';
-import { createServiceClient } from './supabase';
+import { createAnonClient } from './supabase';
 import { getSecret } from './secrets';
 
 const PROVIDER_CACHE_TTL = 900; // 15 minutes
@@ -41,27 +41,23 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
     } catch { /* non-fatal */ }
   }
 
-  // 2. Supabase
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
+  // 2. Supabase via public RPC (anon key)
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) return null;
 
   try {
-    const supabase = createServiceClient();
-    const { data, error } = await supabase
-      .schema('wm_admin')
-      .from('llm_providers')
-      .select('name, api_url, default_model, api_key_secret_name')
-      .eq('enabled', true)
-      .order('priority', { ascending: true })
-      .limit(1)
-      .single();
+    const supabase = createAnonClient();
+    const { data, error } = await supabase.rpc('get_active_llm_provider');
+    const row = Array.isArray(data) && data.length > 0 ? data[0] as Record<string, string> : null;
 
-    if (!error && data) {
-      const apiKey = await getSecret(data.api_key_secret_name);
+    if (!error && row) {
+      const secretName = row.api_key_secret_name;
+      if (!secretName) return null;
+      const apiKey = await getSecret(secretName);
       if (apiKey) {
         const provider: LlmProvider = {
-          name: data.name,
-          apiUrl: data.api_url,
-          model: data.default_model,
+          name: row.name ?? '',
+          apiUrl: row.api_url ?? '',
+          model: row.default_model ?? '',
           apiKey,
         };
         if (redis) {
@@ -100,43 +96,29 @@ export async function getLlmPrompt(
     } catch { /* non-fatal */ }
   }
 
-  // 2. Supabase
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  // 2. Supabase via public RPC (anon key)
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
     return null;
   }
 
   try {
-    const supabase = createServiceClient();
+    const supabase = createAnonClient();
+    const { data, error } = await supabase.rpc('get_llm_prompt', {
+      p_key: promptKey,
+      p_variant: variant ?? null,
+      p_mode: mode ?? null,
+    });
 
-    const candidates = [
-      { variant, mode },
-      { variant, mode: null },
-      { variant: null, mode },
-      { variant: null, mode: null },
-    ];
-
-    for (const { variant: v, mode: m } of candidates) {
-      let query = supabase
-        .schema('wm_admin')
-        .from('llm_prompts')
-        .select('system_prompt, user_prompt')
-        .eq('prompt_key', promptKey);
-
-      query = v ? query.eq('variant', v) : query.is('variant', null);
-      query = m ? query.eq('mode', m) : query.is('mode', null);
-
-      const { data, error } = await query.single();
-
-      if (!error && data) {
-        const result: LlmPromptResult = {
-          systemPrompt: data.system_prompt,
-          userPrompt: data.user_prompt ?? '',
-        };
-        if (redis) {
-          try { await redis.setex(cacheKey, PROMPT_CACHE_TTL, JSON.stringify(result)); } catch { /* non-fatal */ }
-        }
-        return result;
+    const row = Array.isArray(data) && data.length > 0 ? data[0] as Record<string, string> : null;
+    if (!error && row) {
+      const result: LlmPromptResult = {
+        systemPrompt: row.system_prompt ?? '',
+        userPrompt: row.user_prompt ?? '',
+      };
+      if (redis) {
+        try { await redis.setex(cacheKey, PROMPT_CACHE_TTL, JSON.stringify(result)); } catch { /* non-fatal */ }
       }
+      return result;
     }
   } catch { /* fall through */ }
 
