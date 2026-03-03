@@ -11,11 +11,19 @@ const PUBLIC_API_PATHS = new Set(['/api/version']);
 const SOCIAL_IMAGE_UA =
   /Slack-ImgProxy|Slackbot|twitterbot|facebookexternalhit|linkedinbot|telegrambot|whatsapp|discordbot|redditbot/i;
 
-const VARIANT_HOST_MAP: Record<string, string> = {
+const CANONICAL_VARIANT_HOSTS: Record<string, string> = {
   'tech.worldmonitor.app': 'tech',
   'finance.worldmonitor.app': 'finance',
   'happy.worldmonitor.app': 'happy',
 };
+
+function resolveVariantFromHost(host: string): string | null {
+  if (CANONICAL_VARIANT_HOSTS[host]) return CANONICAL_VARIANT_HOSTS[host];
+  if (host.startsWith('tech.')) return 'tech';
+  if (host.startsWith('finance.')) return 'finance';
+  if (host.startsWith('happy.')) return 'happy';
+  return null;
+}
 
 // Source of truth: src/config/variant-meta.ts — keep in sync when variant metadata changes.
 const VARIANT_OG: Record<string, { title: string; description: string; image: string; url: string }> = {
@@ -43,7 +51,7 @@ const ALLOWED_HOSTS = new Set([
   'worldmonitor.app',
   '5ls.us',
   'info.5ls.us',
-  ...Object.keys(VARIANT_HOST_MAP),
+  ...Object.keys(CANONICAL_VARIANT_HOSTS),
 ]);
 const VERCEL_PREVIEW_RE = /^[a-z0-9-]+-[a-z0-9]{8,}\.vercel\.app$/;
 const FIVE_LS_RE = /(^|\.)5ls\.us$/;
@@ -64,7 +72,7 @@ export default function middleware(request: Request) {
 
   // Social bot OG response for variant subdomain root pages
   if (path === '/' && SOCIAL_PREVIEW_UA.test(ua)) {
-    const variant = VARIANT_HOST_MAP[host];
+    const variant = resolveVariantFromHost(host);
     if (variant && isAllowedHost(host)) {
       const og = VARIANT_OG[variant];
       const html = `<!DOCTYPE html><html><head>
