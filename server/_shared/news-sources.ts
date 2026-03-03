@@ -12,6 +12,11 @@ export interface DynamicFeed {
 
 const CACHE_TTL = 900; // 15 minutes
 
+function resolveFeedUrl(url: string | Record<string, string>, lang: string): string {
+  if (typeof url === 'string') return url;
+  return url[lang] ?? url['en'] ?? Object.values(url)[0] ?? '';
+}
+
 /**
  * Fetch news sources for a given variant and language.
  * Resolution: Redis → Supabase → empty array (no hardcoded fallback).
@@ -26,8 +31,11 @@ export async function getNewsSources(
   // 1. Redis cache
   if (redis) {
     try {
-      const cached = await redis.get<Record<string, DynamicFeed[]>>(cacheKey);
-      if (cached) return cached;
+      const cached = await redis.get<string>(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached) as Record<string, DynamicFeed[]>;
+        return parsed;
+      }
     } catch { /* non-fatal */ }
   }
 
@@ -49,7 +57,7 @@ export async function getNewsSources(
 
     const feeds: DynamicFeed[] = data.map(row => ({
       name: row.name,
-      url: typeof row.url === 'string' ? row.url : (row.url[lang] ?? row.url['en'] ?? Object.values(row.url)[0]),
+      url: resolveFeedUrl(row.url, lang),
       lang: row.lang,
       category: row.category,
       tier: row.tier,
@@ -78,8 +86,11 @@ export async function getIntelSources(lang: string): Promise<DynamicFeed[]> {
 
   if (redis) {
     try {
-      const cached = await redis.get<DynamicFeed[]>(cacheKey);
-      if (cached) return cached;
+      const cached = await redis.get<string>(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached) as DynamicFeed[];
+        return parsed;
+      }
     } catch { /* non-fatal */ }
   }
 
@@ -101,7 +112,7 @@ export async function getIntelSources(lang: string): Promise<DynamicFeed[]> {
       .filter(row => !row.lang || row.lang === lang || row.lang === 'en')
       .map(row => ({
         name: row.name,
-        url: typeof row.url === 'string' ? row.url : (row.url[lang] ?? row.url['en'] ?? Object.values(row.url)[0]),
+        url: resolveFeedUrl(row.url, lang),
         lang: row.lang,
         category: 'intel',
         tier: row.tier,
