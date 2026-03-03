@@ -6,8 +6,6 @@ import type {
 } from '@/services/supply-chain';
 import { t } from '@/services/i18n';
 import { escapeHtml } from '@/utils/sanitize';
-import { isFeatureAvailable } from '@/services/runtime-config';
-import { isDesktopRuntime } from '@/services/runtime';
 
 type TabId = 'chokepoints' | 'shipping' | 'minerals';
 
@@ -111,10 +109,6 @@ export class SupplyChainPanel extends Panel {
   }
 
   private renderShipping(): string {
-    if (isDesktopRuntime() && !isFeatureAvailable('supplyChain')) {
-      return `<div class="economic-empty">${t('components.supplyChain.fredKeyMissing')}</div>`;
-    }
-
     if (!this.shippingData || this.shippingData.indices.length === 0) {
       return `<div class="economic-empty">${t('components.supplyChain.noShipping')}</div>`;
     }
