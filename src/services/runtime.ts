@@ -414,7 +414,8 @@ export function installWebApiRedirect(): void {
   if ((window as unknown as Record<string, unknown>).__wmWebRedirectPatched) return;
 
   const nativeFetch = window.fetch.bind(window);
-  const API_BASE = WS_API_URL;
+  // Normalize WebSocket scheme to HTTP for fetch() compatibility
+  const API_BASE = WS_API_URL.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
   const shouldRedirectPath = (pathWithQuery: string): boolean => pathWithQuery.startsWith('/api/');
   const shouldFallbackToOrigin = (status: number): boolean => status === 404 || status === 405 || status === 501 || status === 502 || status === 503;
   const fetchWithRedirectFallback = async (
