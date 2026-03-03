@@ -63,6 +63,8 @@ import { BETA_MODE } from '@/config/beta';
 import { t } from '@/services/i18n';
 import { getCurrentTheme } from '@/utils';
 import { trackCriticalBannerAction } from '@/services/analytics';
+import { isDesktopRuntime } from '@/services/runtime';
+import { isFeatureAvailable } from '@/services/runtime-config';
 
 export interface PanelLayoutCallbacks {
   openCountryStory: (code: string, name: string) => void;
@@ -325,7 +327,16 @@ export class PanelLayoutManager implements AppModule {
         return;
       }
       const panel = this.ctx.panels[key];
-      panel?.toggle(config.enabled);
+      if (!panel) return;
+
+      // On desktop, hide panels whose required feature is not available (missing token).
+      // On web, all features are available server-side — always respect user's enabled setting.
+      if (isDesktopRuntime() && config.requiredFeature && !isFeatureAvailable(config.requiredFeature)) {
+        panel.hide();
+        return;
+      }
+
+      panel.toggle(config.enabled);
     });
   }
 
