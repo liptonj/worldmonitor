@@ -3,8 +3,8 @@ import type { NewsItem, MapLayers, SocialUnrestEvent } from '@/types';
 import type { MarketData } from '@/types';
 import type { TimeRange } from '@/components';
 import {
-  FEEDS,
-  INTEL_SOURCES,
+  getFeeds,
+  getIntelSources,
   SECTORS,
   COMMODITIES,
   MARKET_SYMBOLS,
@@ -543,7 +543,7 @@ export class DataLoaderManager implements AppModule {
     this.applyTimeRangeFilterToNewsPanelsDebounced();
   }
 
-  private async loadNewsCategory(category: string, feeds: typeof FEEDS.politics, digest?: ListFeedDigestResponse | null): Promise<NewsItem[]> {
+  private async loadNewsCategory(category: string, feeds: import('@/types').Feed[], digest?: ListFeedDigestResponse | null): Promise<NewsItem[]> {
     try {
       const panel = this.ctx.newsPanels[category];
 
@@ -766,8 +766,9 @@ export class DataLoaderManager implements AppModule {
     // Fire digest fetch early (non-blocking) — await before category loop
     const digestPromise = this.tryFetchDigest();
 
-    const categories = Object.entries(FEEDS)
-      .filter((entry): entry is [string, typeof FEEDS[keyof typeof FEEDS]] => Array.isArray(entry[1]) && entry[1].length > 0)
+    const feedsMap = getFeeds();
+    const categories = Object.entries(feedsMap)
+      .filter((entry): entry is [string, import('@/types').Feed[]] => Array.isArray(entry[1]) && entry[1].length > 0)
       .map(([key, feeds]) => ({ key, feeds }));
 
     const digest = await digestPromise;
@@ -802,7 +803,7 @@ export class DataLoaderManager implements AppModule {
     });
 
     if (SITE_VARIANT === 'full') {
-      const enabledIntelSources = INTEL_SOURCES.filter(f => !this.ctx.disabledSources.has(f.name));
+      const enabledIntelSources = getIntelSources().filter(f => !this.ctx.disabledSources.has(f.name));
       const enabledIntelNames = new Set(enabledIntelSources.map(f => f.name));
       const intelPanel = this.ctx.newsPanels['intel'];
       if (enabledIntelSources.length === 0) {

@@ -1,6 +1,6 @@
 import type { BreakingAlert } from '@/services/breaking-news-alerts';
 import { getAlertSettings } from '@/services/breaking-news-alerts';
-import { getSourcePanelId } from '@/config/feeds';
+import { getSourcePanelId } from '@/services/feed-client';
 import { t } from '@/services/i18n';
 
 const MAX_ALERTS = 3;

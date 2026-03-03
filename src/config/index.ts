@@ -22,18 +22,24 @@ export { UNDERSEA_CABLES, MAP_URLS } from './geo';
 // AI Datacenters (shared)
 export { AI_DATA_CENTERS } from './ai-datacenters';
 
-// Feeds configuration (shared functions, variant-specific data)
+// Feeds configuration - dynamic from feed-client, static from feeds
 export {
-  SOURCE_TIERS,
   getSourceTier,
-  SOURCE_TYPES,
   getSourceType,
   getSourcePropagandaRisk,
-  ALERT_KEYWORDS,
-  ALERT_EXCLUSIONS,
+  getSourceTiersMap,
+  getSourceTypesMap,
+  getFeeds,
+  getIntelSources,
+  SOURCE_REGION_MAP,
+  computeDefaultDisabledSources,
+  getLocaleBoostedSources,
+  getTotalFeedCount,
+  areFeedsLoaded,
   type SourceRiskProfile,
   type SourceType,
-} from './feeds';
+} from '@/services/feed-client';
+export { ALERT_KEYWORDS, ALERT_EXCLUSIONS } from './feeds';
 
 // Panel configuration - imported from panels.ts
 export {
@@ -48,12 +54,7 @@ export {
 // Only import what's needed for each variant
 // ============================================
 
-// Full variant (geopolitical) - only included in full builds
-// These are large data files that should be tree-shaken in tech builds
-export {
-  FEEDS,
-  INTEL_SOURCES,
-} from './feeds';
+// FEEDS and INTEL_SOURCES are now provided by getFeeds() and getIntelSources() from feed-client
 
 export {
   INTEL_HOTSPOTS,

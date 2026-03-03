@@ -6,7 +6,7 @@
 import type { NewsItem, ClusteredEvent, MarketData } from '@/types';
 import type { PredictionMarket } from '@/services/prediction';
 import type { CorrelationSignal } from './correlation';
-import { SOURCE_TIERS, SOURCE_TYPES, type SourceType } from '@/config/feeds';
+import { getSourceTiersMap, getSourceTypesMap } from '@/services/feed-client';
 
 // Import worker using Vite's worker syntax
 import AnalysisWorker from '@/workers/analysis.worker?worker';
@@ -195,7 +195,7 @@ class AnalysisWorkerManager {
         type: 'cluster',
         id,
         items,
-        sourceTiers: SOURCE_TIERS,
+        sourceTiers: getSourceTiersMap(),
       });
     });
   }
@@ -232,7 +232,7 @@ class AnalysisWorkerManager {
         clusters,
         predictions,
         markets,
-        sourceTypes: SOURCE_TYPES as Record<string, SourceType>,
+        sourceTypes: getSourceTypesMap(),
       });
     });
   }

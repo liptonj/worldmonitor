@@ -239,13 +239,13 @@ if (urlParams.get('settings') === '1') {
     }
   );
 } else {
-  const app = new App('app');
-  app
-    .init()
-    .then(() => {
-      clearChunkReloadGuard(chunkReloadStorageKey);
-    })
-    .catch(console.error);
+  void (async () => {
+    const { loadNewsSources } = await import('@/services/feed-client');
+    await loadNewsSources();
+    const app = new App('app');
+    await app.init();
+    clearChunkReloadGuard(chunkReloadStorageKey);
+  })().catch(console.error);
 }
 
 // Debug helpers for geo-convergence testing (remove in production)

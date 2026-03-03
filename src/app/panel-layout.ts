@@ -53,8 +53,8 @@ import { focusInvestmentOnMap } from '@/services/investments-focus';
 import { debounce, saveToStorage } from '@/utils';
 import { escapeHtml } from '@/utils/sanitize';
 import {
-  FEEDS,
-  INTEL_SOURCES,
+  getFeeds,
+  getIntelSources,
   DEFAULT_PANELS,
   STORAGE_KEYS,
   SITE_VARIANT,
@@ -524,9 +524,10 @@ export class PanelLayoutManager implements AppModule {
     this.ctx.newsPanels['energy'] = energyPanel;
     this.ctx.panels['energy'] = energyPanel;
 
-    for (const key of Object.keys(FEEDS)) {
+    const feeds = getFeeds();
+    for (const key of Object.keys(feeds)) {
       if (this.ctx.newsPanels[key]) continue;
-      if (!Array.isArray((FEEDS as Record<string, unknown>)[key])) continue;
+      if (!Array.isArray((feeds as Record<string, unknown>)[key])) continue;
       const panelKey = this.ctx.panels[key] && !this.ctx.newsPanels[key] ? `${key}-news` : key;
       if (this.ctx.panels[panelKey]) continue;
       const panelConfig = DEFAULT_PANELS[panelKey] ?? DEFAULT_PANELS[key];
@@ -1132,10 +1133,10 @@ export class PanelLayoutManager implements AppModule {
 
   getAllSourceNames(): string[] {
     const sources = new Set<string>();
-    Object.values(FEEDS).forEach(feeds => {
+    Object.values(getFeeds()).forEach(feeds => {
       if (feeds) feeds.forEach(f => sources.add(f.name));
     });
-    INTEL_SOURCES.forEach(f => sources.add(f.name));
+    getIntelSources().forEach(f => sources.add(f.name));
     return Array.from(sources).sort((a, b) => a.localeCompare(b));
   }
 }
