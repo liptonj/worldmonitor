@@ -133,7 +133,6 @@ export class StrategicRiskPanel extends Panel {
       const cached = await fetchCachedRiskScores(this.signal);
       if (cached && cached.strategicRisk) {
         this.usedCachedScores = true;
-        console.log('[StrategicRiskPanel] Using cached scores from backend');
       }
     }
 

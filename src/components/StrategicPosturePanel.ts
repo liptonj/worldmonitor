@@ -45,7 +45,6 @@ export class StrategicPosturePanel extends Panel {
 
   private async reaugmentVessels(): Promise<void> {
     if (!this.isPanelVisible() || this.postures.length === 0) return;
-    console.log('[StrategicPosturePanel] Re-augmenting with vessels...');
     await this.augmentWithVessels();
     this.render();
   }
@@ -162,7 +161,6 @@ export class StrategicPosturePanel extends Panel {
   private async augmentWithVessels(): Promise<void> {
     try {
       const { vessels } = await fetchMilitaryVessels();
-      console.log(`[StrategicPosturePanel] Got ${vessels.length} total military vessels`);
       if (vessels.length === 0) {
         // AIS stream hasn't accumulated data yet — restore from cache
         this.restoreVesselCounts();
@@ -194,10 +192,6 @@ export class StrategicPosturePanel extends Panel {
         ).length;
         posture.totalVessels = theaterVessels.length;
 
-        if (theaterVessels.length > 0) {
-          console.log(`[StrategicPosturePanel] ${posture.shortName}: ${theaterVessels.length} vessels`, theaterVessels.map(v => v.vesselType));
-        }
-
         // Add vessel operators to byOperator
         for (const v of theaterVessels) {
           const op = v.operator || 'unknown';
@@ -210,7 +204,6 @@ export class StrategicPosturePanel extends Panel {
 
       // Recalculate posture levels now that vessels are included
       recalcPostureWithVessels(this.postures);
-      console.log('[StrategicPosturePanel] Augmented with', vessels.length, 'vessels, posture levels recalculated');
     } catch (error) {
       console.warn('[StrategicPosturePanel] Failed to fetch vessels:', error);
       // Restore cached vessel counts if live fetch failed
@@ -258,7 +251,6 @@ export class StrategicPosturePanel extends Panel {
           p.totalVessels = cached.totalVessels;
         }
       }
-      console.log('[StrategicPosturePanel] Restored cached vessel counts');
     } catch { /* parse error */ }
   }
 
@@ -487,23 +479,8 @@ export class StrategicPosturePanel extends Panel {
 
         const lat = parseFloat((el as HTMLElement).dataset.lat || '0');
         const lon = parseFloat((el as HTMLElement).dataset.lon || '0');
-        console.log('[StrategicPosturePanel] Theater clicked:', {
-          lat,
-          lon,
-          dataLat: (el as HTMLElement).dataset.lat,
-          dataLon: (el as HTMLElement).dataset.lon,
-          element: (el as HTMLElement).textContent?.slice(0, 30),
-          hasHandler: !!this.onLocationClick,
-        });
         if (this.onLocationClick && !isNaN(lat) && !isNaN(lon)) {
-          console.log('[StrategicPosturePanel] Calling onLocationClick with:', lat, lon);
           this.onLocationClick(lat, lon);
-        } else {
-          console.warn('[StrategicPosturePanel] No handler or invalid coords!', {
-            hasHandler: !!this.onLocationClick,
-            lat,
-            lon,
-          });
         }
       });
     });
@@ -535,10 +512,7 @@ export class StrategicPosturePanel extends Panel {
   }
 
   public setLocationClickHandler(handler: (lat: number, lon: number) => void): void {
-    console.log('[StrategicPosturePanel] setLocationClickHandler called, handler:', typeof handler);
     this.onLocationClick = handler;
-    // Verify it's stored
-    console.log('[StrategicPosturePanel] Handler stored, onLocationClick now:', typeof this.onLocationClick);
   }
 
   public getPostures(): TheaterPostureSummary[] {

@@ -405,9 +405,7 @@ export class DataLoaderManager implements AppModule {
           await this.loadMilitary();
           break;
         case 'techEvents':
-          console.log('[loadDataForLayer] Loading techEvents...');
           await this.loadTechEvents();
-          console.log('[loadDataForLayer] techEvents loaded');
           break;
         case 'positiveEvents':
           await this.loadPositiveEvents();
@@ -1074,11 +1072,7 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadTechEvents(): Promise<void> {
-    console.log('[loadTechEvents] Called. SITE_VARIANT:', SITE_VARIANT, 'techEvents layer:', this.ctx.mapLayers.techEvents);
-    if (SITE_VARIANT !== 'tech' && !this.ctx.mapLayers.techEvents) {
-      console.log('[loadTechEvents] Skipping - not tech variant and layer disabled');
-      return;
-    }
+    if (SITE_VARIANT !== 'tech' && !this.ctx.mapLayers.techEvents) return;
 
     try {
       const client = new ResearchServiceClient('', { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
@@ -1431,7 +1425,6 @@ export class DataLoaderManager implements AppModule {
     }
 
     (this.ctx.panels['cii'] as CIIPanel)?.refresh();
-    console.log('[Intelligence] All signals loaded for CII calculation');
   }
 
   async loadOutages(): Promise<void> {
@@ -1511,7 +1504,6 @@ export class DataLoaderManager implements AppModule {
     try {
       const { disruptions, density } = await fetchAisSignals();
       const aisStatus = getAisStatus();
-      console.log('[Ships] Events:', { disruptions: disruptions.length, density: density.length, vessels: aisStatus.vessels });
       this.ctx.map?.setAisData(disruptions, density);
       signalAggregator.ingestAisDisruptions(disruptions);
       ingestAisDisruptionsForCII(disruptions);
