@@ -8,7 +8,7 @@ import type { NewsItem, ClusteredEvent } from '@/types';
 import { getSourceTier } from '@/config';
 import { clusterNewsCore } from './analysis-core';
 import { mlWorker } from './ml-worker';
-import { ML_THRESHOLDS } from '@/config/ml-config';
+import { getMLThresholds } from '@/services/feature-flag-client';
 
 export function clusterNews(items: NewsItem[]): ClusteredEvent[] {
   return clusterNewsCore(items, getSourceTier) as ClusteredEvent[];
@@ -22,7 +22,7 @@ export async function clusterNewsHybrid(items: NewsItem[]): Promise<ClusteredEve
   const jaccardClusters = clusterNewsCore(items, getSourceTier) as ClusteredEvent[];
 
   // Step 2: If ML unavailable or too few clusters, return Jaccard results
-  if (!mlWorker.isAvailable || jaccardClusters.length < ML_THRESHOLDS.minClustersForML) {
+  if (!mlWorker.isAvailable || jaccardClusters.length < getMLThresholds().minClustersForML) {
     return jaccardClusters;
   }
 
@@ -36,7 +36,7 @@ export async function clusterNewsHybrid(items: NewsItem[]): Promise<ClusteredEve
     // Get semantic groupings
     const semanticGroups = await mlWorker.clusterBySemanticSimilarity(
       clusterTexts,
-      ML_THRESHOLDS.semanticClusterThreshold
+      getMLThresholds().semanticClusterThreshold
     );
 
     // Merge semantically similar clusters
