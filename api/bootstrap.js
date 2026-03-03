@@ -65,7 +65,7 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS')
     return new Response(null, { status: 204, headers: cors });
 
-  const apiKeyResult = validateApiKey(req);
+  const apiKeyResult = await validateApiKey(req);
   if (apiKeyResult.required && !apiKeyResult.valid)
     return new Response(JSON.stringify({ error: apiKeyResult.error }), {
       status: 401, headers: { ...cors, 'Content-Type': 'application/json' },
