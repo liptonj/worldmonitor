@@ -39,6 +39,11 @@ export function renderDashboard(
         </ul>
         <div style="padding:16px;border-top:1px solid var(--border)">
           <div style="color:var(--text-muted);font-size:12px;margin-bottom:8px">${user.email}</div>
+          <button id="admin-export" style="
+            width:100%;padding:6px;background:transparent;
+            border:1px solid var(--border);border-radius:var(--radius);
+            color:var(--text-muted);cursor:pointer;font-size:13px;margin-bottom:8px;
+          ">Export Configuration</button>
           <button id="admin-signout" style="
             width:100%;padding:6px;background:transparent;
             border:1px solid var(--border);border-radius:var(--radius);
@@ -89,6 +94,28 @@ export function renderDashboard(
   container.querySelector('#admin-signout')!.addEventListener('click', async () => {
     await supabase.auth.signOut();
     location.reload();
+  });
+
+  container.querySelector('#admin-export')!.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/admin/export', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        console.error('Export failed:', res.statusText);
+        return;
+      }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `worldmonitor-config-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      console.error('Export error:', err);
+    }
   });
 
   const hash = location.hash.replace('#', '') as PageId;
