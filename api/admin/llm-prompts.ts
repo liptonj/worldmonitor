@@ -1,6 +1,5 @@
 // api/admin/llm-prompts.ts
 import { requireAdmin, errorResponse, corsHeaders } from './_auth';
-import { createServiceClient } from '../../server/_shared/supabase';
 
 export const config = { runtime: 'edge' };
 
@@ -8,31 +7,30 @@ export default async function handler(req: Request): Promise<Response> {
   const headers = corsHeaders();
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 
-  try { await requireAdmin(req); } catch (err) { return errorResponse(err); }
+  let admin;
+  try { admin = await requireAdmin(req); } catch (err) { return errorResponse(err); }
 
-  const supabase = createServiceClient();
+  const { client } = admin;
   const url = new URL(req.url);
   const id = url.searchParams.get('id');
   const key = url.searchParams.get('key');
   const showHistory = url.searchParams.get('history') === 'true';
 
   if (req.method === 'GET') {
-    // Support ?id=UUID&history=true to return history for a specific prompt
     if (id && showHistory) {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .schema('wm_admin')
         .from('llm_prompt_history')
         .select('id, prompt_id, system_prompt, changed_by, changed_at')
         .eq('prompt_id', id)
         .order('changed_at', { ascending: false })
         .limit(20);
-
       if (error)
         return new Response(JSON.stringify({ error: 'Failed to load history' }), { status: 500, headers });
       return new Response(JSON.stringify(data), { status: 200, headers });
     }
 
-    let query = supabase
+    let query = client
       .schema('wm_admin')
       .from('llm_prompts')
       .select('*')
@@ -48,7 +46,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'PUT') {
     if (!id) return new Response(JSON.stringify({ error: 'id required' }), { status: 400, headers });
     const body = (await req.json()) as { system_prompt?: string; user_prompt?: string };
-    const { error } = await supabase
+    const { error } = await client
       .schema('wm_admin')
       .from('llm_prompts')
       .update({ system_prompt: body.system_prompt, user_prompt: body.user_prompt })

@@ -1,12 +1,22 @@
 // api/admin/_auth.ts
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export interface AdminUser {
   id: string;
   email: string;
   role: string;
+  /** Supabase client scoped to this user's JWT — RLS enforced, is_admin() applies */
+  client: SupabaseClient;
 }
 
+/**
+ * Validates the Bearer JWT from the request and confirms the user is an admin.
+ * Returns the user details and a JWT-scoped Supabase client — no service role needed.
+ *
+ * The returned client operates under RLS with the user's identity.
+ * wm_admin tables have policies that call is_admin(), so only admin users
+ * can read/write them — the database enforces this, not our code.
+ */
 export async function requireAdmin(req: Request): Promise<AdminUser> {
   const auth = req.headers.get('Authorization') ?? '';
   const token = auth.replace(/^Bearer\s+/i, '').trim();
@@ -15,22 +25,20 @@ export async function requireAdmin(req: Request): Promise<AdminUser> {
 
   const url = process.env.SUPABASE_URL;
   const anonKey = process.env.SUPABASE_ANON_KEY;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !anonKey || !serviceKey) throw { status: 500, body: 'Supabase not configured' };
+  if (!url || !anonKey) throw { status: 500, body: 'Supabase not configured' };
 
-  // Verify JWT
+  // Create a client scoped to this user's JWT — all queries run as this user
   const userClient = createClient(url, anonKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  // Verify the JWT is valid and get the user
   const { data: { user }, error } = await userClient.auth.getUser();
   if (error || !user) throw { status: 401, body: 'Invalid or expired token' };
 
-  // Check admin role
-  const serviceClient = createClient(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: adminRecord, error: adminError } = await serviceClient
+  // Check admin role using the user-scoped client — RLS + is_admin() enforces this
+  const { data: adminRecord, error: adminError } = await userClient
     .schema('wm_admin')
     .from('admin_users')
     .select('role')
@@ -39,7 +47,7 @@ export async function requireAdmin(req: Request): Promise<AdminUser> {
 
   if (adminError || !adminRecord) throw { status: 403, body: 'Not an admin user' };
 
-  return { id: user.id, email: user.email!, role: adminRecord.role };
+  return { id: user.id, email: user.email!, role: adminRecord.role, client: userClient };
 }
 
 export function errorResponse(err: unknown): Response {

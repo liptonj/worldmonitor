@@ -8,34 +8,30 @@ export default async function handler(req: Request): Promise<Response> {
   const headers = corsHeaders();
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 
-  try {
-    await requireAdmin(req);
-  } catch (err) {
-    return errorResponse(err);
-  }
+  let admin;
+  try { admin = await requireAdmin(req); } catch (err) { return errorResponse(err); }
 
   if (req.method !== 'GET') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
   }
 
-  const supabase = createServiceClient();
+  const { client } = admin;
 
   const [flags, sources, providers, prompts, appKeys] = await Promise.all([
-    supabase.schema('wm_admin').from('feature_flags').select('*'),
-    supabase.schema('wm_admin').from('news_sources').select('*'),
-    supabase.schema('wm_admin').from('llm_providers').select('*'),
-    supabase.schema('wm_admin').from('llm_prompts').select('*'),
-    supabase
-      .schema('wm_admin')
-      .from('app_keys')
-      .select('id, description, enabled, created_at, revoked_at'),
+    client.schema('wm_admin').from('feature_flags').select('*'),
+    client.schema('wm_admin').from('news_sources').select('*'),
+    client.schema('wm_admin').from('llm_providers').select('*'),
+    client.schema('wm_admin').from('llm_prompts').select('*'),
+    client.schema('wm_admin').from('app_keys').select('id, description, enabled, created_at, revoked_at'),
   ]);
 
-  // Vault secret names only — never values
-  const { data: secretNames, error: vaultError } = await supabase
-    .schema('wm_admin')
-    .rpc('list_vault_secret_names');
-  const vaultSecretNames = vaultError ? [] : (secretNames ?? []);
+  // Vault secret names require service role — Vault RPCs are revoked from all users
+  let vaultSecretNames: unknown[] = [];
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const serviceClient = createServiceClient();
+    const { data, error } = await serviceClient.schema('wm_admin').rpc('list_vault_secret_names');
+    if (!error) vaultSecretNames = data ?? [];
+  }
 
   const exportData = {
     exported_at: new Date().toISOString(),

@@ -1,6 +1,6 @@
 import { getCorsHeaders } from '../../server/cors';
 import { getRedisClient } from '../../server/_shared/redis';
-import { createServiceClient } from '../../server/_shared/supabase';
+import { createAnonClient } from '../../server/_shared/supabase';
 
 export const config = { runtime: 'edge' };
 
@@ -24,17 +24,14 @@ export default async function handler(req: Request): Promise<Response> {
     } catch { /* non-fatal */ }
   }
 
-  // Supabase
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
     return new Response(JSON.stringify({ error: 'Configuration unavailable' }), { status: 503, headers });
   }
 
   try {
-    const supabase = createServiceClient();
+    const supabase = createAnonClient();
     const { data, error } = await supabase
-      .schema('wm_admin')
-      .from('feature_flags')
-      .select('key, value, category');
+      .rpc('get_public_feature_flags');
 
     if (error) return new Response(JSON.stringify({ error: 'Failed to load flags' }), { status: 500, headers });
 

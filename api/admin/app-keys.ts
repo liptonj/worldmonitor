@@ -1,6 +1,5 @@
 // api/admin/app-keys.ts
 import { requireAdmin, errorResponse, corsHeaders } from './_auth';
-import { createServiceClient } from '../../server/_shared/supabase';
 
 export const config = { runtime: 'edge' };
 
@@ -8,14 +7,15 @@ export default async function handler(req: Request): Promise<Response> {
   const headers = corsHeaders();
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 
-  try { await requireAdmin(req); } catch (err) { return errorResponse(err); }
+  let admin;
+  try { admin = await requireAdmin(req); } catch (err) { return errorResponse(err); }
 
-  const supabase = createServiceClient();
+  const { client } = admin;
   const url = new URL(req.url);
   const id = url.searchParams.get('id');
 
   if (req.method === 'GET') {
-    const { data, error } = await supabase
+    const { data, error } = await client
       .schema('wm_admin')
       .from('app_keys')
       .select('id, description, enabled, created_at, revoked_at')
@@ -32,7 +32,7 @@ export default async function handler(req: Request): Promise<Response> {
     const keyHash = Array.from(new Uint8Array(hash))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-    const { error } = await supabase
+    const { error } = await client
       .schema('wm_admin')
       .from('app_keys')
       .insert({ key_hash: keyHash, description: body.description ?? null });
@@ -42,7 +42,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (req.method === 'DELETE') {
     if (!id) return new Response(JSON.stringify({ error: 'id required' }), { status: 400, headers });
-    const { error } = await supabase
+    const { error } = await client
       .schema('wm_admin')
       .from('app_keys')
       .update({ enabled: false, revoked_at: new Date().toISOString() })

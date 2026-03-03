@@ -1,6 +1,6 @@
 import { getCorsHeaders } from '../../server/cors';
 import { getRedisClient } from '../../server/_shared/redis';
-import { createServiceClient } from '../../server/_shared/supabase';
+import { createAnonClient } from '../../server/_shared/supabase';
 
 export const config = { runtime: 'edge' };
 
@@ -26,21 +26,14 @@ export default async function handler(req: Request): Promise<Response> {
     } catch { /* non-fatal */ }
   }
 
-  // Supabase
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
     return new Response(JSON.stringify({ error: 'Configuration unavailable' }), { status: 503, headers });
   }
 
   try {
-    const supabase = createServiceClient();
+    const supabase = createAnonClient();
     const { data, error } = await supabase
-      .schema('wm_admin')
-      .from('news_sources')
-      .select('name, url, tier, variants, category, source_type, lang, proxy_mode, propaganda_risk, state_affiliated, propaganda_note, default_enabled')
-      .eq('enabled', true)
-      .contains('variants', [variant])
-      .order('tier', { ascending: true })
-      .order('name', { ascending: true });
+      .rpc('get_public_news_sources', { p_variant: variant });
 
     if (error) return new Response(JSON.stringify({ error: 'Failed to load sources' }), { status: 500, headers });
 

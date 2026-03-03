@@ -1,6 +1,6 @@
 // server/_shared/news-sources.ts
 import { getRedisClient } from './redis';
-import { createServiceClient } from './supabase';
+import { createAnonClient } from './supabase';
 
 export interface DynamicFeed {
   name: string;
@@ -13,13 +13,12 @@ export interface DynamicFeed {
 const CACHE_TTL = 900; // 15 minutes
 
 function resolveFeedUrl(url: string | Record<string, string>, lang: string): string {
-  if (typeof url === 'string') return url;
-  return url[lang] ?? url['en'] ?? Object.values(url)[0] ?? '';
+  return typeof url === 'string' ? url : (url[lang] ?? url['en'] ?? Object.values(url)[0] ?? '');
 }
 
 /**
- * Fetch news sources for a given variant and language.
- * Resolution: Redis → Supabase → empty array (no hardcoded fallback).
+ * Fetch news sources for a given variant and language via public RPC.
+ * Resolution: Redis → Supabase RPC (anon) → empty array.
  */
 export async function getNewsSources(
   variant: string,
@@ -33,34 +32,28 @@ export async function getNewsSources(
     try {
       const cached = await redis.get<string>(cacheKey);
       if (cached) {
-        const parsed = JSON.parse(cached) as Record<string, DynamicFeed[]>;
-        return parsed;
+        return JSON.parse(cached) as Record<string, DynamicFeed[]>;
       }
     } catch { /* non-fatal */ }
   }
 
-  // 2. Supabase
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  // 2. Supabase via public RPC (anon key — no service role needed)
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
     return {};
   }
 
   try {
-    const supabase = createServiceClient();
-    const { data, error } = await supabase
-      .schema('wm_admin')
-      .from('news_sources')
-      .select('name, url, lang, category, tier')
-      .eq('enabled', true)
-      .contains('variants', [variant]);
+    const supabase = createAnonClient();
+    const { data, error } = await supabase.rpc('get_public_news_sources', { p_variant: variant });
 
     if (error || !data) return {};
 
-    const feeds: DynamicFeed[] = data.map(row => ({
-      name: row.name,
-      url: resolveFeedUrl(row.url, lang),
-      lang: row.lang,
-      category: row.category,
-      tier: row.tier,
+    const feeds: DynamicFeed[] = (data as Array<Record<string, unknown>>).map(row => ({
+      name: row.name as string,
+      url: resolveFeedUrl(row.url as string | Record<string, string>, lang),
+      lang: row.lang as string,
+      category: row.category as string,
+      tier: row.tier as number,
     }));
 
     const filtered = feeds.filter(f => !f.lang || f.lang === lang || f.lang === 'en');
@@ -78,7 +71,7 @@ export async function getNewsSources(
 }
 
 /**
- * Fetch intel sources (variant='full', source_type IS NOT NULL).
+ * Fetch intel sources via public RPC, filtered to category='intel'.
  */
 export async function getIntelSources(lang: string): Promise<DynamicFeed[]> {
   const cacheKey = `wm:feeds:intel:v1:${lang}`;
@@ -87,35 +80,28 @@ export async function getIntelSources(lang: string): Promise<DynamicFeed[]> {
   if (redis) {
     try {
       const cached = await redis.get<string>(cacheKey);
-      if (cached) {
-        const parsed = JSON.parse(cached) as DynamicFeed[];
-        return parsed;
-      }
+      if (cached) return JSON.parse(cached) as DynamicFeed[];
     } catch { /* non-fatal */ }
   }
 
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return [];
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) return [];
 
   try {
-    const supabase = createServiceClient();
-    const { data, error } = await supabase
-      .schema('wm_admin')
-      .from('news_sources')
-      .select('name, url, lang, category, tier')
-      .eq('enabled', true)
-      .eq('category', 'intel')
-      .not('source_type', 'is', null);
+    const supabase = createAnonClient();
+    // Use full variant — intel sources are tagged with variant='full'
+    const { data, error } = await supabase.rpc('get_public_news_sources', { p_variant: 'full' });
 
     if (error || !data) return [];
 
-    const feeds: DynamicFeed[] = data
-      .filter(row => !row.lang || row.lang === lang || row.lang === 'en')
+    const feeds: DynamicFeed[] = (data as Array<Record<string, unknown>>)
+      .filter(row => row.category === 'intel')
+      .filter(row => !row.lang || (row.lang as string) === lang || (row.lang as string) === 'en')
       .map(row => ({
-        name: row.name,
-        url: resolveFeedUrl(row.url, lang),
-        lang: row.lang,
+        name: row.name as string,
+        url: resolveFeedUrl(row.url as string | Record<string, string>, lang),
+        lang: row.lang as string,
         category: 'intel',
-        tier: row.tier,
+        tier: row.tier as number,
       }));
 
     if (redis) {
@@ -128,7 +114,6 @@ export async function getIntelSources(lang: string): Promise<DynamicFeed[]> {
 export async function invalidateNewsFeedCache(): Promise<void> {
   const redis = getRedisClient();
   if (!redis) return;
-  // Delete known cache key patterns; others expire naturally after 15 min
   const variants = ['full', 'tech', 'finance', 'happy'];
   const langs = ['en', 'de', 'fr', 'es', 'ar'];
   const keys: string[] = [];
