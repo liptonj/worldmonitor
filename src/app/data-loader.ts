@@ -936,7 +936,6 @@ export class DataLoaderManager implements AppModule {
         },
       });
 
-      const finnhubConfigMsg = 'FINNHUB_API_KEY not configured — add in Settings';
       this.ctx.latestMarkets = stocksResult.data;
       (this.ctx.panels['markets'] as MarketPanel).renderMarkets(stocksResult.data, stocksResult.rateLimited);
 
@@ -945,9 +944,6 @@ export class DataLoaderManager implements AppModule {
         this.ctx.panels['commodities']?.showError(rlMsg);
       } else if (stocksResult.skipped) {
         this.ctx.statusPanel?.updateApi('Finnhub', { status: 'error' });
-        if (stocksResult.data.length === 0) {
-          this.ctx.panels['markets']?.showConfigError(finnhubConfigMsg);
-        }
       } else {
         this.ctx.statusPanel?.updateApi('Finnhub', { status: 'ok' });
       }
@@ -971,8 +967,6 @@ export class DataLoaderManager implements AppModule {
         (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(
           sectorsResult.data.map((s) => ({ name: s.name, change: s.change }))
         );
-      } else {
-        this.ctx.panels['heatmap']?.showConfigError(finnhubConfigMsg);
       }
 
       const commoditiesPanel = this.ctx.panels['commodities'] as CommoditiesPanel;
@@ -1799,7 +1793,6 @@ export class DataLoaderManager implements AppModule {
 
       if (data.length === 0) {
         if (!isFeatureAvailable('economicFred')) {
-          economicPanel?.setErrorState(true, 'FRED_API_KEY not configured — add in Settings');
           this.ctx.statusPanel?.updateApi('FRED', { status: 'error' });
           return;
         }
@@ -2014,7 +2007,6 @@ export class DataLoaderManager implements AppModule {
     try {
       const fireResult = await fetchAllFires(1);
       if (fireResult.skipped) {
-        this.ctx.panels['satellite-fires']?.showConfigError('NASA_FIRMS_API_KEY not configured — add in Settings');
         this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
         return;
       }
