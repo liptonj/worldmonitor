@@ -731,6 +731,7 @@ export default defineConfig({
     // Geospatial bundles (maplibre/deck) are expected to be large even when split.
     // Raise warning threshold to reduce noisy false alarms in CI.
     chunkSizeWarningLimit: 1200,
+    modulePreload: { polyfill: false },
     rollupOptions: {
       onwarn(warning, warn) {
         // onnxruntime-web ships a minified browser bundle that intentionally uses eval.
