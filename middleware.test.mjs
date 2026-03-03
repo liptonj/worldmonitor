@@ -66,6 +66,7 @@ test('returns undefined for non-social-bot UA', () => {
 test('canonical OG url always points to worldmonitor.app, not 5ls.us', async () => {
   const req = makeRequest('tech.info.5ls.us');
   const res = middleware(req);
+  assert.ok(res instanceof Response, 'should return Response for tech.info.5ls.us (prerequisite for canonical check)');
   const text = await res.text();
   assert.ok(text.includes('https://tech.worldmonitor.app/'), 'canonical OG url must be worldmonitor.app');
   assert.ok(!text.includes('5ls.us'), 'OG url must not use 5ls.us domain');
