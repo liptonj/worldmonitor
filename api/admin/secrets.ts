@@ -36,7 +36,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
 
     await invalidateSecretCache(body.name);
-    if (body.name.includes('GROQ') || body.name.includes('OPENROUTER') || body.name.includes('LLM')) {
+    if (body.name.includes('GROQ') || body.name.includes('OPENROUTER') || body.name.includes('LLM') || body.name.includes('OLLAMA')) {
       await invalidateLlmCache();
     }
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });

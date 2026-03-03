@@ -161,7 +161,7 @@ export async function getProviderCredentials(provider: string): Promise<Provider
     if (apiKey) {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
-    const rawMax = parseInt(process.env.OLLAMA_MAX_TOKENS || '1500', 10);
+    const rawMax = parseInt((await getSecret('OLLAMA_MAX_TOKENS')) || '1500', 10);
     const ollamaMaxTokens = Number.isFinite(rawMax) ? Math.min(Math.max(rawMax, 100), 4000) : 1500;
     return {
       apiUrl: new URL('/v1/chat/completions', baseUrl).toString(),
