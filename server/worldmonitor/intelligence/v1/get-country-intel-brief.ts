@@ -6,7 +6,7 @@ import type {
 
 import { getActiveLlmProvider, getLlmPrompt, buildPrompt } from '../../../_shared/llm';
 import { cachedFetchJson } from '../../../_shared/redis';
-import { UPSTREAM_TIMEOUT_MS, TIER1_COUNTRIES, hashString } from './_shared';
+import { UPSTREAM_TIMEOUT_MS, TIER1_COUNTRIES, hashString, fetchRecentHeadlines } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
 
 // ========================================================================
@@ -57,12 +57,18 @@ export async function getCountryIntelBrief(
         const dbPrompt = await getLlmPrompt('intel_brief', null, null, model);
         if (!dbPrompt) return null;
 
+        const countryScope = req.countryCode?.toLowerCase() ?? '';
+        const headlineScopes = countryScope
+          ? [countryScope, 'global', 'conflict']
+          : ['global', 'conflict'];
+        const recentHeadlinesText = await fetchRecentHeadlines(headlineScopes, 15);
+
         const systemPrompt = buildPrompt(dbPrompt.systemPrompt, { date: dateStr });
         const userPrompt = buildPrompt(dbPrompt.userPrompt ?? '', {
           countryName,
           countryCode: req.countryCode,
           contextSnapshot,
-          recentHeadlines: '',
+          recentHeadlines: recentHeadlinesText,
         });
 
         const resp = await fetch(apiUrl, {

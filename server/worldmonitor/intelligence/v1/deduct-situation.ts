@@ -6,7 +6,7 @@ import type {
 
 import { getActiveLlmProvider, getLlmPrompt, buildPrompt } from '../../../_shared/llm';
 import { cachedFetchJson } from '../../../_shared/redis';
-import { hashString } from './_shared';
+import { hashString, fetchRecentHeadlines } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
 
 const DEDUCT_TIMEOUT_MS = 120_000;
@@ -41,11 +41,13 @@ export async function deductSituation(
                 if (!dbPrompt) return null;
 
                 const dateStr = new Date().toISOString().split('T')[0];
+                const recentHeadlinesText = await fetchRecentHeadlines(['global', 'conflict'], 15);
+
                 const systemPrompt = buildPrompt(dbPrompt.systemPrompt, { date: dateStr });
                 const userPromptFromDb = buildPrompt(dbPrompt.userPrompt ?? '{query}', {
                     query,
                     geoContext,
-                    recentHeadlines: '',
+                    recentHeadlines: recentHeadlinesText,
                 });
 
                 const resp = await fetch(apiUrl, {
