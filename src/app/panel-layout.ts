@@ -1059,6 +1059,11 @@ export class PanelLayoutManager implements AppModule {
         if (dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) return;
         dragStarted = true;
         el.classList.add('dragging');
+        const bg = document.getElementById('mapBottomGrid');
+        if (bg?.classList.contains('bottom-grid-hidden')) {
+          bg.classList.remove('bottom-grid-hidden');
+          bg.dataset.autoShown = 'true';
+        }
       }
       const cx = e.clientX;
       const cy = e.clientY;
@@ -1076,6 +1081,16 @@ export class PanelLayoutManager implements AppModule {
       if (dragStarted) {
         el.classList.remove('dragging');
         this.savePanelOrder();
+        const bg = document.getElementById('mapBottomGrid');
+        if (bg?.dataset.autoShown === 'true') {
+          delete bg.dataset.autoShown;
+          if (bg.querySelectorAll('.panel').length === 0) {
+            bg.classList.add('bottom-grid-hidden');
+          } else {
+            localStorage.setItem('map-bottom-grid-visible', 'true');
+            document.getElementById('mapBottomGridToggle')?.classList.add('bottom-toggle-active');
+          }
+        }
       }
       dragStarted = false;
     };
