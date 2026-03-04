@@ -9,6 +9,7 @@ import type {
   ListCommodityQuotesResponse,
   CommodityQuote,
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
+import { getConfiguredSymbols } from '../../../_shared/market-symbols';
 import { fetchYahooQuotesBatch } from './_shared';
 import { cachedFetchJson } from '../../../_shared/redis';
 
@@ -25,7 +26,8 @@ export async function listCommodityQuotes(
   _ctx: ServerContext,
   req: ListCommodityQuotesRequest,
 ): Promise<ListCommodityQuotesResponse> {
-  const symbols = req.symbols;
+  const dbCommodities = await getConfiguredSymbols('commodity');
+  const symbols = dbCommodities ? dbCommodities.map((s) => s.symbol) : (req.symbols ?? []);
   if (!symbols.length) return { quotes: [] };
 
   const redisKey = redisCacheKey(symbols);

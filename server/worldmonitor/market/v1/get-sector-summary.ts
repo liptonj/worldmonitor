@@ -8,6 +8,7 @@ import type {
   GetSectorSummaryResponse,
   SectorPerformance,
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
+import { getConfiguredSymbols } from '../../../_shared/market-symbols';
 import { fetchFinnhubQuote, fetchYahooQuotesBatch } from './_shared';
 import { cachedFetchJson } from '../../../_shared/redis';
 import { getSecret } from '../../../_shared/secrets';
@@ -15,16 +16,25 @@ import { getSecret } from '../../../_shared/secrets';
 const REDIS_CACHE_KEY = 'market:sectors:v1';
 const REDIS_CACHE_TTL = 600; // 10 min — Finnhub rate-limited
 
-let fallbackSectorCache: { data: GetSectorSummaryResponse; ts: number } | null = null;
+function redisCacheKey(symbols: string[]): string {
+  return `${REDIS_CACHE_KEY}:${[...symbols].sort().join(',')}`;
+}
+
+const fallbackSectorCache = new Map<string, { data: GetSectorSummaryResponse; ts: number }>();
+
+const DEFAULT_SECTOR_SYMBOLS = ['XLK', 'XLF', 'XLE', 'XLV', 'XLY', 'XLI', 'XLP', 'XLU', 'XLB', 'XLRE', 'XLC', 'SMH'];
 
 export async function getSectorSummary(
   _ctx: ServerContext,
   _req: GetSectorSummaryRequest,
 ): Promise<GetSectorSummaryResponse> {
+  const dbSectors = await getConfiguredSymbols('sector');
+  const sectorSymbols = dbSectors ? dbSectors.map((s) => s.symbol) : DEFAULT_SECTOR_SYMBOLS;
+
+  const key = redisCacheKey(sectorSymbols);
   try {
-  const result = await cachedFetchJson<GetSectorSummaryResponse>(REDIS_CACHE_KEY, REDIS_CACHE_TTL, async () => {
+  const result = await cachedFetchJson<GetSectorSummaryResponse>(key, REDIS_CACHE_TTL, async () => {
     const apiKey = await getSecret('FINNHUB_API_KEY');
-    const sectorSymbols = ['XLK', 'XLF', 'XLE', 'XLV', 'XLY', 'XLI', 'XLP', 'XLU', 'XLB', 'XLRE', 'XLC', 'SMH'];
     const sectors: SectorPerformance[] = [];
 
     if (apiKey) {
@@ -48,9 +58,9 @@ export async function getSectorSummary(
     return sectors.length > 0 ? { sectors } : null;
   });
 
-  if (result) fallbackSectorCache = { data: result, ts: Date.now() };
-  return result || fallbackSectorCache?.data || { sectors: [] };
+  if (result) fallbackSectorCache.set(key, { data: result, ts: Date.now() });
+  return result || fallbackSectorCache.get(key)?.data || { sectors: [] };
   } catch {
-    return fallbackSectorCache?.data || { sectors: [] };
+    return fallbackSectorCache.get(key)?.data || { sectors: [] };
   }
 }
