@@ -154,12 +154,18 @@ export async function fetchYahooQuote(
       },
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      console.warn(`[Yahoo] ${symbol} HTTP ${resp.status}`);
+      return null;
+    }
 
     const data: YahooChartResponse = await resp.json();
     const result = data.chart.result[0];
     const meta = result?.meta;
-    if (!meta) return null;
+    if (!meta) {
+      console.warn(`[Yahoo] ${symbol} no meta in response`);
+      return null;
+    }
 
     const price = meta.regularMarketPrice;
     const prevClose = meta.chartPreviousClose || meta.previousClose || price;
@@ -169,7 +175,9 @@ export async function fetchYahooQuote(
     const sparkline = closes?.filter((v): v is number => v != null) || [];
 
     return { price, change, sparkline };
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[Yahoo] ${symbol} fetch error: ${msg}`);
     return null;
   }
 }
