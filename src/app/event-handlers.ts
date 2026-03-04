@@ -814,6 +814,7 @@ export class EventHandlerManager implements AppModule {
       if (!isResizing) return;
       const deltaX = e.clientX - startX;
       const totalWidth = mainContent.offsetWidth;
+      if (totalWidth <= 0) return;
       const deltaPct = (deltaX / totalWidth) * 100;
       const newPct = Math.max(MIN_PCT, Math.min(startPct + deltaPct, MAX_PCT));
       mainContent.style.setProperty('--map-width', `${Math.round(newPct * 10) / 10}%`);

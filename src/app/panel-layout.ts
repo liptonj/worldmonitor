@@ -78,6 +78,7 @@ export class PanelLayoutManager implements AppModule {
   private callbacks: PanelLayoutCallbacks;
   private panelDragCleanupHandlers: Array<() => void> = [];
   private criticalBannerEl: HTMLElement | null = null;
+  private bottomGridToggleCleanup: (() => void) | null = null;
   private readonly applyTimeRangeFilterDebounced: () => void;
 
   constructor(ctx: AppContext, callbacks: PanelLayoutCallbacks) {
@@ -110,6 +111,8 @@ export class PanelLayoutManager implements AppModule {
     this.ctx.speciesPanel?.destroy();
     this.ctx.renewablePanel?.destroy();
 
+    this.bottomGridToggleCleanup?.();
+    this.bottomGridToggleCleanup = null;
     window.removeEventListener('resize', this.ensureCorrectZones);
   }
 
@@ -972,10 +975,12 @@ export class PanelLayoutManager implements AppModule {
 
     applyState(isVisible);
 
-    toggleBtn.addEventListener('click', () => {
+    const onClick = () => {
       const currentlyVisible = !bottomGrid.classList.contains('bottom-grid-hidden');
       applyState(!currentlyVisible);
-    });
+    };
+    toggleBtn.addEventListener('click', onClick);
+    this.bottomGridToggleCleanup = () => toggleBtn.removeEventListener('click', onClick);
   }
 
   private attachRelatedAssetHandlers(panel: NewsPanel): void {
