@@ -249,6 +249,7 @@ export class EventHandlerManager implements AppModule {
     window.addEventListener('resize', this.boundResizeHandler);
 
     this.setupMapResize();
+    this.setupMapWidthResize();
     this.setupMapPin();
 
     this.boundVisibilityHandler = () => {
@@ -730,6 +731,92 @@ export class EventHandlerManager implements AppModule {
       const deltaY = e.clientY - startY;
       const newHeight = Math.max(getMinHeight(), Math.min(startHeight + deltaY, getMaxHeight()));
       mapContainer.style.height = `${newHeight}px`;
+    });
+
+    document.addEventListener('mouseup', endResize);
+    window.addEventListener('blur', endResize);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) endResize();
+    });
+  }
+
+  setupMapWidthResize(): void {
+    const mainContent = document.querySelector('.main-content') as HTMLElement;
+    const resizeHandle = document.getElementById('mapWidthResizeHandle');
+    if (!mainContent || !resizeHandle) return;
+
+    const MIN_PCT = 30;
+    const MAX_PCT = 80;
+    const PRESETS = [50, 60, 70];
+
+    const savedRatio = localStorage.getItem('map-width-ratio');
+    if (savedRatio) {
+      const numeric = Number.parseFloat(savedRatio);
+      if (Number.isFinite(numeric) && numeric >= MIN_PCT && numeric <= MAX_PCT) {
+        mainContent.style.setProperty('--map-width', `${numeric}%`);
+      } else {
+        localStorage.removeItem('map-width-ratio');
+      }
+    }
+
+    let isResizing = false;
+    let startX = 0;
+    let startPct = 60;
+
+    const getCurrentPct = (): number => {
+      const val = mainContent.style.getPropertyValue('--map-width');
+      const parsed = Number.parseFloat(val);
+      return Number.isFinite(parsed) ? parsed : 60;
+    };
+
+    const endResize = () => {
+      if (!isResizing) return;
+      isResizing = false;
+      this.ctx.map?.setIsResizing(false);
+      this.ctx.map?.render();
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const pct = getCurrentPct();
+      localStorage.setItem('map-width-ratio', `${pct}`);
+    };
+
+    resizeHandle.addEventListener('mousedown', (e) => {
+      if (window.innerWidth < 1600) return;
+      isResizing = true;
+      startX = e.clientX;
+      startPct = getCurrentPct();
+      this.ctx.map?.setIsResizing(true);
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    resizeHandle.addEventListener('dblclick', () => {
+      if (window.innerWidth < 1600) return;
+      const current = getCurrentPct();
+      const closest = PRESETS.reduce((prev, p) =>
+        Math.abs(p - current) < Math.abs(prev - current) ? p : prev
+      );
+      const idx = PRESETS.indexOf(closest);
+      const next = PRESETS[(idx + 1) % PRESETS.length];
+
+      this.ctx.map?.setIsResizing(true);
+      mainContent.style.setProperty('--map-width', `${next}%`);
+      localStorage.setItem('map-width-ratio', `${next}`);
+
+      setTimeout(() => {
+        this.ctx.map?.setIsResizing(false);
+        this.ctx.map?.render();
+      }, 100);
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const deltaX = e.clientX - startX;
+      const totalWidth = mainContent.offsetWidth;
+      const deltaPct = (deltaX / totalWidth) * 100;
+      const newPct = Math.max(MIN_PCT, Math.min(startPct + deltaPct, MAX_PCT));
+      mainContent.style.setProperty('--map-width', `${Math.round(newPct * 10) / 10}%`);
     });
 
     document.addEventListener('mouseup', endResize);
