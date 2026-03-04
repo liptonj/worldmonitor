@@ -621,49 +621,6 @@ export class DataLoaderManager implements AppModule {
         return items;
       }
 
-      // Digest branch: server already aggregated feeds — map proto items to client types
-      if (digest?.categories && category in digest.categories) {
-        const enabledNames = new Set(enabledFeeds.map(f => f.name));
-        let items = (digest.categories[category]?.items ?? [])
-          .map(protoItemToNewsItem)
-          .filter(i => enabledNames.has(i.source));
-
-        ingestHeadlines(items.map(i => ({ title: i.title, pubDate: i.pubDate, source: i.source, link: i.link })));
-
-        const aiCandidates = items
-          .filter(i => i.threat?.source === 'keyword')
-          .sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime())
-          .slice(0, AI_CLASSIFY_MAX_PER_FEED);
-        for (const item of aiCandidates) {
-          if (!canQueueAiClassification(item.title)) continue;
-          classifyWithAI(item.title, SITE_VARIANT).then(ai => {
-            if (ai && item.threat && ai.confidence > item.threat.confidence) {
-              item.threat = ai;
-              item.isAlert = ai.level === 'critical' || ai.level === 'high';
-            }
-          }).catch(() => {});
-        }
-
-        checkBatchForBreakingAlerts(items);
-        this.flashMapForNews(items);
-        this.renderNewsForCategory(category, items);
-
-        this.ctx.statusPanel?.updateFeed(category.charAt(0).toUpperCase() + category.slice(1), {
-          status: 'ok',
-          itemCount: items.length,
-        });
-
-        if (panel) {
-          try {
-            const baseline = await updateBaseline(`news:${category}`, items.length);
-            const deviation = calculateDeviation(items.length, baseline);
-            panel.setDeviation(deviation.zScore, deviation.percentChange, deviation.level);
-          } catch (e) { console.warn(`[Baseline] news:${category} write failed:`, e); }
-        }
-
-        return items;
-      }
-
       // Per-feed fallback: fetch each feed individually (first load or digest unavailable)
       const renderIntervalMs = 100;
       let lastRenderTime = 0;

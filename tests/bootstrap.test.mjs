@@ -19,7 +19,7 @@ describe('Bootstrap cache key registry', () => {
 
   it('api/bootstrap.js inlined keys match server/_shared/cache-keys.ts', () => {
     const extractKeys = (src) => {
-      const re = /(\w+):\s+'([a-z_]+(?::[a-z_-]+)+:v\d+)'/g;
+      const re = /(\w+):\s+'([a-z_]+(?::[a-z_-]+)+:v\d+(?::[a-z_-]+)?)'/g;
       const keys = {};
       let m;
       while ((m = re.exec(src)) !== null) keys[m[1]] = m[2];
@@ -27,11 +27,13 @@ describe('Bootstrap cache key registry', () => {
     };
     const canonical = extractKeys(cacheKeysSrc);
     const inlined = extractKeys(bootstrapSrc);
+    const bootstrapOnlyKeys = new Set(['newsSources']);
     assert.ok(Object.keys(canonical).length >= 10, 'Canonical registry too small');
     for (const [name, key] of Object.entries(canonical)) {
       assert.equal(inlined[name], key, `Key '${name}' mismatch: canonical='${key}', inlined='${inlined[name]}'`);
     }
     for (const [name, key] of Object.entries(inlined)) {
+      if (bootstrapOnlyKeys.has(name)) continue;
       assert.equal(canonical[name], key, `Extra inlined key '${name}' not in canonical registry`);
     }
   });
@@ -78,9 +80,10 @@ describe('Bootstrap cache key registry', () => {
       keys.push(m[1]);
     }
 
-    const handlerDirs = join(root, 'server', 'worldmonitor');
+    const handlerDirs = [join(root, 'server', 'worldmonitor'), join(root, 'api', 'config')];
     const handlerFiles = [];
     function walk(dir) {
+      if (!statSync(dir).isDirectory()) return;
       for (const entry of readdirSync(dir)) {
         const full = join(dir, entry);
         if (statSync(full).isDirectory()) walk(full);
@@ -89,7 +92,9 @@ describe('Bootstrap cache key registry', () => {
         }
       }
     }
-    walk(handlerDirs);
+    for (const d of handlerDirs) {
+      if (statSync(d).isDirectory()) walk(d);
+    }
     const allHandlerCode = handlerFiles.map(f => readFileSync(f, 'utf-8')).join('\n');
 
     for (const key of keys) {
@@ -192,14 +197,15 @@ describe('Panel hydration consumers', () => {
 });
 
 describe('Bootstrap key hydration coverage', () => {
-  it('every bootstrap key has a getHydratedData consumer in src/', () => {
+  const DEDICATED_GETTERS = { newsSources: 'getHydratedNewsSources', featureFlags: 'getHydratedFeatureFlags' };
+
+  it('every bootstrap key has a getHydratedData consumer or dedicated getter in src/', () => {
     const bootstrapSrc = readFileSync(join(root, 'api', 'bootstrap.js'), 'utf-8');
-    const keyRe = /(\w+):\s+'[a-z_]+(?::[a-z_-]+)+:v\d+'/g;
+    const keyRe = /(\w+):\s+'[a-z_]+(?::[a-z_-]+)+:v\d+(?::[a-z_-]+)?'/g;
     const keys = [];
     let m;
     while ((m = keyRe.exec(bootstrapSrc)) !== null) keys.push(m[1]);
 
-    // Gather all src/ .ts files
     const srcFiles = [];
     function walk(dir) {
       for (const entry of readdirSync(dir)) {
@@ -212,9 +218,13 @@ describe('Bootstrap key hydration coverage', () => {
     const allSrc = srcFiles.map(f => readFileSync(f, 'utf-8')).join('\n');
 
     for (const key of keys) {
+      const dedicated = DEDICATED_GETTERS[key];
+      const hasConsumer = dedicated
+        ? allSrc.includes(dedicated)
+        : allSrc.includes(`getHydratedData('${key}')`);
       assert.ok(
-        allSrc.includes(`getHydratedData('${key}')`),
-        `Bootstrap key '${key}' has no getHydratedData('${key}') consumer in src/ — data is fetched but never used`,
+        hasConsumer,
+        `Bootstrap key '${key}' has no getHydratedData('${key}') or ${dedicated ?? 'dedicated getter'} consumer in src/ — data is fetched but never used`,
       );
     }
   });

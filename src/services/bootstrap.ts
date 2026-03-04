@@ -1,7 +1,6 @@
 import type { NewsSourceRow } from '@/services/feed-client';
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
 
-const BOOTSTRAP_CACHE_KEY = 'bootstrap:v2';
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
 const hydrationCache = new Map<string, unknown>();
@@ -13,9 +12,11 @@ export function getHydratedData(key: string): unknown | undefined {
 }
 
 export async function fetchBootstrapData(variant: string = 'full'): Promise<void> {
+  const cacheKey = `bootstrap:v2:${variant}`;
+
   // Phase 1: Load stale data from IndexedDB for instant hydration
   try {
-    const cached = await getPersistentCache<Record<string, unknown>>(BOOTSTRAP_CACHE_KEY);
+    const cached = await getPersistentCache<Record<string, unknown>>(cacheKey);
     if (cached?.data && typeof cached.data === 'object') {
       const age = Date.now() - (cached.updatedAt ?? 0);
       if (age < STALE_THRESHOLD_MS) {
@@ -41,7 +42,7 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
       }
     }
     // Save for next visit (fire-and-forget)
-    void setPersistentCache(BOOTSTRAP_CACHE_KEY, data).catch(() => {});
+    void setPersistentCache(cacheKey, data).catch(() => {});
   } catch {
     // If server fetch failed but we had stale data, panels will use that
   }

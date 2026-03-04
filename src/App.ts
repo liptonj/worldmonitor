@@ -369,7 +369,7 @@ export class App {
       if (key === 'browserModel') {
         const s = getAiFlowSettings();
         if (s.browserModel) {
-          mlWorker.init();
+          void mlWorker.init().catch(() => {});
         } else if (!isHeadlineMemoryEnabled()) {
           mlWorker.terminate();
         }
