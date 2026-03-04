@@ -240,8 +240,6 @@ if (urlParams.get('settings') === '1') {
   );
 } else {
   void (async () => {
-    const { loadNewsSources } = await import('@/services/feed-client');
-    await loadNewsSources();
     const app = new App('app');
     await app.init();
     clearChunkReloadGuard(chunkReloadStorageKey);

@@ -29,7 +29,7 @@ import { trackEvent, trackDeeplinkOpened } from '@/services/analytics';
 import { preloadCountryGeometry, getCountryNameByCode } from '@/services/country-geometry';
 import { initI18n } from '@/services/i18n';
 
-import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount } from '@/services/feed-client';
+import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, loadNewsSources } from '@/services/feed-client';
 import { fetchBootstrapData } from '@/services/bootstrap';
 import { DesktopUpdater } from '@/app/desktop-updater';
 import { CountryIntelManager } from '@/app/country-intel';
@@ -332,18 +332,26 @@ export class App {
 
   public async init(): Promise<void> {
     const initStart = performance.now();
-    await initDB();
+    performance.mark('wm:init-start');
+
+    // ── PHASE 1: Minimum for UI shell (only hard await) ──
     await initI18n();
+
+    performance.mark('wm:i18n-done');
+
+    // ── PHASE 2: Fire-and-forget — not needed for first paint ──
+    void initDB().catch((e) => console.warn('[Storage] initDB failed:', e));
+
     const aiFlow = getAiFlowSettings();
     if (aiFlow.browserModel || isDesktopRuntime()) {
-      await mlWorker.init();
-      if (BETA_MODE) mlWorker.loadModel('summarization-beta').catch(() => { });
+      void mlWorker.init().then(() => {
+        if (BETA_MODE) mlWorker.loadModel('summarization-beta').catch(() => {});
+      }).catch(() => {});
     }
-
     if (aiFlow.headlineMemory) {
-      mlWorker.init().then(ok => {
-        if (ok) mlWorker.loadModel('embeddings').catch(() => { });
-      }).catch(() => { });
+      void mlWorker.init().then(ok => {
+        if (ok) mlWorker.loadModel('embeddings').catch(() => {});
+      }).catch(() => {});
     }
 
     this.unsubAiFlow = subscribeAiFlowChange((key) => {
@@ -358,10 +366,10 @@ export class App {
       if (key === 'headlineMemory') {
         if (isHeadlineMemoryEnabled()) {
           mlWorker.init().then(ok => {
-            if (ok) mlWorker.loadModel('embeddings').catch(() => { });
-          }).catch(() => { });
+            if (ok) mlWorker.loadModel('embeddings').catch(() => {});
+          }).catch(() => {});
         } else {
-          mlWorker.unloadModel('embeddings').catch(() => { });
+          mlWorker.unloadModel('embeddings').catch(() => {});
           const s = getAiFlowSettings();
           if (!s.browserModel && !isDesktopRuntime()) {
             mlWorker.terminate();
@@ -370,28 +378,34 @@ export class App {
       }
     });
 
-    // Check AIS configuration before init
     if (!isAisConfigured()) {
       this.state.mapLayers.ais = false;
     } else if (this.state.mapLayers.ais) {
       initAisStream();
     }
 
-    // Hydrate in-memory cache from bootstrap endpoint (before panels construct and fetch)
-    await fetchBootstrapData();
+    void resolveUserRegion()
+      .then(region => {
+        this.state.resolvedLocation = region;
+        if (this.state.isMobile && region !== 'global' && this.state.map) {
+          this.state.map.setView(region);
+          const regionSelect = document.getElementById('regionSelect') as HTMLSelectElement;
+          if (regionSelect) regionSelect.value = region;
+        }
+      })
+      .catch(() => {});
 
-    const resolvedRegion = await resolveUserRegion();
-    this.state.resolvedLocation = resolvedRegion;
-
-    // Phase 1: Layout (creates map + panels — they'll find hydrated data)
+    // ── PHASE 3: Render UI shell immediately ──
     this.panelLayout.init();
 
-    // Happy variant: pre-populate panels from persistent cache for instant render
+    performance.mark('wm:layout-done');
+    performance.measure('wm:to-layout', 'wm:init-start', 'wm:layout-done');
+
     if (SITE_VARIANT === 'happy') {
       await this.dataLoader.hydrateHappyPanelsFromCache();
     }
 
-    // Phase 2: Shared UI components
+    // Phase 3b: Shared UI components + event listeners (all sync, fast)
     this.state.signalModal = new SignalModal();
     this.state.signalModal.setLocationClickHandler((lat, lon) => {
       this.state.map?.setCenter(lat, lon, 4);
@@ -415,7 +429,6 @@ export class App {
       this.state.breakingBanner = new BreakingNewsBanner();
     }
 
-    // Phase 3: UI setup methods
     this.eventHandlers.startHeaderClock();
     this.eventHandlers.setupMobileWarning();
     this.eventHandlers.setupPlaybackControl();
@@ -424,14 +437,11 @@ export class App {
     this.eventHandlers.setupExportPanel();
     this.eventHandlers.setupUnifiedSettings();
 
-    // Phase 4: SearchManager, MapLayerHandlers, CountryIntel
     this.searchManager.init();
     this.eventHandlers.setupMapLayerHandlers();
     this.countryIntel.init();
 
-    // Phase 5: Event listeners + URL sync
     this.eventHandlers.init();
-    // Capture ?country= and ?expanded= BEFORE URL sync overwrites them
     const initState = parseMapUrlState(window.location.search, this.state.mapLayers);
     this.pendingDeepLinkCountry = initState.country ?? null;
     this.pendingDeepLinkExpanded = initState.expanded === true;
@@ -441,10 +451,26 @@ export class App {
       this.eventHandlers.syncUrlState();
     });
 
-    // Phase 6: Data loading
+    // ── PHASE 4: Data loading (no longer blocking UI) ──
     this.dataLoader.syncDataFreshnessWithLayers();
-    await preloadCountryGeometry();
-    await this.dataLoader.loadAllData();
+    void preloadCountryGeometry().catch(() => {});
+
+    await Promise.all([fetchBootstrapData(), loadNewsSources()]);
+
+    performance.mark('wm:bootstrap-done');
+    performance.measure('wm:bootstrap', 'wm:layout-done', 'wm:bootstrap-done');
+
+    void this.dataLoader.loadAllData()
+      .then(() => {
+        performance.mark('wm:data-done');
+        performance.measure('wm:data-load', 'wm:bootstrap-done', 'wm:data-done');
+        performance.measure('wm:total-init', 'wm:init-start', 'wm:data-done');
+        const totalMs = performance.now() - initStart;
+        if (totalMs > 500) {
+          console.info(`[perf] App.init total: ${Math.round(totalMs)}ms`);
+        }
+      })
+      .catch((e) => console.warn('[DataLoader] loadAllData failed:', e));
 
     startLearning();
 
@@ -459,16 +485,13 @@ export class App {
       this.state.map?.hideLayerToggle('cyberThreats');
     }
 
-    // Phase 7: Refresh scheduling
     this.setupRefreshIntervals();
     this.eventHandlers.setupSnapshotSaving();
     cleanOldSnapshots().catch((e) => console.warn('[Storage] Snapshot cleanup failed:', e));
 
-    // Phase 8: Deep links + update checks
     this.handleDeepLinks();
     this.desktopUpdater.init();
 
-    // Analytics
     trackEvent('wm_app_loaded', {
       load_time_ms: Math.round(performance.now() - initStart),
       panel_count: Object.keys(this.state.panels).length,
