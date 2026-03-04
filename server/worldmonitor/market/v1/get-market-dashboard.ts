@@ -16,7 +16,7 @@ import {
   fetchCoinGeckoMarkets,
   CRYPTO_META,
 } from './_shared';
-import { cachedFetchJson } from '../../../_shared/redis';
+import { cachedFetchJson, setCachedJson } from '../../../_shared/redis';
 
 const REDIS_KEY = 'market:dashboard:v1';
 const REDIS_TTL = 480;
@@ -144,6 +144,9 @@ export async function getMarketDashboard(
             sparkline: yahoo.sparkline,
           });
         }
+      }
+      if (commodities.length > 0) {
+        setCachedJson('market:commodities:v1', { quotes: commodities }, 600).catch(() => {});
       }
 
       // Sectors: prefer Finnhub data, fall back to Yahoo (matches getSectorSummary)

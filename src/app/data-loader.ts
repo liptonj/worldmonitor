@@ -937,13 +937,15 @@ export class DataLoaderManager implements AppModule {
         );
       }
 
-      // Commodities panel
+      // Commodities panel — prefer hydrated bootstrap data for instant display
       const commoditiesPanel = this.ctx.panels['commodities'] as CommoditiesPanel;
-      const commodityData = dashboard.commodities.map((q) => ({
+      const hydratedCommodities = getHydratedData('commodities') as { quotes?: Array<{ display?: string; symbol: string; price?: number; change?: number; sparkline?: number[] }> } | undefined;
+      const commoditySource = hydratedCommodities?.quotes?.length ? hydratedCommodities.quotes : dashboard.commodities;
+      const commodityData = commoditySource.map((q) => ({
         display: q.display || q.symbol,
         price: q.price != null ? q.price : null,
         change: q.change ?? null,
-        sparkline: q.sparkline.length > 0 ? q.sparkline : undefined,
+        sparkline: (q.sparkline?.length ?? 0) > 0 ? (q.sparkline ?? []) : undefined,
       }));
       if (commodityData.length > 0 && commodityData.some((d) => d.price !== null)) {
         commoditiesPanel.renderCommodities(commodityData);

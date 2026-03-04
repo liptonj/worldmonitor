@@ -8,6 +8,7 @@ const BOOTSTRAP_CACHE_KEYS = {
   outages:          'infra:outages:v1',
   serviceStatuses:  'infra:service-statuses:v1',
   sectors:          'market:sectors:v1',
+  commodities:      'market:commodities:v1',
   etfFlows:         'market:etf-flows:v1',
   macroSignals:     'economic:macro-signals:v1',
   bisPolicy:        'economic:bis:policy:v1',
