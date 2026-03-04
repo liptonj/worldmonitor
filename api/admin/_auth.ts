@@ -37,26 +37,23 @@ export async function requireAdmin(req: Request): Promise<AdminUser> {
   const { data: { user }, error } = await userClient.auth.getUser();
   if (error || !user) throw { status: 401, body: 'Invalid or expired token' };
 
-  // Check admin role using the user-scoped client — RLS + is_admin() enforces this
-  const { data: adminRecord, error: adminError } = await userClient
-    .schema('wm_admin')
-    .from('admin_users')
-    .select('role')
-    .eq('user_id', user.id)
-    .single();
+  // Check admin role via public RPC (avoids PostgREST schema exposure requirement)
+  // get_my_admin_role() is SECURITY DEFINER — reads wm_admin.admin_users as owner
+  const { data: role, error: rpcError } = await userClient
+    .rpc('get_my_admin_role');
 
-  if (adminError || !adminRecord) {
-    console.error('[requireAdmin] admin_users lookup failed:', {
+  if (rpcError || !role) {
+    console.error('[requireAdmin] get_my_admin_role failed:', {
       userId: user.id,
       email: user.email,
-      adminError: adminError?.message,
-      adminErrorCode: adminError?.code,
-      hasRecord: !!adminRecord,
+      rpcError: rpcError?.message,
+      rpcErrorCode: rpcError?.code,
+      role,
     });
-    throw { status: 403, body: `Not an admin user (${adminError?.message ?? 'no record'})` };
+    throw { status: 403, body: `Not an admin user (${rpcError?.message ?? 'no record'})` };
   }
 
-  return { id: user.id, email: user.email!, role: adminRecord.role, client: userClient };
+  return { id: user.id, email: user.email!, role: role as string, client: userClient };
 }
 
 export function errorResponse(err: unknown): Response {
