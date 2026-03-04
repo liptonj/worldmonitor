@@ -4,7 +4,7 @@ import type {
     DeductSituationResponse,
 } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
 
-import { getActiveLlmProvider } from '../../../_shared/llm';
+import { getActiveLlmProvider, getLlmPrompt, buildPrompt } from '../../../_shared/llm';
 import { cachedFetchJson } from '../../../_shared/redis';
 import { hashString } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
@@ -37,18 +37,16 @@ export async function deductSituation(
         DEDUCT_CACHE_TTL,
         async () => {
             try {
-                const systemPrompt = `You are a senior geopolitical intelligence analyst and forecaster.
-Your task is to DEDUCT the situation in a near timeline (e.g. 24 hours to a few months) based on the user's query.
-- Use any provided geographic or intelligence context.
-- Be highly analytical, pragmatic, and objective.
-- Identify the most likely outcomes, timelines, and second-order impacts.
-- Do NOT use typical AI preambles (e.g., "Here is the deduction", "Let me see").
-- Format your response in clean markdown with concise bullet points where appropriate.`;
+                const dbPrompt = await getLlmPrompt('deduction', null, null, model);
+                if (!dbPrompt) return null;
 
-                let userPrompt = query;
-                if (geoContext) {
-                    userPrompt += `\n\n### Current Intelligence Context\n${geoContext}`;
-                }
+                const dateStr = new Date().toISOString().split('T')[0];
+                const systemPrompt = buildPrompt(dbPrompt.systemPrompt, { date: dateStr });
+                const userPromptFromDb = buildPrompt(dbPrompt.userPrompt ?? '{query}', {
+                    query,
+                    geoContext,
+                    recentHeadlines: '',
+                });
 
                 const resp = await fetch(apiUrl, {
                     method: 'POST',
@@ -62,7 +60,7 @@ Your task is to DEDUCT the situation in a near timeline (e.g. 24 hours to a few 
                         model,
                         messages: [
                             { role: 'system', content: systemPrompt },
-                            { role: 'user', content: userPrompt },
+                            { role: 'user', content: userPromptFromDb },
                         ],
                         temperature: 0.3,
                         max_tokens: 1500,

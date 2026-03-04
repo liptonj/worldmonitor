@@ -645,6 +645,26 @@ canvas,
   border-color: var(--text-dim);
 }
 
+.header-admin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.header-admin-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .fullscreen-btn {
   padding: 4px 8px;
   background: transparent;
@@ -9598,7 +9618,8 @@ a.prediction-link:hover {
 
   /* Hide non-essential header items */
   .copy-link-btn,
-  .download-wrapper {
+  .download-wrapper,
+  .header-admin-btn {
     display: none;
   }
 }

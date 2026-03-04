@@ -1,0 +1,13 @@
+syntax = "proto3";
+package worldmonitor.intelligence.v1;
+
+message GetGlobalIntelDigestRequest {
+  bool force_refresh = 1;
+}
+
+message GetGlobalIntelDigestResponse {
+  string digest = 1;
+  string model = 2;
+  string provider = 3;
+  string generated_at = 4;
+}

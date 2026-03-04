@@ -89,6 +89,22 @@ export async function summarizeArticle(
   }
 
   try {
+    const dbPrompt = await getLlmPrompt('news_summary', variant, mode, model);
+    if (!dbPrompt) {
+      return {
+        summary: '',
+        model: '',
+        provider: provider,
+        cached: false,
+        tokens: 0,
+        fallback: true,
+        skipped: true,
+        reason: 'DB prompt unavailable',
+        error: '',
+        errorType: '',
+      };
+    }
+
     const cacheKey = getCacheKey(headlines, mode, sanitizedGeoContext, variant, lang);
 
     // Single atomic call — source tracking happens inside cachedFetchJsonWithMeta,
@@ -98,7 +114,6 @@ export async function summarizeArticle(
       CACHE_TTL_SECONDS,
       async () => {
         const uniqueHeadlines = deduplicateHeadlines(headlines.slice(0, 5));
-        const dbPrompt = await getLlmPrompt('article_summary', variant, mode);
         const { systemPrompt, userPrompt } = buildArticlePrompts(headlines, uniqueHeadlines, {
           mode,
           geoContext: sanitizedGeoContext,

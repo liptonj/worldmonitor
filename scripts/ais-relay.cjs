@@ -374,6 +374,41 @@ function withTimeout(promise, ms, label) {
   });
 }
 
+async function ingestTelegramHeadlines(messages) {
+  const secret = RELAY_SHARED_SECRET;
+  // VERCEL_APP_URL: Vercel deployment URL (relay → Vercel direction, opposite of WS_RELAY_URL)
+  const baseUrl = process.env.VERCEL_APP_URL;
+  if (!secret || !baseUrl || !messages || messages.length === 0) return;
+
+  try {
+    const headlines = messages
+      .filter(m => m.text && m.text.trim())
+      .map(m => ({
+        title: m.text.trim().slice(0, 500),
+        pubDate: m.ts ? Math.floor(new Date(m.ts).getTime() / 1000) : Math.floor(Date.now() / 1000),
+        scopes: [...new Set([m.topic || 'global', 'global', 'telegram'])],
+      }));
+
+    if (headlines.length === 0) return;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    fetch(`${baseUrl}/api/cron/ingest-headlines`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [RELAY_AUTH_HEADER]: secret,
+      },
+      body: JSON.stringify({ headlines }),
+      signal: controller.signal,
+    }).then(() => clearTimeout(timeout))
+      .catch(err => console.error('[Relay] Failed to ingest headlines:', err.message));
+  } catch (err) {
+    console.error('[Relay] ingestTelegramHeadlines error:', err.message);
+  }
+}
+
 async function pollTelegramOnce() {
   const ok = await initTelegramClientIfNeeded();
   if (!ok) return;
@@ -451,6 +486,8 @@ async function pollTelegramOnce() {
       })
       .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
       .slice(0, TELEGRAM_MAX_FEED_ITEMS);
+
+    ingestTelegramHeadlines(newItems);
   }
 
   telegramState.lastPollAt = Date.now();

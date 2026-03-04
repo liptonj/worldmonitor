@@ -5,10 +5,10 @@ import type {
   SeverityLevel,
 } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
 
-import { getSecret } from '../../../_shared/secrets';
+import { getActiveLlmProvider, getLlmPrompt, buildPrompt } from '../../../_shared/llm';
 import { cachedFetchJson } from '../../../_shared/redis';
 import { markNoCacheResponse } from '../../../_shared/response-headers';
-import { UPSTREAM_TIMEOUT_MS, GROQ_API_URL, GROQ_MODEL, hashString } from './_shared';
+import { UPSTREAM_TIMEOUT_MS, hashString } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
 
 // ========================================================================
@@ -41,8 +41,9 @@ export async function classifyEvent(
   ctx: ServerContext,
   req: ClassifyEventRequest,
 ): Promise<ClassifyEventResponse> {
-  const apiKey = await getSecret('GROQ_API_KEY');
-  if (!apiKey) { markNoCacheResponse(ctx.request); return { classification: undefined }; }
+  const provider = await getActiveLlmProvider();
+  if (!provider) { markNoCacheResponse(ctx.request); return { classification: undefined }; }
+  const { apiKey, apiUrl, model, extraHeaders } = provider;
 
   // Input sanitization (M-14 fix): limit title length
   const MAX_TITLE_LEN = 500;
@@ -58,23 +59,24 @@ export async function classifyEvent(
       CLASSIFY_CACHE_TTL,
       async () => {
         try {
-          const systemPrompt = `You classify news headlines into threat level and category. Return ONLY valid JSON, no other text.
+          const dbPrompt = await getLlmPrompt('classify_event', null, null, model);
+          if (!dbPrompt) return null;
+          const systemPrompt = buildPrompt(dbPrompt.systemPrompt, {});
+          const userPromptText = buildPrompt(dbPrompt.userPrompt ?? '{title}', { title });
 
-Levels: critical, high, medium, low, info
-Categories: conflict, protest, disaster, diplomatic, economic, terrorism, cyber, health, environmental, military, crime, infrastructure, tech, general
-
-Focus: geopolitical events, conflicts, disasters, diplomacy. Classify by real-world severity and impact.
-
-Return: {"level":"...","category":"..."}`;
-
-          const resp = await fetch(GROQ_API_URL, {
+          const resp = await fetch(apiUrl, {
             method: 'POST',
-            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'User-Agent': CHROME_UA },
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+              'User-Agent': CHROME_UA,
+              ...extraHeaders,
+            },
             body: JSON.stringify({
-              model: GROQ_MODEL,
+              model,
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: title },
+                { role: 'user', content: userPromptText },
               ],
               temperature: 0,
               max_tokens: 50,

@@ -4,9 +4,9 @@ import type {
   GetCountryIntelBriefResponse,
 } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
 
-import { getSecret } from '../../../_shared/secrets';
+import { getActiveLlmProvider, getLlmPrompt, buildPrompt } from '../../../_shared/llm';
 import { cachedFetchJson } from '../../../_shared/redis';
-import { UPSTREAM_TIMEOUT_MS, GROQ_API_URL, GROQ_MODEL, TIER1_COUNTRIES, hashString } from './_shared';
+import { UPSTREAM_TIMEOUT_MS, TIER1_COUNTRIES, hashString } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
 
 // ========================================================================
@@ -27,14 +27,15 @@ export async function getCountryIntelBrief(
     countryCode: req.countryCode,
     countryName: '',
     brief: '',
-    model: GROQ_MODEL,
+    model: '',
     generatedAt: Date.now(),
   };
 
   if (!req.countryCode) return empty;
 
-  const apiKey = await getSecret('GROQ_API_KEY');
-  if (!apiKey) return empty;
+  const provider = await getActiveLlmProvider();
+  if (!provider) return empty;
+  const { apiKey, apiUrl, model, extraHeaders } = provider;
 
   let contextSnapshot = '';
   try {
@@ -47,43 +48,36 @@ export async function getCountryIntelBrief(
   const contextHash = contextSnapshot ? hashString(contextSnapshot) : 'base';
   const cacheKey = `ci-sebuf:v2:${req.countryCode}:${contextHash}`;
   const countryName = TIER1_COUNTRIES[req.countryCode] || req.countryCode;
-  const dateStr = new Date().toISOString().split('T')[0];
-
-  const systemPrompt = `You are a senior intelligence analyst providing comprehensive country situation briefs. Current date: ${dateStr}. Provide geopolitical context appropriate for the current date.
-
-Write a concise intelligence brief for the requested country covering:
-1. Current Situation - what is happening right now
-2. Military & Security Posture
-3. Key Risk Factors
-4. Regional Context
-5. Outlook & Watch Items
-
-Rules:
-- Be specific and analytical
-- 4-5 paragraphs, 250-350 words
-- No speculation beyond what data supports
-- Use plain language, not jargon
-- If a context snapshot is provided, explicitly reflect each non-zero signal category in the brief`;
 
   let result: GetCountryIntelBriefResponse | null = null;
   try {
     result = await cachedFetchJson<GetCountryIntelBriefResponse>(cacheKey, INTEL_CACHE_TTL, async () => {
       try {
-        const userPromptParts = [
-          `Country: ${countryName} (${req.countryCode})`,
-        ];
-        if (contextSnapshot) {
-          userPromptParts.push(`Context snapshot:\n${contextSnapshot}`);
-        }
+        const dateStr = new Date().toISOString().split('T')[0];
+        const dbPrompt = await getLlmPrompt('intel_brief', null, null, model);
+        if (!dbPrompt) return null;
 
-        const resp = await fetch(GROQ_API_URL, {
+        const systemPrompt = buildPrompt(dbPrompt.systemPrompt, { date: dateStr });
+        const userPrompt = buildPrompt(dbPrompt.userPrompt ?? '', {
+          countryName,
+          countryCode: req.countryCode,
+          contextSnapshot,
+          recentHeadlines: '',
+        });
+
+        const resp = await fetch(apiUrl, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'User-Agent': CHROME_UA },
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'User-Agent': CHROME_UA,
+            ...extraHeaders,
+          },
           body: JSON.stringify({
-            model: GROQ_MODEL,
+            model,
             messages: [
               { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPromptParts.join('\n\n') },
+              { role: 'user', content: userPrompt },
             ],
             temperature: 0.4,
             max_tokens: 900,
@@ -93,14 +87,16 @@ Rules:
 
         if (!resp.ok) return null;
         const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        const brief = data.choices?.[0]?.message?.content?.trim() || '';
+        const brief = (data.choices?.[0]?.message?.content?.trim() || '')
+          .replace(/<think>[\s\S]*?<\/think>/gi, '')
+          .trim();
         if (!brief) return null;
 
         return {
           countryCode: req.countryCode,
           countryName,
           brief,
-          model: GROQ_MODEL,
+          model,
           generatedAt: Date.now(),
         };
       } catch {

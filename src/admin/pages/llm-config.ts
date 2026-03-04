@@ -13,15 +13,25 @@ type LlmPrompt = {
   prompt_key: string;
   variant: string | null;
   mode: string | null;
+  model_name: string | null;
   system_prompt: string;
   user_prompt: string | null;
   description: string | null;
 };
 
-const KNOWN_PLACEHOLDERS = [
-  '{date}', '{dateContext}', '{headlineText}',
-  '{intelSection}', '{langInstruction}',
-];
+const PLACEHOLDERS_BY_KEY: Record<string, string[]> = {
+  news_summary:   ['{dateContext}', '{langInstruction}', '{headlineText}', '{intelSection}', '{targetLang}'],
+  intel_brief:    ['{date}', '{countryName}', '{countryCode}', '{contextSnapshot}', '{recentHeadlines}'],
+  deduction:      ['{date}', '{query}', '{geoContext}', '{recentHeadlines}'],
+  classify_event: ['{title}'],
+  intel_digest:   ['{date}', '{recentHeadlines}', '{classificationSummary}', '{countrySignals}'],
+};
+
+const ALL_PLACEHOLDERS = [...new Set(Object.values(PLACEHOLDERS_BY_KEY).flat())];
+
+function getPlaceholders(key: string): string[] {
+  return PLACEHOLDERS_BY_KEY[key] ?? ALL_PLACEHOLDERS;
+}
 
 function badge(text: string, color = 'var(--text-muted)'): string {
   return `<span style="display:inline-block;padding:2px 8px;border-radius:12px;background:var(--surface);border:1px solid var(--border);color:${color};font-size:11px;font-weight:600">${text}</span>`;
@@ -250,11 +260,12 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
     addPromptFormEl.innerHTML = sectionCard(`
       <h4 style="margin:0 0 16px;font-size:14px;color:var(--accent)">New Prompt</h4>
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:16px">
-        Available placeholders: ${KNOWN_PLACEHOLDERS.map(p => `<code>${escHtml(p)}</code>`).join(', ')}
+        Available placeholders vary by key. Common: ${ALL_PLACEHOLDERS.map(p => `<code>${escHtml(p)}</code>`).join(', ')}
       </p>
       ${fieldRow('Prompt Key *', textInput('prompt_key', '', 'e.g. news_summary'))}
       ${fieldRow('Variant', textInput('variant', '', 'e.g. tech  (blank = any)'))}
       ${fieldRow('Mode', textInput('mode', '', 'e.g. brief  (blank = any)'))}
+      ${fieldRow('Model Name', textInput('model_name', '', 'e.g. qwen3-wm  (blank = any model)'))}
       ${fieldRow('Description', textInput('description', '', 'Short description…'))}
       ${fieldRow('System Prompt *', textArea('system_prompt', '', 8))}
       ${fieldRow('User Prompt', textArea('user_prompt', '', 4))}
@@ -279,6 +290,7 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
         user_prompt: getField('user_prompt') || null,
         variant: getField('variant') || null,
         mode: getField('mode') || null,
+        model_name: getField('model_name') || null,
         description: getField('description') || null,
       };
       if (!body.prompt_key || !body.system_prompt) {
@@ -349,7 +361,7 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
       });
       if (!res.ok) return;
       const history = (await res.json()) as Array<{
-        id: string; prompt_id: string; system_prompt: string;
+        id: string; prompt_id: string; system_prompt: string; user_prompt: string | null;
         changed_by: string | null; changed_at: string;
       }>;
 
@@ -377,7 +389,7 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
         entryEl.innerHTML = `
           <div style="color:var(--text-muted);font-size:11px;margin-bottom:6px">${escHtml(date)} — ${escHtml(entry.changed_by ?? 'unknown')}</div>
           <div style="font-size:12px;font-family:monospace;color:var(--text);margin-bottom:10px;white-space:pre-wrap">${escHtml(preview)}</div>
-          ${ghostBtn('Revert to this version', `data-revert="${entry.prompt_id}" data-content="${escHtml(entry.system_prompt ?? '')}"`)}
+          ${ghostBtn('Revert to this version', `data-revert="${entry.prompt_id}" data-content="${escHtml(entry.system_prompt ?? '')}" data-user-prompt="${escHtml(entry.user_prompt ?? '')}"`)}
         `;
         modal.appendChild(entryEl);
       }
@@ -386,10 +398,13 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
       modal.querySelectorAll('[data-revert]').forEach(btn => {
         btn.addEventListener('click', () => {
           const pid = (btn as HTMLElement).dataset['revert']!;
-          const content = (btn as HTMLElement).dataset['content']!;
+          const systemContent = (btn as HTMLElement).dataset['content']!;
+          const userContent = (btn as HTMLElement).dataset['userPrompt'] ?? '';
           const block = promptsEl.querySelector<HTMLElement>(`[data-prompt-id="${pid}"]`);
-          const ta = block?.querySelector<HTMLTextAreaElement>('[data-field="system_prompt"]');
-          if (ta) ta.value = content;
+          const sysTa = block?.querySelector<HTMLTextAreaElement>('[data-field="system_prompt"]');
+          const userTa = block?.querySelector<HTMLTextAreaElement>('[data-field="user_prompt"]');
+          if (sysTa) sysTa.value = systemContent;
+          if (userTa) userTa.value = userContent;
           overlay.remove();
         });
       });
@@ -405,10 +420,11 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px">
             ${badge(p.variant ?? 'any variant')}
             ${badge(p.mode ?? 'any mode')}
+            ${badge(p.model_name ?? 'any model')}
             ${p.description ? `<span style="font-size:12px;color:var(--text-muted)">${escHtml(p.description)}</span>` : ''}
           </div>
           <p style="color:var(--text-muted);font-size:11px;margin:0 0 10px">
-            Placeholders: ${KNOWN_PLACEHOLDERS.map(ph => `<code>${escHtml(ph)}</code>`).join(', ')}
+            Placeholders: ${getPlaceholders(activeKey).map(ph => `<code>${escHtml(ph)}</code>`).join(', ')}
           </p>
           <div style="margin-bottom:12px">
             <label style="display:block;color:var(--text-muted);font-size:12px;font-weight:600;margin-bottom:4px">System Prompt</label>

@@ -6,12 +6,14 @@ import { classifyEvent } from './classify-event';
 import { getCountryIntelBrief } from './get-country-intel-brief';
 import { searchGdeltDocuments } from './search-gdelt-documents';
 import { deductSituation } from './deduct-situation';
+import { getGlobalIntelDigest } from './get-global-intel-digest';
 
-export const intelligenceHandler: IntelligenceServiceHandler = {
+export const intelligenceHandler = {
   getRiskScores,
   getPizzintStatus,
   classifyEvent,
   getCountryIntelBrief,
   searchGdeltDocuments,
   deductSituation,
-};
+  getGlobalIntelDigest,
+} as IntelligenceServiceHandler;

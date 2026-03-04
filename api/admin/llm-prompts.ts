@@ -1,5 +1,6 @@
 // api/admin/llm-prompts.ts
 import { requireAdmin, errorResponse, corsHeaders } from './_auth';
+import { invalidateLlmCache } from '../../server/_shared/llm';
 
 export const config = { runtime: 'edge' };
 
@@ -32,7 +33,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'POST') {
     const body = (await req.json()) as {
       prompt_key: string; system_prompt: string; user_prompt?: string;
-      variant?: string; mode?: string; description?: string;
+      variant?: string; mode?: string; description?: string; model_name?: string;
     };
     if (!body.prompt_key || !body.system_prompt)
       return new Response(JSON.stringify({ error: 'prompt_key and system_prompt required' }), { status: 400, headers });
@@ -43,8 +44,10 @@ export default async function handler(req: Request): Promise<Response> {
       p_variant: body.variant ?? null,
       p_mode: body.mode ?? null,
       p_description: body.description ?? null,
+      p_model_name: body.model_name ?? null,
     });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+    await invalidateLlmCache();
     return new Response(JSON.stringify({ prompt: data }), { status: 201, headers });
   }
 
@@ -57,6 +60,7 @@ export default async function handler(req: Request): Promise<Response> {
       p_user_prompt: body.user_prompt ?? null,
     });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+    await invalidateLlmCache();
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }
 
@@ -64,6 +68,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (!id) return new Response(JSON.stringify({ error: 'id required' }), { status: 400, headers });
     const { error } = await client.rpc('admin_delete_llm_prompt', { p_id: id });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+    await invalidateLlmCache();
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }
 
