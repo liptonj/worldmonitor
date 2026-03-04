@@ -634,6 +634,15 @@ export class Panel {
     replaceChildren(this.content, h('div', { className: 'error-message' }, message));
   }
 
+  public showUnavailable(message = t('common.unavailable')): void {
+    replaceChildren(this.content,
+      h('div', { className: 'panel-unavailable' },
+        h('div', { className: 'panel-unavailable-icon' }, '⚠'),
+        h('div', { className: 'panel-unavailable-text' }, message),
+      ),
+    );
+  }
+
   public showRetrying(message = t('common.retrying')): void {
     replaceChildren(this.content,
       h('div', { className: 'panel-loading' },

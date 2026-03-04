@@ -32,6 +32,9 @@ function extractOriginFromReferer(referer) {
   }
 }
 
+const KEY_CACHE = new Map();
+const KEY_CACHE_TTL_MS = 60_000;
+
 async function sha256hex(input) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -47,8 +50,14 @@ async function isValidKey(rawKey) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) return false;
 
+  const keyHash = await sha256hex(rawKey);
+
+  const cached = KEY_CACHE.get(keyHash);
+  if (cached && Date.now() - cached.ts < KEY_CACHE_TTL_MS) {
+    return cached.valid;
+  }
+
   try {
-    const keyHash = await sha256hex(rawKey);
     const res = await fetch(`${supabaseUrl}/rest/v1/rpc/verify_app_key`, {
       method: 'POST',
       headers: {
@@ -61,7 +70,15 @@ async function isValidKey(rawKey) {
     });
     if (!res.ok) return false;
     const result = await res.json();
-    return result === true;
+    const valid = result === true;
+    KEY_CACHE.set(keyHash, { valid, ts: Date.now() });
+
+    if (KEY_CACHE.size > 100) {
+      const oldest = KEY_CACHE.keys().next().value;
+      KEY_CACHE.delete(oldest);
+    }
+
+    return valid;
   } catch {
     return false;
   }

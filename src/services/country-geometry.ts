@@ -176,7 +176,9 @@ async function ensureLoaded(): Promise<void> {
     if (typeof fetch !== 'function') return;
 
     try {
-      const response = await fetch(COUNTRY_GEOJSON_URL);
+      const response = await fetch(COUNTRY_GEOJSON_URL, {
+        signal: AbortSignal.timeout(10_000),
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }

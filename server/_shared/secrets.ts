@@ -41,7 +41,9 @@ export async function getSecret(secretName: string): Promise<string | undefined>
     return process.env[secretName] ?? undefined;
   }
 
-  // If Supabase is not configured, fall through to env
+  // If Supabase is not configured (service role absent), fall through to env.
+  // In production, SUPABASE_SERVICE_ROLE_KEY must be set as an env var in Vercel.
+  // In local dev, individual secrets can be set in .env as a fallback.
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return process.env[secretName] ?? undefined;
   }
@@ -57,7 +59,7 @@ export async function getSecret(secretName: string): Promise<string | undefined>
     }
   }
 
-  // 2. Supabase Vault
+  // 2. Supabase Vault (service-role client — has EXECUTE on wm_admin.get_vault_secret)
   try {
     const supabase = createServiceClient();
     const { data, error } = await supabase

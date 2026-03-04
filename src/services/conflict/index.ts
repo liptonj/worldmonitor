@@ -11,6 +11,7 @@ import {
 } from '@/generated/client/worldmonitor/conflict/v1/service_client';
 import type { UcdpGeoEvent, UcdpEventType } from '@/types';
 import { createCircuitBreaker } from '@/utils';
+import { getHydratedData } from '@/services/bootstrap';
 
 // ---- Client + Circuit Breakers (3 separate breakers for 3 RPCs) ----
 
@@ -303,6 +304,12 @@ interface UcdpEventsResponse {
 }
 
 export async function fetchUcdpEvents(): Promise<UcdpEventsResponse> {
+  const hydrated = getHydratedData('ucdpEvents') as { events?: ProtoUcdpEvent[] } | undefined;
+  if (hydrated?.events?.length) {
+    const data = hydrated.events.map(toUcdpGeoEvent);
+    return { success: true, count: data.length, data, cached_at: '' };
+  }
+
   const resp = await ucdpBreaker.execute(async () => {
     return client.listUcdpEvents({ country: '', start: 0, end: 0, pageSize: 0, cursor: '' });
   }, emptyUcdpFallback);

@@ -70,7 +70,7 @@ export async function summarizeArticle(
     };
   }
 
-  const { apiUrl, model, headers: providerHeaders, extraBody } = credentials;
+  const { apiUrl, model, headers: providerHeaders, extraBody, useOllamaNativeApi } = credentials;
 
   // Request validation
   if (!headlines || !Array.isArray(headlines) || headlines.length === 0) {
@@ -106,20 +106,22 @@ export async function summarizeArticle(
           lang,
         }, dbPrompt);
 
+        const requestBody = {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.3,
+          top_p: 0.9,
+          ...extraBody,
+        };
+        console.log(`[SummarizeArticle:${provider}] → ${apiUrl} model=${model} think=${(extraBody as any)?.think} max_tokens=${(extraBody as any)?.max_tokens} hasCFAccess=${!!providerHeaders['CF-Access-Client-Id']}`);
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { ...providerHeaders, 'User-Agent': CHROME_UA },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            temperature: 0.3,
-            top_p: 0.9,
-            ...extraBody,
-          }),
-          signal: AbortSignal.timeout(30_000),
+          body: JSON.stringify(requestBody),
+          signal: AbortSignal.timeout(60_000),
         });
 
         if (!response.ok) {
@@ -131,7 +133,11 @@ export async function summarizeArticle(
         const data = await response.json() as any;
         const tokens = (data.usage?.total_tokens as number) || 0;
         const message = data.choices?.[0]?.message;
-        let rawContent = typeof message?.content === 'string' ? message.content.trim() : '';
+        // Some thinking models (e.g. qwen3) return content in message.reasoning
+        // when think mode is enabled; use content first, fall back to reasoning.
+        let rawContent = typeof message?.content === 'string' && message.content.trim()
+          ? message.content.trim()
+          : typeof message?.reasoning === 'string' ? message.reasoning.trim() : '';
 
         rawContent = rawContent
           .replace(/<think>[\s\S]*?<\/think>/gi, '')

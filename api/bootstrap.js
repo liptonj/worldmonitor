@@ -20,6 +20,8 @@ const BOOTSTRAP_CACHE_KEYS = {
   climateAnomalies: 'climate:anomalies:v1',
   wildfires:        'wildfire:fires:v1',
   ucdpEvents:       'conflict:ucdp-events:v1',
+  newsSources:      'wm:config:sources:v1:full',
+  featureFlags:     'wm:config:flags:v1',
 };
 
 const NEG_SENTINEL = '__WM_NEG__';
@@ -72,10 +74,19 @@ export default async function handler(req) {
     });
 
   const url = new URL(req.url);
+  const ALLOWED_VARIANTS = ['full', 'tech', 'finance', 'happy'];
+  const raw = url.searchParams.get('variant') || 'full';
+  const variant = ALLOWED_VARIANTS.includes(raw) ? raw : 'full';
   const requested = url.searchParams.get('keys')?.split(',').filter(Boolean);
+
+  const dynamicKeys = {
+    ...BOOTSTRAP_CACHE_KEYS,
+    newsSources: `wm:config:sources:v1:${variant}`,
+  };
+
   const registry = requested
-    ? Object.fromEntries(Object.entries(BOOTSTRAP_CACHE_KEYS).filter(([k]) => requested.includes(k)))
-    : BOOTSTRAP_CACHE_KEYS;
+    ? Object.fromEntries(Object.entries(dynamicKeys).filter(([k]) => requested.includes(k)))
+    : dynamicKeys;
 
   const keys = Object.values(registry);
   const names = Object.keys(registry);

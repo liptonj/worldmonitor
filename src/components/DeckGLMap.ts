@@ -369,6 +369,18 @@ export class DeckGLMap {
   private debouncedFetchBases: () => void;
   private rafUpdateLayers: () => void;
   private moveTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private deckReady = false;
+
+  private deckErrorHandler = (event: ErrorEvent): void => {
+    const msg = "Cannot read properties of null (reading 'id')";
+    if (
+      event.error instanceof TypeError &&
+      (event.message?.includes(msg) || event.error.message?.includes(msg))
+    ) {
+      event.preventDefault();
+      console.warn('[DeckGLMap] Suppressed non-fatal deck.gl interleaved render error');
+    }
+  };
 
   constructor(container: HTMLElement, initialState: DeckMapState) {
     this.container = container;
@@ -376,13 +388,13 @@ export class DeckGLMap {
     this.hotspots = [...INTEL_HOTSPOTS];
 
     this.debouncedRebuildLayers = debounce(() => {
-      if (this.renderPaused || this.webglLost || !this.maplibreMap) return;
+      if (this.renderPaused || this.webglLost || !this.maplibreMap || !this.deckReady) return;
       this.maplibreMap.resize();
       try { this.deckOverlay?.setProps({ layers: this.buildLayers() }); } catch { /* map mid-teardown */ }
     }, 150);
     this.debouncedFetchBases = debounce(() => this.fetchServerBases(), 300);
     this.rafUpdateLayers = rafSchedule(() => {
-      if (this.renderPaused || this.webglLost || !this.maplibreMap) return;
+      if (this.renderPaused || this.webglLost || !this.maplibreMap || !this.deckReady) return;
       try { this.deckOverlay?.setProps({ layers: this.buildLayers() }); } catch { /* map mid-teardown */ }
     });
 
@@ -398,6 +410,7 @@ export class DeckGLMap {
     });
 
     this.initMapLibre();
+    window.addEventListener('error', this.deckErrorHandler);
 
     this.maplibreMap?.on('load', () => {
       this.rebuildTechHQSupercluster();
@@ -499,7 +512,7 @@ export class DeckGLMap {
 
     this.deckOverlay = new MapboxOverlay({
       interleaved: true,
-      layers: this.buildLayers(),
+      layers: [],
       getTooltip: (info: PickingInfo) => this.getTooltip(info),
       onClick: (info: PickingInfo) => this.handleClick(info),
       pickingRadius: 10,
@@ -508,6 +521,8 @@ export class DeckGLMap {
     });
 
     this.maplibreMap.addControl(this.deckOverlay as unknown as maplibregl.IControl);
+    this.deckReady = true;
+    requestAnimationFrame(() => this.updateLayers());
 
     this.maplibreMap.on('movestart', () => {
       if (this.moveTimeoutId) {
@@ -1004,17 +1019,17 @@ export class DeckGLMap {
     COLORS = getOverlayColors();
     const layers: (Layer | null | false)[] = [];
     const { layers: mapLayers } = this.state;
-    const filteredEarthquakes = mapLayers.natural ? this.filterByTime(this.earthquakes, (eq) => eq.occurredAt) : [];
-    const filteredNaturalEvents = mapLayers.natural ? this.filterByTime(this.naturalEvents, (event) => event.date) : [];
-    const filteredWeatherAlerts = mapLayers.weather ? this.filterByTime(this.weatherAlerts, (alert) => alert.onset) : [];
-    const filteredOutages = mapLayers.outages ? this.filterByTime(this.outages, (outage) => outage.pubDate) : [];
-    const filteredCableAdvisories = mapLayers.cables ? this.filterByTime(this.cableAdvisories, (advisory) => advisory.reported) : [];
-    const filteredFlightDelays = mapLayers.flights ? this.filterByTime(this.flightDelays, (delay) => delay.updatedAt) : [];
-    const filteredMilitaryFlights = mapLayers.military ? this.filterByTime(this.militaryFlights, (flight) => flight.lastSeen) : [];
-    const filteredMilitaryVessels = mapLayers.military ? this.filterByTime(this.militaryVessels, (vessel) => vessel.lastAisUpdate) : [];
+    const filteredEarthquakes = mapLayers.natural ? this.filterByTime(this.earthquakes, (eq) => eq.occurredAt).filter(Boolean) : [];
+    const filteredNaturalEvents = mapLayers.natural ? this.filterByTime(this.naturalEvents, (event) => event.date).filter(Boolean) : [];
+    const filteredWeatherAlerts = mapLayers.weather ? this.filterByTime(this.weatherAlerts, (alert) => alert.onset).filter(Boolean) : [];
+    const filteredOutages = mapLayers.outages ? this.filterByTime(this.outages, (outage) => outage.pubDate).filter(Boolean) : [];
+    const filteredCableAdvisories = mapLayers.cables ? this.filterByTime(this.cableAdvisories, (advisory) => advisory.reported).filter(Boolean) : [];
+    const filteredFlightDelays = mapLayers.flights ? this.filterByTime(this.flightDelays, (delay) => delay.updatedAt).filter(Boolean) : [];
+    const filteredMilitaryFlights = mapLayers.military ? this.filterByTime(this.militaryFlights, (flight) => flight.lastSeen).filter(Boolean) : [];
+    const filteredMilitaryVessels = mapLayers.military ? this.filterByTime(this.militaryVessels, (vessel) => vessel.lastAisUpdate).filter(Boolean) : [];
     const filteredMilitaryFlightClusters = mapLayers.military ? this.filterMilitaryFlightClustersByTime(this.militaryFlightClusters) : [];
     const filteredMilitaryVesselClusters = mapLayers.military ? this.filterMilitaryVesselClustersByTime(this.militaryVesselClusters) : [];
-    const filteredUcdpEvents = mapLayers.ucdpEvents ? this.filterByTime(this.ucdpEvents, (event) => event.date_start) : [];
+    const filteredUcdpEvents = mapLayers.ucdpEvents ? this.filterByTime(this.ucdpEvents, (event) => event.date_start).filter(Boolean) : [];
 
     // Day/night overlay (rendered first as background)
     if (mapLayers.dayNight) {
@@ -3583,7 +3598,7 @@ export class DeckGLMap {
   }
 
   private updateLayers(): void {
-    if (this.renderPaused || this.webglLost || !this.maplibreMap) return;
+    if (this.renderPaused || this.webglLost || !this.maplibreMap || !this.deckReady) return;
     const startTime = performance.now();
     try {
       this.deckOverlay?.setProps({ layers: this.buildLayers() });
@@ -3883,17 +3898,17 @@ export class DeckGLMap {
 
   // Data setters - all use render() for debouncing
   public setEarthquakes(earthquakes: Earthquake[]): void {
-    this.earthquakes = earthquakes;
+    this.earthquakes = earthquakes.filter(Boolean);
     this.render();
   }
 
   public setWeatherAlerts(alerts: WeatherAlert[]): void {
-    this.weatherAlerts = alerts;
+    this.weatherAlerts = alerts.filter(Boolean);
     this.render();
   }
 
   public setOutages(outages: InternetOutage[]): void {
-    this.outages = outages;
+    this.outages = outages.filter(Boolean);
     this.render();
   }
 
@@ -3914,8 +3929,8 @@ export class DeckGLMap {
   }
 
   public setCableActivity(advisories: CableAdvisory[], repairShips: RepairShip[]): void {
-    this.cableAdvisories = advisories;
-    this.repairShips = repairShips;
+    this.cableAdvisories = advisories.filter(Boolean);
+    this.repairShips = repairShips.filter(Boolean);
     this.render();
   }
 
@@ -3926,26 +3941,26 @@ export class DeckGLMap {
   }
 
   public setProtests(events: SocialUnrestEvent[]): void {
-    this.protests = events;
+    this.protests = events.filter(Boolean);
     this.rebuildProtestSupercluster();
     this.render();
     this.syncPulseAnimation();
   }
 
   public setFlightDelays(delays: AirportDelayAlert[]): void {
-    this.flightDelays = delays;
+    this.flightDelays = delays.filter(Boolean);
     this.render();
   }
 
   public setMilitaryFlights(flights: MilitaryFlight[], clusters: MilitaryFlightCluster[] = []): void {
-    this.militaryFlights = flights;
-    this.militaryFlightClusters = clusters;
+    this.militaryFlights = flights.filter(Boolean);
+    this.militaryFlightClusters = clusters.filter(Boolean);
     this.render();
   }
 
   public setMilitaryVessels(vessels: MilitaryVessel[], clusters: MilitaryVesselCluster[] = []): void {
-    this.militaryVessels = vessels;
-    this.militaryVesselClusters = clusters;
+    this.militaryVessels = vessels.filter(Boolean);
+    this.militaryVesselClusters = clusters.filter(Boolean);
     this.render();
   }
 
@@ -3970,12 +3985,12 @@ export class DeckGLMap {
   }
 
   public setNaturalEvents(events: NaturalEvent[]): void {
-    this.naturalEvents = events;
+    this.naturalEvents = events.filter(Boolean);
     this.render();
   }
 
   public setFires(fires: Array<{ lat: number; lon: number; brightness: number; frp: number; confidence: number; region: string; acq_date: string; daynight: string }>): void {
-    this.firmsFireData = fires;
+    this.firmsFireData = fires.filter(Boolean);
     this.render();
   }
 
@@ -3986,7 +4001,7 @@ export class DeckGLMap {
   }
 
   public setUcdpEvents(events: UcdpGeoEvent[]): void {
-    this.ucdpEvents = events;
+    this.ucdpEvents = events.filter(Boolean);
     this.render();
   }
 
@@ -4006,8 +4021,9 @@ export class DeckGLMap {
   }
 
   public setNewsLocations(data: Array<{ lat: number; lon: number; title: string; threatLevel: string; timestamp?: Date }>): void {
+    const safeData = (data ?? []).filter(Boolean);
     const now = Date.now();
-    for (const d of data) {
+    for (const d of safeData) {
       if (!this.newsLocationFirstSeen.has(d.title)) {
         this.newsLocationFirstSeen.set(d.title, now);
       }
@@ -4015,7 +4031,7 @@ export class DeckGLMap {
     for (const [key, ts] of this.newsLocationFirstSeen) {
       if (now - ts > 60_000) this.newsLocationFirstSeen.delete(key);
     }
-    this.newsLocations = data;
+    this.newsLocations = safeData;
     this.render();
 
     this.syncPulseAnimation(now);
@@ -4561,6 +4577,8 @@ export class DeckGLMap {
   }
 
   public destroy(): void {
+    window.removeEventListener('error', this.deckErrorHandler);
+    this.deckReady = false;
     if (this.moveTimeoutId) {
       clearTimeout(this.moveTimeoutId);
       this.moveTimeoutId = null;

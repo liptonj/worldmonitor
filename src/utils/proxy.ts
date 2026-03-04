@@ -3,6 +3,7 @@ import { getPersistentCache, setPersistentCache } from '../services/persistent-c
 
 const isDev = import.meta.env.DEV;
 const RESPONSE_CACHE_PREFIX = 'api-response:';
+const PROXY_FETCH_TIMEOUT_MS = 15_000;
 
 type CachedResponsePayload = {
   url: string;
@@ -59,7 +60,9 @@ function toResponse(payload: CachedResponsePayload): Response {
 }
 
 async function fetchAndPersist(url: string): Promise<Response> {
-  const response = await fetch(proxyUrl(url));
+  const response = await fetch(proxyUrl(url), {
+    signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
+  });
   if (response.ok && shouldPersistResponse(url)) {
     try {
       const body = await response.clone().text();
@@ -73,7 +76,9 @@ async function fetchAndPersist(url: string): Promise<Response> {
 
 export async function fetchWithProxy(url: string): Promise<Response> {
   if (!shouldPersistResponse(url)) {
-    return fetch(proxyUrl(url));
+    return fetch(proxyUrl(url), {
+      signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
+    });
   }
 
   const cacheKey = buildResponseCacheKey(url);

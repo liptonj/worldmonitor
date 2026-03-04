@@ -127,6 +127,19 @@ import { getPersistentCache, setPersistentCache } from '@/services/persistent-ca
 import type { ThreatLevel as ClientThreatLevel } from '@/services/threat-classifier';
 import type { NewsItem as ProtoNewsItem, ThreatLevel as ProtoThreatLevel } from '@/generated/client/worldmonitor/news/v1/service_client';
 
+/** Maps task names (used in runGuarded) to panel keys (used in ctx.panels / ctx.newsPanels). */
+const TASK_TO_PANEL: Record<string, string> = {
+  predictions: 'polymarket',
+  fred: 'economic',
+  oil: 'economic',
+  spending: 'economic',
+  bis: 'economic',
+  tradePolicy: 'trade-policy',
+  supplyChain: 'supply-chain',
+  techReadiness: 'tech-readiness',
+  firms: 'satellite-fires',
+};
+
 const PROTO_TO_CLIENT_LEVEL: Record<ProtoThreatLevel, ClientThreatLevel> = {
   THREAT_LEVEL_UNSPECIFIED: 'info',
   THREAT_LEVEL_LOW: 'low',
@@ -266,7 +279,14 @@ export class DataLoaderManager implements AppModule {
       try {
         await fn();
       } catch (e) {
-        if (!this.ctx.isDestroyed) console.error(`[App] ${name} failed:`, e);
+        if (!this.ctx.isDestroyed) {
+          console.error(`[App] ${name} failed:`, e);
+          const panelKey = TASK_TO_PANEL[name] ?? name;
+          const panel = this.ctx.panels[panelKey] ?? this.ctx.newsPanels[panelKey];
+          if (panel && typeof panel.showUnavailable === 'function') {
+            panel.showUnavailable();
+          }
+        }
       } finally {
         this.ctx.inFlight.delete(name);
       }
@@ -561,49 +581,6 @@ export class DataLoaderManager implements AppModule {
 
       // Digest branch: server already aggregated feeds — map proto items to client types
       if (digest?.categories && category in digest.categories) {
-        let items = (digest.categories[category]?.items ?? [])
-          .map(protoItemToNewsItem)
-          .filter(i => enabledNames.has(i.source));
-
-        ingestHeadlines(items.map(i => ({ title: i.title, pubDate: i.pubDate, source: i.source, link: i.link })));
-
-        const aiCandidates = items
-          .filter(i => i.threat?.source === 'keyword')
-          .sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime())
-          .slice(0, AI_CLASSIFY_MAX_PER_FEED);
-        for (const item of aiCandidates) {
-          if (!canQueueAiClassification(item.title)) continue;
-          classifyWithAI(item.title, SITE_VARIANT).then(ai => {
-            if (ai && item.threat && ai.confidence > item.threat.confidence) {
-              item.threat = ai;
-              item.isAlert = ai.level === 'critical' || ai.level === 'high';
-            }
-          }).catch(() => {});
-        }
-
-        checkBatchForBreakingAlerts(items);
-        this.flashMapForNews(items);
-        this.renderNewsForCategory(category, items);
-
-        this.ctx.statusPanel?.updateFeed(category.charAt(0).toUpperCase() + category.slice(1), {
-          status: 'ok',
-          itemCount: items.length,
-        });
-
-        if (panel) {
-          try {
-            const baseline = await updateBaseline(`news:${category}`, items.length);
-            const deviation = calculateDeviation(items.length, baseline);
-            panel.setDeviation(deviation.zScore, deviation.percentChange, deviation.level);
-          } catch (e) { console.warn(`[Baseline] news:${category} write failed:`, e); }
-        }
-
-        return items;
-      }
-
-      // Digest branch: server already aggregated feeds — map proto items to client types
-      if (digest?.categories && category in digest.categories) {
-        const enabledNames = new Set(enabledFeeds.map(f => f.name));
         let items = (digest.categories[category]?.items ?? [])
           .map(protoItemToNewsItem)
           .filter(i => enabledNames.has(i.source));

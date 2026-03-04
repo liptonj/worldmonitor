@@ -1,10 +1,17 @@
 // src/services/feature-flag-client.ts
 import type { MlFeatureFlags, MlThresholds } from '@/config/ml-config';
+import { getHydratedFeatureFlags } from '@/services/bootstrap';
 
 const FETCH_TIMEOUT_MS = 3_000;
 let _flags: Record<string, unknown> | null = null;
 
 export async function loadFeatureFlags(): Promise<void> {
+  const hydrated = getHydratedFeatureFlags();
+  if (hydrated) {
+    _flags = hydrated;
+    return;
+  }
+
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -40,7 +47,7 @@ export function getMLThresholds(): MlThresholds {
     semanticClusterThreshold: flag<number>('ml.semanticClusterThreshold') ?? 0.75,
     minClustersForML: flag<number>('ml.minClustersForML') ?? 5,
     maxTextsPerBatch: flag<number>('ml.maxTextsPerBatch') ?? 20,
-    modelLoadTimeoutMs: flag<number>('ml.modelLoadTimeoutMs') ?? 600_000,
+    modelLoadTimeoutMs: flag<number>('ml.modelLoadTimeoutMs') ?? 60_000,
     inferenceTimeoutMs: flag<number>('ml.inferenceTimeoutMs') ?? 120_000,
     memoryBudgetMB: flag<number>('ml.memoryBudgetMB') ?? 200,
   };

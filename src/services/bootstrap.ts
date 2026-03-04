@@ -1,3 +1,8 @@
+import type { NewsSourceRow } from '@/services/feed-client';
+import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
+
+const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+
 const hydrationCache = new Map<string, unknown>();
 
 export function getHydratedData(key: string): unknown | undefined {
@@ -6,10 +11,28 @@ export function getHydratedData(key: string): unknown | undefined {
   return val;
 }
 
-export async function fetchBootstrapData(): Promise<void> {
+export async function fetchBootstrapData(variant: string = 'full'): Promise<void> {
+  const cacheKey = `bootstrap:v2:${variant}`;
+
+  // Phase 1: Load stale data from IndexedDB for instant hydration
   try {
-    const resp = await fetch('/api/bootstrap', {
-      signal: AbortSignal.timeout(800),
+    const cached = await getPersistentCache<Record<string, unknown>>(cacheKey);
+    if (cached?.data && typeof cached.data === 'object') {
+      const age = Date.now() - (cached.updatedAt ?? 0);
+      if (age < STALE_THRESHOLD_MS) {
+        for (const [k, v] of Object.entries(cached.data)) {
+          if (v !== null && v !== undefined) hydrationCache.set(k, v);
+        }
+      }
+    }
+  } catch {
+    /* IndexedDB unavailable */
+  }
+
+  // Phase 2: Fetch fresh data from server (overwrites stale hydration)
+  try {
+    const resp = await fetch(`/api/bootstrap?variant=${encodeURIComponent(variant)}`, {
+      signal: AbortSignal.timeout(3_000),
     });
     if (!resp.ok) return;
     const { data } = (await resp.json()) as { data: Record<string, unknown> };
@@ -18,7 +41,29 @@ export async function fetchBootstrapData(): Promise<void> {
         hydrationCache.set(k, v);
       }
     }
+    // Save for next visit (fire-and-forget)
+    void setPersistentCache(cacheKey, data).catch(() => {});
   } catch {
-    // silent — panels fall through to individual calls
+    // If server fetch failed but we had stale data, panels will use that
   }
+}
+
+export function getHydratedNewsSources(): NewsSourceRow[] | null {
+  const val = hydrationCache.get('newsSources');
+  if (val !== undefined) {
+    hydrationCache.delete('newsSources');
+    if (!Array.isArray(val)) return null;
+    return val as NewsSourceRow[];
+  }
+  return null;
+}
+
+export function getHydratedFeatureFlags(): Record<string, unknown> | null {
+  const val = hydrationCache.get('featureFlags');
+  if (val !== undefined) {
+    hydrationCache.delete('featureFlags');
+    if (typeof val !== 'object' || val === null || Array.isArray(val)) return null;
+    return val as Record<string, unknown>;
+  }
+  return null;
 }

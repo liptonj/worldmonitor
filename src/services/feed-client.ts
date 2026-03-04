@@ -1,6 +1,7 @@
 // src/services/feed-client.ts
 import type { Feed } from '@/types';
 import { SITE_VARIANT } from '@/config/variant';
+import { getHydratedNewsSources } from '@/services/bootstrap';
 
 // Static structural config — region keys to label keys and feed category keys
 export const SOURCE_REGION_MAP: Record<string, { labelKey: string; feedKeys: string[] }> = {
@@ -60,7 +61,7 @@ export interface SourceRiskProfile {
   note?: string;
 }
 
-interface NewsSourceRow {
+export interface NewsSourceRow {
   name: string;
   url: string | Record<string, string>;
   tier: number;
@@ -80,7 +81,32 @@ let _sources: NewsSourceRow[] | null = null;
 let _feeds: Record<string, Feed[]> | null = null;
 let _intelSources: Feed[] | null = null;
 
+function buildFeedsFromSources(): void {
+  if (!_sources) return;
+  _feeds = {};
+  _intelSources = [];
+  for (const src of _sources) {
+    const url =
+      typeof src.url === 'string'
+        ? `/api/rss-proxy?url=${encodeURIComponent(src.url)}`
+        : src.url;
+    const feed: Feed = { name: src.name, url };
+    if (src.category === 'intel') {
+      _intelSources.push(feed);
+    } else {
+      (_feeds[src.category] ??= []).push(feed);
+    }
+  }
+}
+
 export async function loadNewsSources(): Promise<void> {
+  const hydrated = getHydratedNewsSources();
+  if (hydrated) {
+    _sources = hydrated;
+    buildFeedsFromSources();
+    return;
+  }
+
   try {
     const variant = SITE_VARIANT || 'full';
     const controller = new AbortController();
@@ -89,22 +115,7 @@ export async function loadNewsSources(): Promise<void> {
     clearTimeout(timer);
     if (!res.ok) return;
     _sources = await res.json();
-
-    // Build grouped feeds
-    _feeds = {};
-    _intelSources = [];
-    for (const src of _sources!) {
-      const url =
-        typeof src.url === 'string'
-          ? `/api/rss-proxy?url=${encodeURIComponent(src.url)}`
-          : src.url;
-      const feed: Feed = { name: src.name, url };
-      if (src.category === 'intel') {
-        _intelSources.push(feed);
-      } else {
-        (_feeds[src.category] ??= []).push(feed);
-      }
-    }
+    buildFeedsFromSources();
   } catch {
     /* fetch failed — features degrade */
   }
