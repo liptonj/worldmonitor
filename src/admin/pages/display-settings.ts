@@ -9,17 +9,22 @@ export function renderDisplaySettingsPage(container: HTMLElement, token: string)
 
   async function load(): Promise<void> {
     const body = container.querySelector<HTMLElement>('#display-settings-body')!;
-    const res = await fetch('/api/admin/display-settings', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const json = (await res.json()) as {
-      time_format?: string;
-      timezone_mode?: string;
-      temp_unit?: string;
-      error?: string;
-    };
+    try {
+      const res = await fetch('/api/admin/display-settings', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = (await res.json()) as {
+        time_format?: string;
+        timezone_mode?: string;
+        temp_unit?: string;
+        error?: string;
+      };
     if (json.error) {
-      body.innerHTML = `<p style="color:var(--error)">${json.error}</p>`;
+      const errP = document.createElement('p');
+      errP.style.color = 'var(--error)';
+      errP.textContent = json.error as string;
+      body.innerHTML = '';
+      body.appendChild(errP);
       return;
     }
 
@@ -98,6 +103,10 @@ export function renderDisplaySettingsPage(container: HTMLElement, token: string)
         }
       });
     });
+    } catch (err) {
+      body.textContent = 'Failed to load display settings.';
+      console.error('[display-settings] load error:', err);
+    }
   }
 
   load();

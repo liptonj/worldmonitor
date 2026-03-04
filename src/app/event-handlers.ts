@@ -66,6 +66,7 @@ export class EventHandlerManager implements AppModule {
   private boundFullscreenHandler: (() => void) | null = null;
   private boundResizeHandler: (() => void) | null = null;
   private boundVisibilityHandler: (() => void) | null = null;
+  private displayPrefsHandler: (() => void) | null = null;
   private boundDesktopExternalLinkHandler: ((e: MouseEvent) => void) | null = null;
   private boundIdleResetHandler: (() => void) | null = null;
   private idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -164,6 +165,10 @@ export class EventHandlerManager implements AppModule {
     if (this.clockIntervalId) {
       clearInterval(this.clockIntervalId);
       this.clockIntervalId = null;
+    }
+    if (this.displayPrefsHandler) {
+      window.removeEventListener('display-prefs-changed', this.displayPrefsHandler);
+      this.displayPrefsHandler = null;
     }
     this.ctx.tvMode?.destroy();
     this.ctx.tvMode = null;
@@ -274,12 +279,13 @@ export class EventHandlerManager implements AppModule {
       this.updateHeaderThemeIcon();
     });
 
-    window.addEventListener('display-prefs-changed', () => {
+    this.displayPrefsHandler = () => {
       if (this.clockIntervalId) {
         clearInterval(this.clockIntervalId);
       }
       this.startHeaderClock();
-    });
+    };
+    window.addEventListener('display-prefs-changed', this.displayPrefsHandler);
 
     if (this.ctx.isDesktopApp) {
       if (this.boundDesktopExternalLinkHandler) {

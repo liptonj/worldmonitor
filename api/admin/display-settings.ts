@@ -18,11 +18,12 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   if (req.method === 'PUT') {
-    const body = (await req.json()) as {
-      time_format?: string;
-      timezone_mode?: string;
-      temp_unit?: string;
-    };
+    let body: { time_format?: string; timezone_mode?: string; temp_unit?: string };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers });
+    }
     const { error } = await client.rpc('admin_update_display_settings', {
       p_time_format: body.time_format ?? null,
       p_timezone_mode: body.timezone_mode ?? null,
