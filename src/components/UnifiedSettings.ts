@@ -5,6 +5,7 @@ import { LANGUAGES, changeLanguage, getCurrentLanguage, t } from '@/services/i18
 import { getAiFlowSettings, setAiFlowSetting, getStreamQuality, setStreamQuality, STREAM_QUALITY_OPTIONS } from '@/services/ai-flow-settings';
 import type { StreamQuality } from '@/services/ai-flow-settings';
 import { escapeHtml } from '@/utils/sanitize';
+import { getTimeFormat, getTimezoneMode, getTempUnit, setTimeFormat, setTimezoneMode, setTempUnit } from '@/utils/display-prefs';
 import { trackLanguageChange } from '@/services/analytics';
 import type { PanelConfig } from '@/types';
 import type { StatusPanel } from './StatusPanel';
@@ -152,6 +153,20 @@ export class UnifiedSettings {
       // Stream quality select
       if (target.id === 'us-stream-quality') {
         setStreamQuality(target.value as StreamQuality);
+        return;
+      }
+
+      // Display preference selects
+      if (target.id === 'us-time-format') {
+        setTimeFormat(target.value as '24h' | '12h');
+        return;
+      }
+      if (target.id === 'us-timezone-mode') {
+        setTimezoneMode(target.value as 'utc' | 'local');
+        return;
+      }
+      if (target.id === 'us-temp-unit') {
+        setTempUnit(target.value as 'celsius' | 'fahrenheit');
         return;
       }
 
@@ -337,6 +352,45 @@ export class UnifiedSettings {
       html += `<option value="${opt.value}"${selected}>${opt.label}</option>`;
     }
     html += `</select>`;
+
+    // Display section
+    html += `<div class="ai-flow-section-label">Display</div>`;
+
+    // Time format select
+    html += `<div class="ai-flow-toggle-row">
+  <div class="ai-flow-toggle-label-wrap">
+    <div class="ai-flow-toggle-label">Time Format</div>
+    <div class="ai-flow-toggle-desc">Choose 24-hour or 12-hour clock display</div>
+  </div>
+</div>`;
+    html += `<select class="unified-settings-lang-select" id="us-time-format">
+  <option value="24h"${getTimeFormat() === '24h' ? ' selected' : ''}>24-hour</option>
+  <option value="12h"${getTimeFormat() === '12h' ? ' selected' : ''}>12-hour (AM/PM)</option>
+</select>`;
+
+    // Timezone select
+    html += `<div class="ai-flow-toggle-row">
+  <div class="ai-flow-toggle-label-wrap">
+    <div class="ai-flow-toggle-label">Timezone</div>
+    <div class="ai-flow-toggle-desc">Show times in UTC or your local timezone</div>
+  </div>
+</div>`;
+    html += `<select class="unified-settings-lang-select" id="us-timezone-mode">
+  <option value="utc"${getTimezoneMode() === 'utc' ? ' selected' : ''}>UTC</option>
+  <option value="local"${getTimezoneMode() === 'local' ? ' selected' : ''}>Local timezone</option>
+</select>`;
+
+    // Temperature unit select
+    html += `<div class="ai-flow-toggle-row">
+  <div class="ai-flow-toggle-label-wrap">
+    <div class="ai-flow-toggle-label">Temperature Unit</div>
+    <div class="ai-flow-toggle-desc">Display temperatures in Celsius or Fahrenheit</div>
+  </div>
+</div>`;
+    html += `<select class="unified-settings-lang-select" id="us-temp-unit">
+  <option value="celsius"${getTempUnit() === 'celsius' ? ' selected' : ''}>Celsius (°C)</option>
+  <option value="fahrenheit"${getTempUnit() === 'fahrenheit' ? ' selected' : ''}>Fahrenheit (°F)</option>
+</select>`;
 
     // Language section
     html += `<div class="ai-flow-section-label">${t('header.languageLabel')}</div>`;
