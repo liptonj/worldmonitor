@@ -185,6 +185,7 @@ export async function fetchCrypto(): Promise<CryptoData[]> {
 const dashboardBreaker = createCircuitBreaker<GetMarketDashboardResponse>({
   name: 'Market Dashboard',
   cacheTtlMs: 0,
+  cooldownMs: 90_000,
 });
 
 const emptyDashboardFallback: GetMarketDashboardResponse = {
