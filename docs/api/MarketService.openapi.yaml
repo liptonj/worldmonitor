@@ -253,6 +253,34 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Error'
+    /api/market/v1/get-market-dashboard:
+        get:
+            tags:
+                - MarketService
+            summary: GetMarketDashboard
+            description: |-
+                GetMarketDashboard returns all core market data (stocks, commodities, sectors, crypto)
+                 in a single response. Symbols are DB-configured via get_market_symbols().
+            operationId: GetMarketDashboard
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetMarketDashboardResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidationError'
+                default:
+                    description: Error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Error'
 components:
     schemas:
         Error:
@@ -721,3 +749,35 @@ components:
                         type: number
                         format: double
             description: GulfQuote represents a Gulf region market quote (index, currency, or oil).
+        GetMarketDashboardRequest:
+            type: object
+            description: GetMarketDashboardRequest requires no parameters — symbols come from DB config.
+        GetMarketDashboardResponse:
+            type: object
+            properties:
+                stocks:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/MarketQuote'
+                commodities:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/CommodityQuote'
+                sectors:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/SectorPerformance'
+                crypto:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/CryptoQuote'
+                finnhubSkipped:
+                    type: boolean
+                    description: True when Finnhub API key is not configured.
+                skipReason:
+                    type: string
+                    description: Reason when Finnhub was skipped.
+                rateLimited:
+                    type: boolean
+                    description: True when upstream APIs rate-limited the request.
+            description: GetMarketDashboardResponse contains all core market data in one response.
