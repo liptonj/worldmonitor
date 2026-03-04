@@ -112,7 +112,8 @@ export class TelegramIntelPanel extends Panel {
       : this.items.filter(item => item.topic === this.activeTopic);
     if (filtered.length === 0) return null;
     const lines = filtered.slice(0, 10).map((item, i) => `${i + 1}. ${item.text.slice(0, 120)}${item.text.length > 120 ? '...' : ''}`);
-    return `[Telegram Intel]\n${lines.join('\n')}`;
+    const topicLabel = this.activeTopic !== 'all' ? `: ${this.activeTopic}` : '';
+    return `[Telegram Intel${topicLabel}]\n${lines.join('\n')}`;
   }
 
   public async refresh(): Promise<void> {
