@@ -15,6 +15,7 @@ export class SummarizeViewModal {
     this.element = document.createElement('div');
     this.element.className = 'summarize-view-modal-overlay';
     this.element.setAttribute('aria-modal', 'true');
+    this.element.setAttribute('role', 'dialog');
     this.element.setAttribute('aria-label', t('modals.summarizeView.title'));
 
     this.element.innerHTML = `
@@ -60,7 +61,11 @@ export class SummarizeViewModal {
   }
 
   setError(message: string): void {
-    this.contentEl.innerHTML = `<div class="summarize-view-error">${message}</div>`;
+    this.contentEl.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'summarize-view-error';
+    div.textContent = message;
+    this.contentEl.appendChild(div);
     this.footerEl.innerHTML = '';
   }
 
