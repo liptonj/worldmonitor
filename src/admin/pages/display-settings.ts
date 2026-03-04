@@ -58,12 +58,12 @@ export function renderDisplaySettingsPage(container: HTMLElement, token: string)
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0;border-bottom:1px solid var(--border)">
         <div>
-          <div style="font-weight:500;margin-bottom:4px">Temperature Unit</div>
-          <div style="color:var(--text-muted);font-size:13px">Default unit for temperature display</div>
+          <div style="font-weight:500;margin-bottom:4px">Measurement Units</div>
+          <div style="color:var(--text-muted);font-size:13px">Temperature and precipitation units (Celsius/mm or Fahrenheit/inches)</div>
         </div>
         <select id="temp-unit" data-field="temp_unit" style="${selectStyle}">
-          <option value="celsius" ${tempUnit === 'celsius' ? 'selected' : ''}>Celsius (°C)</option>
-          <option value="fahrenheit" ${tempUnit === 'fahrenheit' ? 'selected' : ''}>Fahrenheit (°F)</option>
+          <option value="celsius" ${tempUnit === 'celsius' ? 'selected' : ''}>Metric (°C, mm)</option>
+          <option value="fahrenheit" ${tempUnit === 'fahrenheit' ? 'selected' : ''}>Imperial (°F, in)</option>
         </select>
       </div>
     `;

@@ -122,3 +122,16 @@ export function convertTemp(celsiusDelta: number): number {
 export function getTempUnitLabel(): string {
   return getTempUnit() === 'fahrenheit' ? '°F' : '°C';
 }
+
+/**
+ * Converts precipitation from mm to inches when imperial (fahrenheit) is selected.
+ * 1 inch = 25.4 mm
+ */
+export function convertPrecip(mm: number): number {
+  if (getTempUnit() === 'fahrenheit') return mm / 25.4;
+  return mm;
+}
+
+export function getPrecipUnitLabel(): string {
+  return getTempUnit() === 'fahrenheit' ? 'in' : 'mm';
+}

@@ -2,7 +2,7 @@ import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
 import { type ClimateAnomaly, getSeverityIcon, formatDelta } from '@/services/climate';
 import { t } from '@/services/i18n';
-import { convertTemp, getTempUnitLabel } from '@/utils/display-prefs';
+import { convertTemp, getTempUnitLabel, convertPrecip, getPrecipUnitLabel } from '@/utils/display-prefs';
 
 export class ClimateAnomalyPanel extends Panel {
   private anomalies: ClimateAnomaly[] = [];
@@ -55,7 +55,7 @@ export class ClimateAnomalyPanel extends Panel {
       return `<tr class="climate-row${rowClass}" data-lat="${a.lat}" data-lon="${a.lon}">
         <td class="climate-zone"><span class="climate-icon">${icon}</span>${escapeHtml(a.zone)}</td>
         <td class="climate-num ${tempClass}">${formatDelta(convertTemp(a.tempDelta), getTempUnitLabel())}</td>
-        <td class="climate-num ${precipClass}">${formatDelta(a.precipDelta, 'mm')}</td>
+        <td class="climate-num ${precipClass}">${formatDelta(convertPrecip(a.precipDelta), getPrecipUnitLabel())}</td>
         <td><span class="climate-badge ${sevClass}">${t(`components.climate.severity.${a.severity}`)}</span></td>
       </tr>`;
     }).join('');

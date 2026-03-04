@@ -383,13 +383,13 @@ export class UnifiedSettings {
     // Temperature unit select
     html += `<div class="ai-flow-toggle-row">
   <div class="ai-flow-toggle-label-wrap">
-    <div class="ai-flow-toggle-label">Temperature Unit</div>
-    <div class="ai-flow-toggle-desc">Display temperatures in Celsius or Fahrenheit</div>
+    <div class="ai-flow-toggle-label">Measurement Units</div>
+    <div class="ai-flow-toggle-desc">Temperature (°C/°F) and precipitation (mm/in)</div>
   </div>
 </div>`;
     html += `<select class="unified-settings-lang-select" id="us-temp-unit">
-  <option value="celsius"${getTempUnit() === 'celsius' ? ' selected' : ''}>Celsius (°C)</option>
-  <option value="fahrenheit"${getTempUnit() === 'fahrenheit' ? ' selected' : ''}>Fahrenheit (°F)</option>
+  <option value="celsius"${getTempUnit() === 'celsius' ? ' selected' : ''}>Metric (°C, mm)</option>
+  <option value="fahrenheit"${getTempUnit() === 'fahrenheit' ? ' selected' : ''}>Imperial (°F, in)</option>
 </select>`;
 
     // Language section
