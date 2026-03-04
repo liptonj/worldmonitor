@@ -38,7 +38,7 @@ export class SummarizeViewModal {
         this.hide();
       }
     });
-    document.addEventListener('keydown', this.escHandler);
+    // Escape listener is added in show() and removed in hide()
   }
 
   show(): void {
