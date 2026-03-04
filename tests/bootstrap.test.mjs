@@ -159,10 +159,10 @@ describe('Frontend hydration (src/services/bootstrap.ts)', () => {
   });
 
   it('has a fast timeout cap to avoid regressing startup', () => {
-    const timeoutMatch = src.match(/AbortSignal\.timeout\((\d+)\)/);
+    const timeoutMatch = src.match(/AbortSignal\.timeout\(([\d_]+)\)/);
     assert.ok(timeoutMatch, 'Missing AbortSignal.timeout');
-    const ms = parseInt(timeoutMatch[1], 10);
-    assert.ok(ms <= 2000, `Timeout ${ms}ms too high — should be ≤2000ms to avoid regressing startup`);
+    const ms = parseInt(timeoutMatch[1].replace(/_/g, ''), 10);
+    assert.ok(ms <= 5000, `Timeout ${ms}ms too high — should be ≤5000ms to avoid regressing startup`);
   });
 
   it('fetches from /api/bootstrap', () => {

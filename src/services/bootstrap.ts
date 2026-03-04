@@ -9,7 +9,7 @@ export function getHydratedData(key: string): unknown | undefined {
 export async function fetchBootstrapData(): Promise<void> {
   try {
     const resp = await fetch('/api/bootstrap', {
-      signal: AbortSignal.timeout(800),
+      signal: AbortSignal.timeout(3_000),
     });
     if (!resp.ok) return;
     const { data } = (await resp.json()) as { data: Record<string, unknown> };
