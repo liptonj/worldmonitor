@@ -116,4 +116,16 @@ export class RefreshScheduler implements AppModule {
       this.scheduleRefresh(reg.name, reg.fn, reg.intervalMs, reg.condition);
     }
   }
+
+  /**
+   * Schedules a refresh registration after an initial delay.
+   * Used for non-critical background polls that should not compete with startup data loading.
+   */
+  registerDeferred(registration: RefreshRegistration, delayMs: number): void {
+    if (this.ctx.isDestroyed) return;
+    setTimeout(() => {
+      if (this.ctx.isDestroyed) return;
+      this.scheduleRefresh(registration.name, registration.fn, registration.intervalMs, registration.condition);
+    }, delayMs);
+  }
 }
