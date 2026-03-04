@@ -131,7 +131,7 @@ export async function summarizeArticle(
           top_p: 0.9,
           ...extraBody,
         };
-        console.log(`[SummarizeArticle:${provider}] → ${apiUrl} model=${model} think=${(extraBody as any)?.think} max_tokens=${(extraBody as any)?.max_tokens} hasCFAccess=${!!providerHeaders['CF-Access-Client-Id']}`);
+        console.log(`[SummarizeArticle:${provider}] → ${apiUrl} model=${model} think=${(extraBody as any)?.think ?? (extraBody as any)?.options?.think} max_tokens=${(extraBody as any)?.max_tokens ?? (extraBody as any)?.options?.num_predict} hasCFAccess=${!!providerHeaders['CF-Access-Client-Id']}`);
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { ...providerHeaders, 'User-Agent': CHROME_UA },
@@ -147,7 +147,11 @@ export async function summarizeArticle(
 
         const data = await response.json() as any;
         const tokens = (data.usage?.total_tokens as number) || 0;
-        const message = data.choices?.[0]?.message;
+        // Native Ollama /api/chat returns { message: {role, content} }
+        // OpenAI-compat /v1/chat/completions returns { choices: [{message: {role, content}}] }
+        const message = useOllamaNativeApi
+          ? data.message
+          : data.choices?.[0]?.message;
         // Some thinking models (e.g. qwen3) return content in message.reasoning
         // when think mode is enabled; use content first, fall back to reasoning.
         let rawContent = typeof message?.content === 'string' && message.content.trim()

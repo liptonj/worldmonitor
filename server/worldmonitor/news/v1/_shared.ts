@@ -154,6 +154,7 @@ export async function getProviderCredentials(provider: string): Promise<Provider
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
+      extraBody: { max_tokens: 1500 },
     };
   }
 
