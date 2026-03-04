@@ -777,6 +777,7 @@ export class PanelLayoutManager implements AppModule {
     });
 
     this.applyPanelSettings();
+    this.setupBottomGridToggle();
     this.applyInitialUrlState();
   }
 
@@ -944,6 +945,37 @@ export class PanelLayoutManager implements AppModule {
         }
       });
     }
+  }
+
+  private setupBottomGridToggle(): void {
+    const toggleBtn = document.getElementById('mapBottomGridToggle');
+    const bottomGrid = document.getElementById('mapBottomGrid');
+    const panelsGrid = document.getElementById('panelsGrid');
+    if (!toggleBtn || !bottomGrid || !panelsGrid) return;
+
+    const isVisible = localStorage.getItem('map-bottom-grid-visible') === 'true';
+
+    const applyState = (visible: boolean) => {
+      if (visible) {
+        bottomGrid.classList.remove('bottom-grid-hidden');
+        toggleBtn.classList.add('bottom-toggle-active');
+      } else {
+        const panelsInBottom = Array.from(bottomGrid.querySelectorAll('.panel')) as HTMLElement[];
+        panelsInBottom.forEach(panelEl => panelsGrid.appendChild(panelEl));
+        if (panelsInBottom.length > 0) this.savePanelOrder();
+
+        bottomGrid.classList.add('bottom-grid-hidden');
+        toggleBtn.classList.remove('bottom-toggle-active');
+      }
+      localStorage.setItem('map-bottom-grid-visible', String(visible));
+    };
+
+    applyState(isVisible);
+
+    toggleBtn.addEventListener('click', () => {
+      const currentlyVisible = !bottomGrid.classList.contains('bottom-grid-hidden');
+      applyState(!currentlyVisible);
+    });
   }
 
   private attachRelatedAssetHandlers(panel: NewsPanel): void {
