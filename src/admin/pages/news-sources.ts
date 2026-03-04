@@ -16,7 +16,7 @@ type NewsSource = {
 };
 
 const KNOWN_VARIANTS = ['full', 'tech', 'finance', 'happy', 'world'];
-const PROXY_MODES    = ['proxy', 'railway', 'direct', 'rss'];
+const PROXY_MODES    = ['proxy', 'relay', 'direct', 'rss'];
 const PROP_RISKS     = ['low', 'medium', 'high'];
 
 function escHtml(s: string): string {

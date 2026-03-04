@@ -76,7 +76,7 @@ CREATE TABLE wm_admin.news_sources (
   source_type  TEXT,
   lang         TEXT        NOT NULL DEFAULT 'en',
   proxy_mode   TEXT        NOT NULL DEFAULT 'rss'
-                           CHECK (proxy_mode IN ('rss', 'railway', 'direct')),
+                           CHECK (proxy_mode IN ('rss', 'relay', 'direct')),
   propaganda_risk      TEXT    NOT NULL DEFAULT 'low'
                                CHECK (propaganda_risk IN ('low', 'medium', 'high')),
   state_affiliated     TEXT,

@@ -7,7 +7,7 @@
  *
  * Secrets that MUST stay in process.env (never in Vault):
  *   UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN — used by this module itself
- *   RELAY_SHARED_SECRET, RELAY_AUTH_HEADER — also read by Railway relay server
+ *   RELAY_SHARED_SECRET, RELAY_AUTH_HEADER — also read by relay server (relay.5ls.us)
  *   SUPABASE_*, CONVEX_URL, VERCEL_*, NODE_ENV
  */
 

@@ -1,8 +1,8 @@
-# Relay Parameters (Railway + Vercel)
+# Relay Parameters (relay.5ls.us + Vercel)
 
 This document covers all environment variables used by the AIS/OpenSky relay path:
 
-- Railway relay process: `scripts/ais-relay.cjs`
+- Relay process: `scripts/ais-relay.cjs` — running at `https://relay.5ls.us`
 - Vercel relay proxy endpoints: `api/opensky.js`, `api/ais-snapshot.js`, `api/polymarket.js`, `api/rss-proxy.js`
 - Server relay callers: `server/worldmonitor/*` handlers
 - Optional browser local fallback callers in `src/services/*`
@@ -11,7 +11,7 @@ This document covers all environment variables used by the AIS/OpenSky relay pat
 
 Set these before enabling strict relay auth.
 
-### Railway (relay)
+### Relay server (relay.5ls.us)
 
 | Variable | Required | Example | Notes |
 | --- | --- | --- | --- |
@@ -23,8 +23,8 @@ Set these before enabling strict relay auth.
 
 | Variable | Required | Example | Notes |
 | --- | --- | --- | --- |
-| `WS_RELAY_URL` | Yes | `https://<railway-app>.up.railway.app` | HTTPS relay base URL used by server-side proxy calls. |
-| `RELAY_SHARED_SECRET` | Yes | `wm_relay_prod_...` | Must exactly match Railway value. |
+| `WS_RELAY_URL` | Yes | `https://relay.5ls.us` | HTTPS relay base URL used by server-side proxy calls. |
+| `RELAY_SHARED_SECRET` | Yes | `wm_relay_prod_...` | Must exactly match relay server value. |
 | `RELAY_AUTH_HEADER` | Recommended | `x-relay-key` | Header name used to forward relay secret. |
 
 ## 2) Full Parameter Reference
@@ -33,15 +33,15 @@ Set these before enabling strict relay auth.
 
 | Variable | Set On | Default | Required | Purpose |
 | --- | --- | --- | --- | --- |
-| `AISSTREAM_API_KEY` | Railway | none | Yes | Auth for AIS upstream stream source. |
+| `AISSTREAM_API_KEY` | Relay server | none | Yes | Auth for AIS upstream stream source. |
 | `VITE_AISSTREAM_API_KEY` | Local dev only | none | No | Local fallback if `AISSTREAM_API_KEY` is missing. Not recommended for production. |
-| `PORT` | Railway/local | `3004` | No | HTTP server listen port for relay process. |
-| `WS_RELAY_URL` | Vercel + server handlers | none | Yes (for relay-backed features) | Base URL used by Vercel/server to reach Railway relay. |
+| `PORT` | Relay server | `3004` | No | HTTP server listen port for relay process. |
+| `WS_RELAY_URL` | Vercel + server handlers | none | Yes (for relay-backed features) | Base URL used by Vercel/server to reach relay. |
 | `VITE_WS_RELAY_URL` | Browser (local dev) | none | No | Localhost fallback path for direct browser calls in development only. |
-| `RELAY_SHARED_SECRET` | Railway + Vercel | empty | Yes in production | Shared secret for non-public relay routes. |
-| `RELAY_AUTH_HEADER` | Railway + Vercel | `x-relay-key` | No (but recommended explicit) | Header name carrying relay secret. |
-| `ALLOW_UNAUTHENTICATED_RELAY` | Railway | `false` | No | Emergency override. If `true`, production can start without secret. Keep `false`. |
-| `ALLOW_VERCEL_PREVIEW_ORIGINS` | Railway | `false` | No | If `true`, allows `*.vercel.app` origins in relay CORS checks. |
+| `RELAY_SHARED_SECRET` | Relay server + Vercel | empty | Yes in production | Shared secret for non-public relay routes. |
+| `RELAY_AUTH_HEADER` | Relay server + Vercel | `x-relay-key` | No (but recommended explicit) | Header name carrying relay secret. |
+| `ALLOW_UNAUTHENTICATED_RELAY` | Relay server | `false` | No | Emergency override. If `true`, production can start without secret. Keep `false`. |
+| `ALLOW_VERCEL_PREVIEW_ORIGINS` | Relay server | `false` | No | If `true`, allows `*.vercel.app` origins in relay CORS checks. |
 
 ## Relay-Adjacent Feature Flags
 
@@ -55,38 +55,38 @@ Set these before enabling strict relay auth.
 
 | Variable | Set On | Default | Required | Purpose |
 | --- | --- | --- | --- | --- |
-| `OPENSKY_CLIENT_ID` | Railway | none | No (recommended) | OAuth client ID for higher OpenSky reliability/rate limits. |
-| `OPENSKY_CLIENT_SECRET` | Railway | none | No (recommended) | OAuth client secret paired with client ID. |
+| `OPENSKY_CLIENT_ID` | Relay server | none | No (recommended) | OAuth client ID for higher OpenSky reliability/rate limits. |
+| `OPENSKY_CLIENT_SECRET` | Relay server | none | No (recommended) | OAuth client secret paired with client ID. |
 
 ## OpenSky Cache/Cardinality Controls
 
 | Variable | Set On | Default | Required | Purpose |
 | --- | --- | --- | --- | --- |
-| `OPENSKY_CACHE_MAX_ENTRIES` | Railway | `128` | No | Max positive cache keys retained in memory. |
-| `OPENSKY_NEGATIVE_CACHE_MAX_ENTRIES` | Railway | `256` | No | Max negative cache keys (`429/5xx`) retained in memory. |
-| `OPENSKY_BBOX_QUANT_STEP` | Railway | `0.01` | No | Coordinate quantization step for bbox cache key reuse. `0` disables quantization. |
+| `OPENSKY_CACHE_MAX_ENTRIES` | Relay server | `128` | No | Max positive cache keys retained in memory. |
+| `OPENSKY_NEGATIVE_CACHE_MAX_ENTRIES` | Relay server | `256` | No | Max negative cache keys (`429/5xx`) retained in memory. |
+| `OPENSKY_BBOX_QUANT_STEP` | Relay server | `0.01` | No | Coordinate quantization step for bbox cache key reuse. `0` disables quantization. |
 
 ## AIS Pipeline Tuning
 
 | Variable | Set On | Default | Required | Purpose |
 | --- | --- | --- | --- | --- |
-| `AIS_SNAPSHOT_INTERVAL_MS` | Railway | `5000` (min `2000`) | No | Interval for rebuilding snapshot payloads. |
-| `AIS_UPSTREAM_QUEUE_HIGH_WATER` | Railway | `4000` (min `500`) | No | Pause upstream socket when queue reaches this. |
-| `AIS_UPSTREAM_QUEUE_LOW_WATER` | Railway | `1000` (clamped `< HIGH_WATER`) | No | Resume upstream socket when queue drops below this. |
-| `AIS_UPSTREAM_QUEUE_HARD_CAP` | Railway | `8000` (must be `> HIGH_WATER`) | No | Max queue size before dropping incoming upstream messages. |
-| `AIS_UPSTREAM_DRAIN_BATCH` | Railway | `250` (min `1`) | No | Max messages drained per cycle. |
-| `AIS_UPSTREAM_DRAIN_BUDGET_MS` | Railway | `20` (min `2`) | No | Max CPU time budget per drain cycle. |
+| `AIS_SNAPSHOT_INTERVAL_MS` | Relay server | `5000` (min `2000`) | No | Interval for rebuilding snapshot payloads. |
+| `AIS_UPSTREAM_QUEUE_HIGH_WATER` | Relay server | `4000` (min `500`) | No | Pause upstream socket when queue reaches this. |
+| `AIS_UPSTREAM_QUEUE_LOW_WATER` | Relay server | `1000` (clamped `< HIGH_WATER`) | No | Resume upstream socket when queue drops below this. |
+| `AIS_UPSTREAM_QUEUE_HARD_CAP` | Relay server | `8000` (must be `> HIGH_WATER`) | No | Max queue size before dropping incoming upstream messages. |
+| `AIS_UPSTREAM_DRAIN_BATCH` | Relay server | `250` (min `1`) | No | Max messages drained per cycle. |
+| `AIS_UPSTREAM_DRAIN_BUDGET_MS` | Relay server | `20` (min `2`) | No | Max CPU time budget per drain cycle. |
 
 ## Rate Limit / Logging / Metrics
 
 | Variable | Set On | Default | Required | Purpose |
 | --- | --- | --- | --- | --- |
-| `RELAY_RATE_LIMIT_WINDOW_MS` | Railway | `60000` | No | Global rate-limit window. |
-| `RELAY_RATE_LIMIT_MAX` | Railway | `1200` | No | Default max requests per IP per window. |
-| `RELAY_OPENSKY_RATE_LIMIT_MAX` | Railway | `600` | No | OpenSky route max requests per IP per window. |
-| `RELAY_RSS_RATE_LIMIT_MAX` | Railway | `300` | No | RSS route max requests per IP per window. |
-| `RELAY_LOG_THROTTLE_MS` | Railway | `10000` | No | Minimum interval between repeated log events per key. |
-| `RELAY_METRICS_WINDOW_SECONDS` | Railway | `60` (min `10`) | No | Rolling window used by `/metrics`. |
+| `RELAY_RATE_LIMIT_WINDOW_MS` | Relay server | `60000` | No | Global rate-limit window. |
+| `RELAY_RATE_LIMIT_MAX` | Relay server | `1200` | No | Default max requests per IP per window. |
+| `RELAY_OPENSKY_RATE_LIMIT_MAX` | Relay server | `600` | No | OpenSky route max requests per IP per window. |
+| `RELAY_RSS_RATE_LIMIT_MAX` | Relay server | `300` | No | RSS route max requests per IP per window. |
+| `RELAY_LOG_THROTTLE_MS` | Relay server | `10000` | No | Minimum interval between repeated log events per key. |
+| `RELAY_METRICS_WINDOW_SECONDS` | Relay server | `60` (min `10`) | No | Rolling window used by `/metrics`. |
 
 ## Platform-Managed Variables (Do Not Manually Set)
 
@@ -95,9 +95,6 @@ These are used only for production detection and are usually injected by platfor
 | Variable | Who sets it | Purpose |
 | --- | --- | --- |
 | `NODE_ENV` | Runtime/platform | Used to detect production mode. |
-| `RAILWAY_ENVIRONMENT` | Railway | Used to detect production relay environment. |
-| `RAILWAY_PROJECT_ID` | Railway | Used to detect production relay environment. |
-| `RAILWAY_STATIC_URL` | Railway | Used to detect production relay environment. |
 
 ## 3) Recommended Starting Values (High Traffic Baseline)
 
@@ -107,7 +104,7 @@ These are safe starting points for a busy relay:
 # Auth + routing
 RELAY_SHARED_SECRET=<strong-random-secret>
 RELAY_AUTH_HEADER=x-relay-key
-WS_RELAY_URL=https://<your-railway-relay>.up.railway.app
+WS_RELAY_URL=https://relay.5ls.us
 ALLOW_UNAUTHENTICATED_RELAY=false
 
 # OpenSky cache/cardinality
@@ -137,20 +134,20 @@ RELAY_METRICS_WINDOW_SECONDS=60
 Health:
 
 ```bash
-curl -sS https://<relay>/health
+curl -sS https://relay.5ls.us/health
 ```
 
 Metrics (requires relay auth):
 
 ```bash
-curl -sS https://<relay>/metrics \
+curl -sS https://relay.5ls.us/metrics \
   -H "x-relay-key: $RELAY_SHARED_SECRET"
 ```
 
 or:
 
 ```bash
-curl -sS https://<relay>/metrics \
+curl -sS https://relay.5ls.us/metrics \
   -H "Authorization: Bearer $RELAY_SHARED_SECRET"
 ```
 
