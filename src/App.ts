@@ -43,6 +43,16 @@ import { resolveUserRegion } from '@/utils/user-location';
 
 const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
 
+function logPerformanceSummary(): void {
+  const entries = performance.getEntriesByType('measure')
+    .filter(e => e.name.startsWith('wm:'));
+  if (entries.length === 0) return;
+  console.info('[perf] Init breakdown:');
+  for (const e of entries) {
+    console.info(`  ${e.name}: ${Math.round(e.duration)}ms`);
+  }
+}
+
 export type { CountryBriefSignals } from '@/app/app-context';
 
 export class App {
@@ -467,6 +477,7 @@ export class App {
         performance.mark('wm:data-done');
         performance.measure('wm:data-load', 'wm:bootstrap-done', 'wm:data-done');
         performance.measure('wm:total-init', 'wm:init-start', 'wm:data-done');
+        logPerformanceSummary();
         const totalMs = performance.now() - initStart;
         if (totalMs > 500) {
           console.info(`[perf] App.init total: ${Math.round(totalMs)}ms`);
