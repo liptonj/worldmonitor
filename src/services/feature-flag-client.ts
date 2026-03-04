@@ -47,7 +47,7 @@ export function getMLThresholds(): MlThresholds {
     semanticClusterThreshold: flag<number>('ml.semanticClusterThreshold') ?? 0.75,
     minClustersForML: flag<number>('ml.minClustersForML') ?? 5,
     maxTextsPerBatch: flag<number>('ml.maxTextsPerBatch') ?? 20,
-    modelLoadTimeoutMs: flag<number>('ml.modelLoadTimeoutMs') ?? 600_000,
+    modelLoadTimeoutMs: flag<number>('ml.modelLoadTimeoutMs') ?? 60_000,
     inferenceTimeoutMs: flag<number>('ml.inferenceTimeoutMs') ?? 120_000,
     memoryBudgetMB: flag<number>('ml.memoryBudgetMB') ?? 200,
   };

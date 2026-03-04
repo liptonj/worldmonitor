@@ -3,8 +3,13 @@
  * Detects device capabilities for ONNX Runtime Web
  */
 
-import { isMobileDevice } from '@/utils';
 import { getMLThresholds } from '@/services/feature-flag-client';
+
+function isActualMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+}
 
 export interface MLCapabilities {
   isSupported: boolean;
@@ -23,7 +28,7 @@ let cachedCapabilities: MLCapabilities | null = null;
 export async function detectMLCapabilities(): Promise<MLCapabilities> {
   if (cachedCapabilities) return cachedCapabilities;
 
-  const isDesktop = !isMobileDevice();
+  const isDesktop = !isActualMobileDevice();
 
   const hasWebGL = checkWebGLSupport();
   const hasWebGPU = await checkWebGPUSupport();
@@ -100,7 +105,7 @@ function checkThreadsSupport(): boolean {
 }
 
 function estimateAvailableMemory(): number {
-  if (isMobileDevice()) return 0;
+  if (isActualMobileDevice()) return 0;
 
   const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
   if (deviceMemory) {
