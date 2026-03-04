@@ -11,6 +11,7 @@ export class GlobalDigestPanel extends Panel {
   private footerEl: HTMLElement;
   private refreshBtn: HTMLButtonElement;
   private isLoading = false;
+  private lastDigestText: string | null = null;
 
   constructor() {
     super({
@@ -59,6 +60,11 @@ export class GlobalDigestPanel extends Panel {
     void this.fetch(false);
   }
 
+  getSummaryData(): string | null {
+    if (!this.lastDigestText) return null;
+    return `[Intelligence Digest]\n${this.lastDigestText}`;
+  }
+
   private async fetch(forceRefresh: boolean): Promise<void> {
     if (this.isLoading) return;
     this.isLoading = true;
@@ -69,10 +75,12 @@ export class GlobalDigestPanel extends Panel {
     try {
       const res = await client.getGlobalIntelDigest({ forceRefresh });
       if (!res.digest) {
+        this.lastDigestText = null;
         replaceChildren(this.contentEl, h('div', { className: 'digest-empty' }, 'No digest available. Check LLM provider configuration.'));
         return;
       }
 
+      this.lastDigestText = res.digest;
       const html = DOMPurify.sanitize(await marked.parse(res.digest));
       const contentDiv = document.createElement('div');
       contentDiv.className = 'digest-body';
@@ -86,6 +94,7 @@ export class GlobalDigestPanel extends Panel {
       }
     } catch (err) {
       console.error('[GlobalDigestPanel] fetch error:', err);
+      this.lastDigestText = null;
       replaceChildren(this.contentEl, h('div', { className: 'digest-error' }, 'Failed to load digest.'));
     } finally {
       this.isLoading = false;

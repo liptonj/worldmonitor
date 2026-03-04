@@ -795,6 +795,11 @@ export class Panel {
     return error instanceof DOMException && error.name === 'AbortError';
   }
 
+  /** Returns a text snapshot of current panel data for AI summarization. Returns null if no data available. */
+  getSummaryData(): string | null {
+    return null;
+  }
+
   public destroy(): void {
     this.abortController.abort();
     if (this.colSpanReconcileRaf !== null) {

@@ -680,6 +680,20 @@ export class InsightsPanel extends Panel {
     `);
   }
 
+  getSummaryData(): string | null {
+    if (!this.cachedBrief) return null;
+    const parts: string[] = [`[Insights]\n${this.cachedBrief}`];
+    if (this.lastFocalPoints.length > 0) {
+      const fps = this.lastFocalPoints.slice(0, 5).map(fp => `• ${fp.displayName}: ${fp.urgency}`);
+      parts.push('\nFocal points: ' + fps.join('; '));
+    }
+    if (this.lastConvergenceZones.length > 0) {
+      const zones = this.lastConvergenceZones.slice(0, 3).map(z => z.region);
+      parts.push('\nConvergence: ' + zones.join(', '));
+    }
+    return parts.join('');
+  }
+
   private async onAiFlowChanged(): Promise<void> {
     this.updateGeneration++;
     // Reset brief cache so new provider settings take effect immediately

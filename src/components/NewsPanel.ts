@@ -607,6 +607,12 @@ export class NewsPanel extends Panel {
     });
   }
 
+  getSummaryData(): string | null {
+    if (this.currentHeadlines.length === 0) return null;
+    const lines = this.currentHeadlines.slice(0, 10).map((h, i) => `${i + 1}. ${h}`);
+    return `[${this.panelId} Headlines]\n${lines.join('\n')}`;
+  }
+
   private getLocalizedAssetLabel(type: RelatedAsset['type']): string {
     const keyMap: Record<RelatedAsset['type'], string> = {
       pipeline: 'modals.countryBrief.infra.pipeline',
