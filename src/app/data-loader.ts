@@ -7,6 +7,8 @@ import {
   SITE_VARIANT,
   LAYER_TO_SOURCE,
 } from '@/config';
+import { getStartupLoadProfile } from '@/app/startup-load-profile';
+import { createStartupRequestBudget } from '@/app/startup-request-budget';
 import { INTEL_HOTSPOTS, CONFLICT_ZONES } from '@/config/geo';
 import { tokenizeForMatch, matchKeyword } from '@/utils/keyword-match';
 import {
@@ -269,6 +271,9 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadAllData(): Promise<void> {
+    const profile = getStartupLoadProfile(SITE_VARIANT);
+    const budget = createStartupRequestBudget(profile.initialRequestBudget);
+
     const runGuarded = async (name: string, fn: () => Promise<void>): Promise<void> => {
       if (this.ctx.isDestroyed || this.ctx.inFlight.has(name)) return;
       this.ctx.inFlight.add(name);
@@ -288,61 +293,52 @@ export class DataLoaderManager implements AppModule {
       }
     };
 
-    const tasks: Array<{ name: string; task: Promise<void> }> = [
-      { name: 'news', task: runGuarded('news', () => this.loadNews()) },
-    ];
+    const taskDescriptors: Array<{ name: string; fn: () => Promise<void> }> = [];
+
+    taskDescriptors.push({ name: 'news', fn: () => this.loadNews() });
 
     // Happy variant only loads news data -- skip all geopolitical/financial/military data
     if (SITE_VARIANT !== 'happy') {
-      tasks.push({ name: 'markets', task: runGuarded('markets', () => this.loadMarkets()) });
-      tasks.push({ name: 'predictions', task: runGuarded('predictions', () => this.loadPredictions()) });
-      tasks.push({ name: 'pizzint', task: runGuarded('pizzint', () => this.loadPizzInt()) });
-      tasks.push({ name: 'fred', task: runGuarded('fred', () => this.loadFredData()) });
-      tasks.push({ name: 'oil', task: runGuarded('oil', () => this.loadOilAnalytics()) });
-      tasks.push({ name: 'spending', task: runGuarded('spending', () => this.loadGovernmentSpending()) });
-      tasks.push({ name: 'bis', task: runGuarded('bis', () => this.loadBisData()) });
+      taskDescriptors.push({ name: 'markets', fn: () => this.loadMarkets() });
+      taskDescriptors.push({ name: 'predictions', fn: () => this.loadPredictions() });
+      taskDescriptors.push({ name: 'pizzint', fn: () => this.loadPizzInt() });
+      taskDescriptors.push({ name: 'fred', fn: () => this.loadFredData() });
+      taskDescriptors.push({ name: 'oil', fn: () => this.loadOilAnalytics() });
+      taskDescriptors.push({ name: 'spending', fn: () => this.loadGovernmentSpending() });
+      taskDescriptors.push({ name: 'bis', fn: () => this.loadBisData() });
 
       // Trade policy data (FULL and FINANCE only)
       if (SITE_VARIANT === 'full' || SITE_VARIANT === 'finance') {
-        tasks.push({ name: 'tradePolicy', task: runGuarded('tradePolicy', () => this.loadTradePolicy()) });
-        tasks.push({ name: 'supplyChain', task: runGuarded('supplyChain', () => this.loadSupplyChain()) });
+        taskDescriptors.push({ name: 'tradePolicy', fn: () => this.loadTradePolicy() });
+        taskDescriptors.push({ name: 'supplyChain', fn: () => this.loadSupplyChain() });
       }
     }
 
     // Progress charts data (happy variant only)
     if (SITE_VARIANT === 'happy') {
-      tasks.push({
-        name: 'progress',
-        task: runGuarded('progress', () => this.loadProgressData()),
-      });
-      tasks.push({
-        name: 'species',
-        task: runGuarded('species', () => this.loadSpeciesData()),
-      });
-      tasks.push({
-        name: 'renewable',
-        task: runGuarded('renewable', () => this.loadRenewableData()),
-      });
-      tasks.push({
+      taskDescriptors.push({ name: 'progress', fn: () => this.loadProgressData() });
+      taskDescriptors.push({ name: 'species', fn: () => this.loadSpeciesData() });
+      taskDescriptors.push({ name: 'renewable', fn: () => this.loadRenewableData() });
+      taskDescriptors.push({
         name: 'happinessMap',
-        task: runGuarded('happinessMap', async () => {
+        fn: async () => {
           const data = await fetchHappinessScores();
           this.ctx.map?.setHappinessScores(data);
-        }),
+        },
       });
-      tasks.push({
+      taskDescriptors.push({
         name: 'renewableMap',
-        task: runGuarded('renewableMap', async () => {
+        fn: async () => {
           const installations = await fetchRenewableInstallations();
           this.ctx.map?.setRenewableInstallations(installations);
-        }),
+        },
       });
     }
 
     // Global giving activity data (all variants)
-    tasks.push({
+    taskDescriptors.push({
       name: 'giving',
-      task: runGuarded('giving', async () => {
+      fn: async () => {
         const givingResult = await fetchGivingSummary();
         if (!givingResult.ok) {
           dataFreshness.recordError('giving', 'Giving data unavailable (retaining prior state)');
@@ -351,37 +347,62 @@ export class DataLoaderManager implements AppModule {
         const data = givingResult.data;
         (this.ctx.panels['giving'] as GivingPanel)?.setData(data);
         if (data.platforms.length > 0) dataFreshness.recordUpdate('giving', data.platforms.length);
-      }),
+      },
     });
 
     if (SITE_VARIANT === 'full') {
-      tasks.push({ name: 'intelligence', task: runGuarded('intelligence', () => this.loadIntelligenceSignals()) });
+      taskDescriptors.push({ name: 'intelligence', fn: () => this.loadIntelligenceSignals() });
     }
 
-    if (SITE_VARIANT === 'full') tasks.push({ name: 'firms', task: runGuarded('firms', () => this.loadFirmsData()) });
-    if (this.ctx.mapLayers.natural) tasks.push({ name: 'natural', task: runGuarded('natural', () => this.loadNatural()) });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.weather) tasks.push({ name: 'weather', task: runGuarded('weather', () => this.loadWeatherAlerts()) });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.ais) tasks.push({ name: 'ais', task: runGuarded('ais', () => this.loadAisSignals()) });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.cables) tasks.push({ name: 'cables', task: runGuarded('cables', () => this.loadCableActivity()) });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.cables) tasks.push({ name: 'cableHealth', task: runGuarded('cableHealth', () => this.loadCableHealth()) });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.flights) tasks.push({ name: 'flights', task: runGuarded('flights', () => this.loadFlightDelays()) });
-    if (SITE_VARIANT !== 'happy' && CYBER_LAYER_ENABLED && this.ctx.mapLayers.cyberThreats) tasks.push({ name: 'cyberThreats', task: runGuarded('cyberThreats', () => this.loadCyberThreats()) });
-    if (SITE_VARIANT !== 'happy') tasks.push({ name: 'iranAttacks', task: runGuarded('iranAttacks', () => this.loadIranEvents()) });
-    if (SITE_VARIANT !== 'happy' && (this.ctx.mapLayers.techEvents || SITE_VARIANT === 'tech')) tasks.push({ name: 'techEvents', task: runGuarded('techEvents', () => this.loadTechEvents()) });
+    if (SITE_VARIANT === 'full') taskDescriptors.push({ name: 'firms', fn: () => this.loadFirmsData() });
+    if (this.ctx.mapLayers.natural) taskDescriptors.push({ name: 'natural', fn: () => this.loadNatural() });
+    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.weather) taskDescriptors.push({ name: 'weather', fn: () => this.loadWeatherAlerts() });
+    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.ais) taskDescriptors.push({ name: 'ais', fn: () => this.loadAisSignals() });
+    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.cables) taskDescriptors.push({ name: 'cables', fn: () => this.loadCableActivity() });
+    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.cables) taskDescriptors.push({ name: 'cableHealth', fn: () => this.loadCableHealth() });
+    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.flights) taskDescriptors.push({ name: 'flights', fn: () => this.loadFlightDelays() });
+    if (SITE_VARIANT !== 'happy' && CYBER_LAYER_ENABLED && this.ctx.mapLayers.cyberThreats) taskDescriptors.push({ name: 'cyberThreats', fn: () => this.loadCyberThreats() });
+    if (SITE_VARIANT !== 'happy') taskDescriptors.push({ name: 'iranAttacks', fn: () => this.loadIranEvents() });
+    if (SITE_VARIANT !== 'happy' && (this.ctx.mapLayers.techEvents || SITE_VARIANT === 'tech')) taskDescriptors.push({ name: 'techEvents', fn: () => this.loadTechEvents() });
 
     if (SITE_VARIANT === 'tech') {
-      tasks.push({ name: 'techReadiness', task: runGuarded('techReadiness', () => (this.ctx.panels['tech-readiness'] as TechReadinessPanel)?.refresh()) });
+      taskDescriptors.push({ name: 'techReadiness', fn: () => (this.ctx.panels['tech-readiness'] as TechReadinessPanel)?.refresh() });
     }
 
-    const results = await Promise.allSettled(tasks.map(t => t.task));
+    const phaseADescriptors = taskDescriptors.filter(d => profile.phaseA.includes(d.name));
+    const phaseBDescriptors = taskDescriptors.filter(d => !profile.phaseA.includes(d.name));
 
-    results.forEach((result, idx) => {
+    for (const d of phaseADescriptors) {
+      if (!budget.tryConsume(d.name)) {
+        console.warn(`[App] Startup budget exceeded for Phase A task "${d.name}" (remaining: ${budget.remaining()})`);
+      }
+    }
+
+    const phaseAResults = await Promise.allSettled(
+      phaseADescriptors.map(d => runGuarded(d.name, d.fn))
+    );
+    phaseAResults.forEach((result, idx) => {
       if (result.status === 'rejected') {
-        console.error(`[App] ${tasks[idx]?.name} load failed:`, result.reason);
+        console.error(`[App] ${phaseADescriptors[idx]?.name} load failed:`, result.reason);
       }
     });
 
-    this.updateSearchIndex();
+    if (phaseBDescriptors.length > 0) {
+      setTimeout(() => {
+        if (this.ctx.isDestroyed) return;
+        const results = phaseBDescriptors.map(d => runGuarded(d.name, d.fn));
+        void Promise.allSettled(results).then(settled => {
+          settled.forEach((result, idx) => {
+            if (result.status === 'rejected') {
+              console.error(`[App] ${phaseBDescriptors[idx]?.name} load failed:`, result.reason);
+            }
+          });
+          this.updateSearchIndex();
+        });
+      }, 50);
+    } else {
+      this.updateSearchIndex();
+    }
   }
 
   async loadDataForLayer(layer: keyof MapLayers): Promise<void> {
