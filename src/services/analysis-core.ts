@@ -34,7 +34,7 @@ import {
   findNewsForMarketSymbol,
 } from './entity-extraction';
 import { getEntityIndex } from './entity-index';
-import { aggregateThreats } from './threat-classifier';
+import { aggregateThreats } from './threat-types';
 
 const TOPIC_BASELINE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const TOPIC_BASELINE_SPIKE_MULTIPLIER = 3;
@@ -66,7 +66,7 @@ export interface NewsItemCore {
   isAlert: boolean;
   monitorColor?: string;
   tier?: number;
-  threat?: import('./threat-classifier').ThreatClassification;
+  threat?: import('./threat-types').ThreatClassification;
   lat?: number;
   lon?: number;
   locationName?: string;
@@ -88,7 +88,7 @@ export interface ClusteredEventCore {
   isAlert: boolean;
   monitorColor?: string;
   velocity?: { sourcesPerHour?: number };
-  threat?: import('./threat-classifier').ThreatClassification;
+  threat?: import('./threat-types').ThreatClassification;
   lat?: number;
   lon?: number;
   lang?: string;
