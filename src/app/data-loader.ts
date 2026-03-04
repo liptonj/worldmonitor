@@ -127,6 +127,19 @@ import { getPersistentCache, setPersistentCache } from '@/services/persistent-ca
 import type { ThreatLevel as ClientThreatLevel } from '@/services/threat-classifier';
 import type { NewsItem as ProtoNewsItem, ThreatLevel as ProtoThreatLevel } from '@/generated/client/worldmonitor/news/v1/service_client';
 
+/** Maps task names (used in runGuarded) to panel keys (used in ctx.panels / ctx.newsPanels). */
+const TASK_TO_PANEL: Record<string, string> = {
+  predictions: 'polymarket',
+  fred: 'economic',
+  oil: 'economic',
+  spending: 'economic',
+  bis: 'economic',
+  tradePolicy: 'trade-policy',
+  supplyChain: 'supply-chain',
+  techReadiness: 'tech-readiness',
+  firms: 'satellite-fires',
+};
+
 const PROTO_TO_CLIENT_LEVEL: Record<ProtoThreatLevel, ClientThreatLevel> = {
   THREAT_LEVEL_UNSPECIFIED: 'info',
   THREAT_LEVEL_LOW: 'low',
@@ -266,7 +279,14 @@ export class DataLoaderManager implements AppModule {
       try {
         await fn();
       } catch (e) {
-        if (!this.ctx.isDestroyed) console.error(`[App] ${name} failed:`, e);
+        if (!this.ctx.isDestroyed) {
+          console.error(`[App] ${name} failed:`, e);
+          const panelKey = TASK_TO_PANEL[name] ?? name;
+          const panel = this.ctx.panels[panelKey] ?? this.ctx.newsPanels[panelKey];
+          if (panel && typeof panel.showUnavailable === 'function') {
+            panel.showUnavailable();
+          }
+        }
       } finally {
         this.ctx.inFlight.delete(name);
       }

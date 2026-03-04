@@ -5435,6 +5435,26 @@ a.prediction-link:hover {
   color: var(--yellow, #f0c040);
 }
 
+.panel-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm, 8px);
+  padding: var(--spacing-lg, 24px);
+  opacity: 0.6;
+}
+
+.panel-unavailable-icon {
+  font-size: 1.5rem;
+}
+
+.panel-unavailable-text {
+  font-size: 0.8rem;
+  text-align: center;
+  color: var(--text-secondary, #888);
+}
+
 /* Error */
 .error-message {
   color: var(--red);
