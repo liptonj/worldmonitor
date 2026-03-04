@@ -372,9 +372,10 @@ export class DeckGLMap {
   private deckReady = false;
 
   private deckErrorHandler = (event: ErrorEvent): void => {
+    const msg = "Cannot read properties of null (reading 'id')";
     if (
       event.error instanceof TypeError &&
-      event.message?.includes("Cannot read properties of null (reading 'id')")
+      (event.message?.includes(msg) || event.error.message?.includes(msg))
     ) {
       event.preventDefault();
       console.warn('[DeckGLMap] Suppressed non-fatal deck.gl interleaved render error');
@@ -4577,6 +4578,7 @@ export class DeckGLMap {
 
   public destroy(): void {
     window.removeEventListener('error', this.deckErrorHandler);
+    this.deckReady = false;
     if (this.moveTimeoutId) {
       clearTimeout(this.moveTimeoutId);
       this.moveTimeoutId = null;
