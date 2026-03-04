@@ -20,7 +20,7 @@ export async function deductSituation(
     if (!provider) {
         return { analysis: '', model: '', provider: 'skipped' };
     }
-    const { apiKey, apiUrl, model } = provider;
+    const { apiKey, apiUrl, model, extraHeaders } = provider;
 
     const MAX_QUERY_LEN = 500;
     const MAX_GEO_LEN = 2000;
@@ -55,7 +55,8 @@ Your task is to DEDUCT the situation in a near timeline (e.g. 24 hours to a few 
                     headers: {
                         Authorization: `Bearer ${apiKey}`,
                         'Content-Type': 'application/json',
-                        'User-Agent': CHROME_UA
+                        'User-Agent': CHROME_UA,
+                        ...extraHeaders,
                     },
                     body: JSON.stringify({
                         model,

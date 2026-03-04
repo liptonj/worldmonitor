@@ -157,10 +157,16 @@ export async function getProviderCredentials(provider: string): Promise<Provider
     const baseUrl = await getSecret('OLLAMA_API_URL');
     if (!baseUrl) return null;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const apiKey = await getSecret('OLLAMA_API_KEY');
+    const [apiKey, cfId, cfSecret] = await Promise.all([
+      getSecret('OLLAMA_API_KEY'),
+      getSecret('OLLAMA_CF_ACCESS_CLIENT_ID'),
+      getSecret('OLLAMA_CF_ACCESS_CLIENT_SECRET'),
+    ]);
     if (apiKey) {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
+    if (cfId) headers['CF-Access-Client-Id'] = cfId;
+    if (cfSecret) headers['CF-Access-Client-Secret'] = cfSecret;
     const rawMax = parseInt((await getSecret('OLLAMA_MAX_TOKENS')) || '1500', 10);
     const ollamaMaxTokens = Number.isFinite(rawMax) ? Math.min(Math.max(rawMax, 100), 4000) : 1500;
     return {
