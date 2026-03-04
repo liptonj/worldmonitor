@@ -9,8 +9,11 @@ import {
   MarketServiceClient,
   type ListMarketQuotesResponse,
   type ListCryptoQuotesResponse,
+  type ListCommodityQuotesResponse,
+  type GetMarketDashboardResponse,
   type MarketQuote as ProtoMarketQuote,
   type CryptoQuote as ProtoCryptoQuote,
+  type CommodityQuote as ProtoCommodityQuote,
 } from '@/generated/client/worldmonitor/market/v1/service_client';
 import type { MarketData, CryptoData } from '@/types';
 import { createCircuitBreaker } from '@/utils';
@@ -19,9 +22,11 @@ import { createCircuitBreaker } from '@/utils';
 
 const client = new MarketServiceClient('', { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
 const stockBreaker = createCircuitBreaker<ListMarketQuotesResponse>({ name: 'Market Quotes', cacheTtlMs: 0 });
+const commodityBreaker = createCircuitBreaker<ListCommodityQuotesResponse>({ name: 'Commodity Quotes', cacheTtlMs: 0 });
 const cryptoBreaker = createCircuitBreaker<ListCryptoQuotesResponse>({ name: 'Crypto Quotes' });
 
 const emptyStockFallback: ListMarketQuotesResponse = { quotes: [], finnhubSkipped: false, skipReason: '', rateLimited: false };
+const emptyCommodityFallback: ListCommodityQuotesResponse = { quotes: [] };
 const emptyCryptoFallback: ListCryptoQuotesResponse = { quotes: [] };
 
 // ---- Proto -> legacy adapters ----
@@ -114,6 +119,43 @@ export async function fetchStockQuote(
 }
 
 // ========================================================================
+// Commodities -- uses listCommodityQuotes RPC (DB-configured symbols)
+// ========================================================================
+
+export interface CommodityFetchResult {
+  display: string;
+  price: number | null;
+  change: number | null;
+  sparkline?: number[];
+}
+
+let lastSuccessfulCommodities: CommodityFetchResult[] = [];
+
+function toCommodityResult(proto: ProtoCommodityQuote): CommodityFetchResult {
+  return {
+    display: proto.display || proto.symbol,
+    price: proto.price != null ? proto.price : null,
+    change: proto.change ?? null,
+    sparkline: proto.sparkline.length > 0 ? proto.sparkline : undefined,
+  };
+}
+
+export async function fetchCommodityQuotes(): Promise<CommodityFetchResult[]> {
+  const resp = await commodityBreaker.execute(async () => {
+    return client.listCommodityQuotes({ symbols: [] });
+  }, emptyCommodityFallback);
+
+  const results = resp.quotes.map(toCommodityResult);
+
+  if (results.length > 0 && results.some((r) => r.price !== null)) {
+    lastSuccessfulCommodities = results;
+    return results;
+  }
+
+  return lastSuccessfulCommodities;
+}
+
+// ========================================================================
 // Crypto -- replaces fetchCrypto
 // ========================================================================
 
@@ -134,4 +176,45 @@ export async function fetchCrypto(): Promise<CryptoData[]> {
   }
 
   return lastSuccessfulCrypto;
+}
+
+// ========================================================================
+// Market Dashboard -- single RPC for stocks, commodities, sectors, crypto
+// ========================================================================
+
+const dashboardBreaker = createCircuitBreaker<GetMarketDashboardResponse>({
+  name: 'Market Dashboard',
+  cacheTtlMs: 0,
+});
+
+const emptyDashboardFallback: GetMarketDashboardResponse = {
+  stocks: [],
+  commodities: [],
+  sectors: [],
+  crypto: [],
+  finnhubSkipped: false,
+  skipReason: '',
+  rateLimited: false,
+};
+
+let lastSuccessfulDashboard: GetMarketDashboardResponse | null = null;
+
+export async function fetchMarketDashboard(): Promise<GetMarketDashboardResponse> {
+  const resp = await dashboardBreaker.execute(
+    () => client.getMarketDashboard({}),
+    emptyDashboardFallback,
+  );
+
+  const hasData =
+    resp.stocks.length > 0 ||
+    resp.commodities.length > 0 ||
+    resp.sectors.length > 0 ||
+    resp.crypto.length > 0;
+
+  if (hasData) {
+    lastSuccessfulDashboard = resp;
+    return resp;
+  }
+
+  return lastSuccessfulDashboard ?? resp;
 }
