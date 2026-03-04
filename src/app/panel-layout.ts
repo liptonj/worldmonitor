@@ -180,6 +180,10 @@ export class PanelLayoutManager implements AppModule {
           </div>
         </div>
         <div class="header-right">
+          <button class="summarize-view-btn" id="summarizeViewBtn" title="${t('header.summarizeViewTooltip')}">
+            <span class="summarize-view-icon">✨</span>
+            <span class="summarize-view-label">${t('header.summarizeView')}</span>
+          </button>
           <button class="search-btn" id="searchBtn"><kbd>⌘K</kbd> ${t('header.search')}</button>
           ${this.ctx.isDesktopApp ? '' : `<button class="copy-link-btn" id="copyLinkBtn">${t('header.copyLink')}</button>`}
           <button class="theme-toggle-btn" id="headerThemeToggle" title="${t('header.toggleTheme')}">

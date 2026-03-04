@@ -133,6 +133,8 @@
     "tech": "TECH",
     "live": "LIVE",
     "search": "Search",
+    "summarizeView": "Summarize View",
+    "summarizeViewTooltip": "AI Summary of Current View",
     "settings": "SETTINGS",
     "sources": "SOURCES",
     "copyLink": "Link",
@@ -339,6 +341,13 @@
         "techhq": "Tech HQ",
         "accelerator": "Accelerator"
       }
+    },
+    "summarizeView": {
+      "title": "AI View Summary",
+      "close": "Close",
+      "analyzing": "Analyzing your dashboard...",
+      "openPanelsFirst": "Open some panels first",
+      "error": "Could not generate summary. Please try again."
     },
     "signal": {
       "title": "INTELLIGENCE FINDING",

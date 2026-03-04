@@ -732,6 +732,11 @@ export class Panel {
     else this.hide();
   }
 
+  /** Returns true if the panel is currently shown (not hidden by toggle). */
+  public isShown(): boolean {
+    return !this.element.classList.contains('hidden');
+  }
+
   /**
    * Update the "new items" badge
    * @param count Number of new items (0 hides badge)

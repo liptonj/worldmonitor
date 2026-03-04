@@ -447,6 +447,7 @@ export class App {
     this.eventHandlers.setupPizzIntIndicator();
     this.eventHandlers.setupExportPanel();
     this.eventHandlers.setupUnifiedSettings();
+    this.eventHandlers.setupSummarizeView();
 
     this.searchManager.init();
     this.eventHandlers.setupMapLayerHandlers();

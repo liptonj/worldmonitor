@@ -44,6 +44,7 @@ import { invokeTauri } from '@/services/tauri-bridge';
 import { dataFreshness } from '@/services/data-freshness';
 import { mlWorker } from '@/services/ml-worker';
 import { UnifiedSettings } from '@/components/UnifiedSettings';
+import { SummarizeViewModal } from '@/components/SummarizeViewModal';
 import { t } from '@/services/i18n';
 import { TvModeController } from '@/services/tv-mode';
 import { formatClockTime } from '@/utils/display-prefs';
@@ -70,6 +71,8 @@ export class EventHandlerManager implements AppModule {
   private boundDesktopExternalLinkHandler: ((e: MouseEvent) => void) | null = null;
   private boundIdleResetHandler: (() => void) | null = null;
   private idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private summarizeViewModal: SummarizeViewModal | null = null;
+  private updateSummarizeButtonState: (() => void) | null = null;
   private snapshotIntervalId: ReturnType<typeof setInterval> | null = null;
   private clockIntervalId: ReturnType<typeof setInterval> | null = null;
   private readonly IDLE_PAUSE_MS = 2 * 60 * 1000;
@@ -520,6 +523,67 @@ export class EventHandlerManager implements AppModule {
     }
   }
 
+  setupSummarizeView(): void {
+    this.summarizeViewModal = new SummarizeViewModal();
+    const btn = document.getElementById('summarizeViewBtn') as HTMLButtonElement;
+    if (!btn) return;
+
+    const collectPanelSnapshots = (): string => {
+      const snapshots: string[] = [];
+      for (const panel of Object.values(this.ctx.panels)) {
+        if (!panel.isShown()) continue;
+        const data = panel.getSummaryData?.();
+        if (data && data.trim()) snapshots.push(data);
+      }
+      return snapshots.join('\n\n---\n\n');
+    };
+
+    const hasData = (): boolean => collectPanelSnapshots().trim().length >= 20;
+
+    const updateButtonState = (): void => {
+      btn.disabled = !hasData();
+    };
+
+    this.updateSummarizeButtonState = updateButtonState;
+    updateButtonState();
+
+    btn.addEventListener('click', async () => {
+      const snapshotText = collectPanelSnapshots();
+      if (!snapshotText.trim() || snapshotText.trim().length < 20) {
+        this.summarizeViewModal!.show();
+        this.summarizeViewModal!.setEmpty();
+        return;
+      }
+
+      this.summarizeViewModal!.show();
+      this.summarizeViewModal!.setLoading();
+
+      try {
+        const resp = await fetch('/api/intelligence/v1/summarize-view', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ panelSnapshots: snapshotText }),
+        });
+
+        if (!resp.ok) {
+          this.summarizeViewModal!.setError(t('modals.summarizeView.error'));
+          return;
+        }
+
+        const data = (await resp.json()) as { summary?: string; model?: string; generatedAt?: string };
+        const summary = data.summary?.trim();
+        if (!summary) {
+          this.summarizeViewModal!.setError(t('modals.summarizeView.error'));
+          return;
+        }
+
+        await this.summarizeViewModal!.setContent(summary, data.model, data.generatedAt);
+      } catch {
+        this.summarizeViewModal!.setError(t('modals.summarizeView.error'));
+      }
+    });
+  }
+
   setupPlaybackControl(): void {
     this.ctx.playbackControl = new PlaybackControl();
     this.ctx.playbackControl.onSnapshot((snapshot) => {
@@ -932,5 +996,6 @@ export class EventHandlerManager implements AppModule {
       const panel = this.ctx.panels[key];
       panel?.toggle(config.enabled);
     });
+    this.updateSummarizeButtonState?.();
   }
 }
