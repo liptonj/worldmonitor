@@ -2,10 +2,15 @@ import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
 import { type ClimateAnomaly, getSeverityIcon, formatDelta } from '@/services/climate';
 import { t } from '@/services/i18n';
+import { convertTemp, getTempUnitLabel } from '@/utils/display-prefs';
 
 export class ClimateAnomalyPanel extends Panel {
   private anomalies: ClimateAnomaly[] = [];
   private onZoneClick?: (lat: number, lon: number) => void;
+
+  private displayPrefsHandler = (): void => {
+    this.renderContent();
+  };
 
   constructor() {
     super({
@@ -16,6 +21,7 @@ export class ClimateAnomalyPanel extends Panel {
       infoTooltip: t('components.climate.infoTooltip'),
     });
     this.showLoading(t('common.loadingClimateData'));
+    window.addEventListener('display-prefs-changed', this.displayPrefsHandler);
   }
 
   public setZoneClickHandler(handler: (lat: number, lon: number) => void): void {
@@ -48,7 +54,7 @@ export class ClimateAnomalyPanel extends Panel {
 
       return `<tr class="climate-row${rowClass}" data-lat="${a.lat}" data-lon="${a.lon}">
         <td class="climate-zone"><span class="climate-icon">${icon}</span>${escapeHtml(a.zone)}</td>
-        <td class="climate-num ${tempClass}">${formatDelta(a.tempDelta, '°C')}</td>
+        <td class="climate-num ${tempClass}">${formatDelta(convertTemp(a.tempDelta), getTempUnitLabel())}</td>
         <td class="climate-num ${precipClass}">${formatDelta(a.precipDelta, 'mm')}</td>
         <td><span class="climate-badge ${sevClass}">${t(`components.climate.severity.${a.severity}`)}</span></td>
       </tr>`;
@@ -77,5 +83,10 @@ export class ClimateAnomalyPanel extends Panel {
         if (Number.isFinite(lat) && Number.isFinite(lon)) this.onZoneClick?.(lat, lon);
       });
     });
+  }
+
+  public destroy(): void {
+    window.removeEventListener('display-prefs-changed', this.displayPrefsHandler);
+    super.destroy();
   }
 }
