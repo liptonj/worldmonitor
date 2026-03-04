@@ -119,7 +119,7 @@ export async function summarizeArticle(
             top_p: 0.9,
             ...extraBody,
           }),
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(60_000),
         });
 
         if (!response.ok) {
@@ -131,7 +131,11 @@ export async function summarizeArticle(
         const data = await response.json() as any;
         const tokens = (data.usage?.total_tokens as number) || 0;
         const message = data.choices?.[0]?.message;
-        let rawContent = typeof message?.content === 'string' ? message.content.trim() : '';
+        // Some thinking models (e.g. qwen3) return content in message.reasoning
+        // when think mode is enabled; use content first, fall back to reasoning.
+        let rawContent = typeof message?.content === 'string' && message.content.trim()
+          ? message.content.trim()
+          : typeof message?.reasoning === 'string' ? message.reasoning.trim() : '';
 
         rawContent = rawContent
           .replace(/<think>[\s\S]*?<\/think>/gi, '')

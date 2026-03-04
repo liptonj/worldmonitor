@@ -200,11 +200,18 @@ export async function getProviderCredentials(provider: string): Promise<Provider
 
     const rawMax = parseInt((await getSecret('OLLAMA_MAX_TOKENS')) || '1500', 10);
     const ollamaMaxTokens = Number.isFinite(rawMax) ? Math.min(Math.max(rawMax, 100), 4000) : 1500;
+    // Detect qwen3 thinking models and disable think mode — thinking tokens exhaust
+    // the max_tokens budget before producing any content when using the OpenAI API.
+    const resolvedModel = model || 'qwen3:8b';
+    const isQwen3 = resolvedModel.startsWith('qwen3');
     return {
       apiUrl: new URL('/v1/chat/completions', apiUrl).toString(),
-      model: model || 'llama3.1:8b',
+      model: resolvedModel,
       headers,
-      extraBody: { max_tokens: ollamaMaxTokens },
+      extraBody: {
+        max_tokens: ollamaMaxTokens,
+        ...(isQwen3 ? { think: false } : {}),
+      },
     };
   }
 
