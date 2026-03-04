@@ -4,8 +4,9 @@ import { renderFeatureFlagsPage } from './pages/feature-flags';
 import { renderNewsSourcesPage } from './pages/news-sources';
 import { renderLlmConfigPage } from './pages/llm-config';
 import { renderAppKeysPage } from './pages/app-keys';
+import { renderDisplaySettingsPage } from './pages/display-settings';
 
-type PageId = 'secrets' | 'feature-flags' | 'news-sources' | 'llm-config' | 'app-keys';
+type PageId = 'secrets' | 'feature-flags' | 'news-sources' | 'llm-config' | 'app-keys' | 'display-settings';
 
 const NAV: Array<{ id: PageId; label: string; icon: string }> = [
   { id: 'secrets', label: 'API Keys & Secrets', icon: '🔑' },
@@ -13,6 +14,7 @@ const NAV: Array<{ id: PageId; label: string; icon: string }> = [
   { id: 'news-sources', label: 'News Sources', icon: '📡' },
   { id: 'llm-config', label: 'LLM Config & Prompts', icon: '🤖' },
   { id: 'app-keys', label: 'App Access Keys', icon: '🗝️' },
+  { id: 'display-settings', label: 'Display Settings', icon: '🖥️' },
 ];
 
 export function renderDashboard(
@@ -80,6 +82,9 @@ export function renderDashboard(
         break;
       case 'app-keys':
         renderAppKeysPage(content, accessToken);
+        break;
+      case 'display-settings':
+        renderDisplaySettingsPage(content, accessToken);
         break;
     }
   }
