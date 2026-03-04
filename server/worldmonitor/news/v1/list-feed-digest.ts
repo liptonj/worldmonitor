@@ -6,7 +6,7 @@ import type {
   NewsItem as ProtoNewsItem,
   ThreatLevel as ProtoThreatLevel,
 } from '../../../../src/generated/server/worldmonitor/news/v1/service_server';
-import { cachedFetchJson } from '../../../_shared/redis';
+import { cachedFetchJson, getRedisClient } from '../../../_shared/redis';
 import { CHROME_UA } from '../../../_shared/constants';
 import { getNewsSources, getIntelSources, type DynamicFeed } from '../../../_shared/news-sources';
 import { classifyByKeyword, type ThreatLevel } from './_classifier';
@@ -260,6 +260,35 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
       categories[category] = {
         items: items.slice(0, MAX_ITEMS_PER_CATEGORY).map(toProtoItem),
       };
+    }
+
+    // Fire-and-forget: push RSS headlines to Redis for LLM context injection
+    const redis = getRedisClient();
+    if (redis) {
+      for (const [category, items] of results) {
+        const topItems = items
+          .filter((i) => i.title)
+          .sort((a, b) => b.publishedAt - a.publishedAt)
+          .slice(0, 15);
+
+        if (topItems.length === 0) continue;
+
+        const serialized = topItems.map((i) =>
+          JSON.stringify({
+            title: i.title,
+            pubDate: Math.floor((i.publishedAt ?? Date.now()) / 1000),
+          }),
+        );
+
+        Promise.all([
+          redis.lpush(`wm:headlines:${category}`, ...serialized).then(() =>
+            redis.ltrim(`wm:headlines:${category}`, 0, 99),
+          ),
+          redis.lpush('wm:headlines:global', ...serialized).then(() =>
+            redis.ltrim('wm:headlines:global', 0, 99),
+          ),
+        ]).catch(() => { /* non-fatal */ });
+      }
     }
 
     return {
