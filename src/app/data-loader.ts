@@ -901,6 +901,22 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadMarkets(): Promise<void> {
+    const commoditiesPanel = this.ctx.panels['commodities'] as CommoditiesPanel;
+
+    // Instant hydration from bootstrap cache (shows stale data immediately)
+    const hydratedCommodities = getHydratedData('commodities') as { quotes: Array<{ display?: string; symbol: string; price?: number; change?: number; sparkline?: number[] }> } | undefined;
+    if (hydratedCommodities?.quotes?.length) {
+      const mapped = hydratedCommodities.quotes.map((q) => ({
+        display: q.display || q.symbol,
+        price: q.price != null ? q.price : null,
+        change: q.change ?? null,
+        sparkline: (q.sparkline?.length ?? 0) > 0 ? q.sparkline : undefined,
+      }));
+      if (mapped.some((d) => d.price !== null)) {
+        commoditiesPanel.renderCommodities(mapped);
+      }
+    }
+
     try {
       const dashboard = await fetchMarketDashboard();
 
@@ -937,11 +953,8 @@ export class DataLoaderManager implements AppModule {
         );
       }
 
-      // Commodities panel — prefer hydrated bootstrap data for instant display
-      const commoditiesPanel = this.ctx.panels['commodities'] as CommoditiesPanel;
-      const hydratedCommodities = getHydratedData('commodities') as { quotes?: Array<{ display?: string; symbol: string; price?: number; change?: number; sparkline?: number[] }> } | undefined;
-      const commoditySource = hydratedCommodities?.quotes?.length ? hydratedCommodities.quotes : dashboard.commodities;
-      const commodityData = commoditySource.map((q) => ({
+      // Commodities panel — overwrite hydrated data with fresh dashboard data
+      const commodityData = dashboard.commodities.map((q) => ({
         display: q.display || q.symbol,
         price: q.price != null ? q.price : null,
         change: q.change ?? null,
