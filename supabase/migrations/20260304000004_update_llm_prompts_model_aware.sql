@@ -309,3 +309,48 @@ where lp.prompt_key = 'intel_digest' and lp.model_name is null
     select 1 from wm_admin.llm_prompts x
     where x.prompt_key = 'intel_digest' and x.model_name = 'qwen3-wm'
   );
+
+-- =============================================================
+-- Step 9: Add view_summary rows (generic + qwen3-wm override)
+-- =============================================================
+
+-- generic fallback
+insert into wm_admin.llm_prompts (prompt_key, variant, mode, model_name, system_prompt, user_prompt, description)
+select
+  'view_summary', null, null, null,
+  'You are a geopolitical intelligence analyst reviewing a live dashboard. Synthesize the provided panel data into a concise executive briefing. Focus on cross-cutting themes, emergent patterns, and actionable insights. Use markdown formatting with clear sections.',
+  'Date: {date}
+
+Dashboard Panel Data:
+{panelData}
+
+Provide a structured synthesis covering:
+## Key Developments
+[Top 3-5 events across all panels]
+
+## Cross-Panel Patterns
+[Themes that appear across multiple panels]
+
+## Risk Assessment
+[Current threat/risk level with brief rationale]
+
+## Watch Items
+[2-3 things to monitor in the next 24-48 hours]',
+  'Synthesizes all visible dashboard panels into an executive briefing'
+where not exists (
+  select 1 from wm_admin.llm_prompts
+  where prompt_key = 'view_summary' and variant is null and mode is null and model_name is null
+);
+
+-- qwen3-wm override (user_prompt with /think appended)
+insert into wm_admin.llm_prompts (prompt_key, variant, mode, model_name, system_prompt, user_prompt, description)
+select 'view_summary', null, null, 'qwen3-wm',
+       lp.system_prompt,
+       lp.user_prompt || ' /think',
+       'Qwen3-wm override: view summary with /think for analytical synthesis'
+from wm_admin.llm_prompts lp
+where lp.prompt_key = 'view_summary' and lp.model_name is null
+  and not exists (
+    select 1 from wm_admin.llm_prompts x
+    where x.prompt_key = 'view_summary' and x.model_name = 'qwen3-wm'
+  );

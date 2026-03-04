@@ -10,6 +10,7 @@ import "worldmonitor/intelligence/v1/get_country_intel_brief.proto";
 import "worldmonitor/intelligence/v1/search_gdelt_documents.proto";
 import "worldmonitor/intelligence/v1/deduct_situation.proto";
 import "worldmonitor/intelligence/v1/get_global_intel_digest.proto";
+import "worldmonitor/intelligence/v1/summarize_view.proto";
 
 // IntelligenceService provides APIs for cross-domain intelligence synthesis including
 // risk scores, PizzINT monitoring, GDELT tension analysis, and AI-powered classification.
@@ -49,5 +50,10 @@ service IntelligenceService {
   // GetGlobalIntelDigest synthesizes all data sources into a unified global intelligence assessment.
   rpc GetGlobalIntelDigest(GetGlobalIntelDigestRequest) returns (GetGlobalIntelDigestResponse) {
     option (sebuf.http.config) = {path: "/get-global-intel-digest", method: HTTP_METHOD_GET};
+  }
+
+  // SummarizeView synthesizes visible dashboard panel data into an AI briefing.
+  rpc SummarizeView(SummarizeViewRequest) returns (SummarizeViewResponse) {
+    option (sebuf.http.config) = {path: "/summarize-view", method: HTTP_METHOD_POST};
   }
 }
