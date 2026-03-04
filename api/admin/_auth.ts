@@ -45,7 +45,16 @@ export async function requireAdmin(req: Request): Promise<AdminUser> {
     .eq('user_id', user.id)
     .single();
 
-  if (adminError || !adminRecord) throw { status: 403, body: 'Not an admin user' };
+  if (adminError || !adminRecord) {
+    console.error('[requireAdmin] admin_users lookup failed:', {
+      userId: user.id,
+      email: user.email,
+      adminError: adminError?.message,
+      adminErrorCode: adminError?.code,
+      hasRecord: !!adminRecord,
+    });
+    throw { status: 403, body: `Not an admin user (${adminError?.message ?? 'no record'})` };
+  }
 
   return { id: user.id, email: user.email!, role: adminRecord.role, client: userClient };
 }
