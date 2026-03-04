@@ -969,16 +969,8 @@ export class DataLoaderManager implements AppModule {
       } else {
         commoditiesPanel.renderCommodities([]);
       }
-    } catch {
-      this.ctx.statusPanel?.updateApi('Finnhub', { status: 'error' });
-      if (this.lastCommodityData.length > 0) {
-        commoditiesPanel.renderCommodities(this.lastCommodityData, true);
-      }
-    }
 
-    try {
-      // Crypto panel — also from dashboard (second call hits circuit breaker cache, no network)
-      const dashboard = await fetchMarketDashboard();
+      // Crypto panel — from same dashboard response
       const cryptoData = dashboard.crypto.map((q) => ({
         name: q.name,
         symbol: q.symbol,
@@ -989,7 +981,11 @@ export class DataLoaderManager implements AppModule {
       (this.ctx.panels['crypto'] as CryptoPanel).renderCrypto(cryptoData);
       this.ctx.statusPanel?.updateApi('CoinGecko', { status: cryptoData.length > 0 ? 'ok' : 'error' });
     } catch {
+      this.ctx.statusPanel?.updateApi('Finnhub', { status: 'error' });
       this.ctx.statusPanel?.updateApi('CoinGecko', { status: 'error' });
+      if (this.lastCommodityData.length > 0) {
+        commoditiesPanel.renderCommodities(this.lastCommodityData, true);
+      }
     }
   }
 
