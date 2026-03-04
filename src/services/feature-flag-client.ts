@@ -1,10 +1,17 @@
 // src/services/feature-flag-client.ts
 import type { MlFeatureFlags, MlThresholds } from '@/config/ml-config';
+import { getHydratedFeatureFlags } from '@/services/bootstrap';
 
 const FETCH_TIMEOUT_MS = 3_000;
 let _flags: Record<string, unknown> | null = null;
 
 export async function loadFeatureFlags(): Promise<void> {
+  const hydrated = getHydratedFeatureFlags();
+  if (hydrated) {
+    _flags = hydrated;
+    return;
+  }
+
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);

@@ -30,6 +30,7 @@ import { preloadCountryGeometry, getCountryNameByCode } from '@/services/country
 import { initI18n } from '@/services/i18n';
 
 import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, loadNewsSources } from '@/services/feed-client';
+import { loadFeatureFlags } from '@/services/feature-flag-client';
 import { fetchBootstrapData } from '@/services/bootstrap';
 import { DesktopUpdater } from '@/app/desktop-updater';
 import { CountryIntelManager } from '@/app/country-intel';
@@ -455,7 +456,8 @@ export class App {
     this.dataLoader.syncDataFreshnessWithLayers();
     void preloadCountryGeometry().catch(() => {});
 
-    await Promise.all([fetchBootstrapData(), loadNewsSources()]);
+    await fetchBootstrapData(SITE_VARIANT || 'full');
+    await Promise.all([loadNewsSources(), loadFeatureFlags()]);
 
     performance.mark('wm:bootstrap-done');
     performance.measure('wm:bootstrap', 'wm:layout-done', 'wm:bootstrap-done');
