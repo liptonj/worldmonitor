@@ -16114,6 +16114,12 @@ body.has-breaking-alert .panels-grid {
   display: none;
 }
 
+@media (max-width: 1599px) {
+  #mapBottomGridToggle {
+    display: none !important;
+  }
+}
+
 /* ── Ultra-wide layout: map left, panels beside it ── */
 @media (min-width: 1600px) {
   .main-content {

@@ -824,6 +824,20 @@ export class EventHandlerManager implements AppModule {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) endResize();
     });
+
+    window.addEventListener('resize', () => {
+      if (window.innerWidth < 1600) {
+        mainContent.style.removeProperty('--map-width');
+      } else {
+        const saved = localStorage.getItem('map-width-ratio');
+        if (saved) {
+          const pct = Number.parseFloat(saved);
+          if (Number.isFinite(pct) && pct >= MIN_PCT && pct <= MAX_PCT) {
+            mainContent.style.setProperty('--map-width', `${pct}%`);
+          }
+        }
+      }
+    });
   }
 
   setupMapPin(): void {
