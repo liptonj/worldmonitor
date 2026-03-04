@@ -1,3 +1,8 @@
+/**
+ * Hardcoded market symbol defaults — used as client-side fallback.
+ * The server reads configured symbols from Supabase (wm_admin.market_symbols).
+ * These are only used when the database is unavailable.
+ */
 import type { Sector, Commodity, MarketSymbol } from '@/types';
 
 export const SECTORS: Sector[] = [
