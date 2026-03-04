@@ -5,8 +5,9 @@ import { renderNewsSourcesPage } from './pages/news-sources';
 import { renderLlmConfigPage } from './pages/llm-config';
 import { renderAppKeysPage } from './pages/app-keys';
 import { renderDisplaySettingsPage } from './pages/display-settings';
+import { renderMarketSymbolsPage } from './pages/market-symbols';
 
-type PageId = 'secrets' | 'feature-flags' | 'news-sources' | 'llm-config' | 'app-keys' | 'display-settings';
+type PageId = 'secrets' | 'feature-flags' | 'news-sources' | 'llm-config' | 'app-keys' | 'display-settings' | 'market-symbols';
 
 const NAV: Array<{ id: PageId; label: string; icon: string }> = [
   { id: 'secrets', label: 'API Keys & Secrets', icon: '🔑' },
@@ -15,6 +16,7 @@ const NAV: Array<{ id: PageId; label: string; icon: string }> = [
   { id: 'llm-config', label: 'LLM Config & Prompts', icon: '🤖' },
   { id: 'app-keys', label: 'App Access Keys', icon: '🗝️' },
   { id: 'display-settings', label: 'Display Settings', icon: '🖥️' },
+  { id: 'market-symbols', label: 'Market Symbols', icon: '📈' },
 ];
 
 export function renderDashboard(
@@ -85,6 +87,9 @@ export function renderDashboard(
         break;
       case 'display-settings':
         renderDisplaySettingsPage(content, accessToken);
+        break;
+      case 'market-symbols':
+        renderMarketSymbolsPage(content, accessToken);
         break;
     }
   }
