@@ -58,23 +58,35 @@ export async function getMarketDashboard(
       const apiKey = await getSecret('FINNHUB_API_KEY');
 
       const finnhubSymbols = stockSymbols.filter((s) => !isYahooOnlySymbol(s));
-      const allYahooSymbols = [
+      // Sector ETFs (XLK, XLF, etc.) are regular tickers — route through Finnhub like stocks
+      const allFinnhubSymbols = apiKey ? [...finnhubSymbols, ...sectorSymbols] : [];
+      // Separate Yahoo batches so rate limiting on indices doesn't cut off commodities
+      const yahooStockSymbols = [
         ...stockSymbols.filter((s) => isYahooOnlySymbol(s)),
-        ...commoditySymbols,
-        ...sectorSymbols,
         ...(!apiKey ? finnhubSymbols : []),
       ];
+      const yahooSectorFallback = !apiKey ? sectorSymbols : [];
 
-      const [finnhubResults, yahooResults, cryptoResults] = await Promise.allSettled([
-        apiKey
-          ? Promise.all(finnhubSymbols.map((s) => fetchFinnhubQuote(s, apiKey).then((r) => r ? { symbol: s, ...r } : null)))
+      const [finnhubResults, yahooCommodityResults, yahooStockResults, yahooSectorResults, cryptoResults] = await Promise.allSettled([
+        allFinnhubSymbols.length > 0
+          ? Promise.all(allFinnhubSymbols.map((s) => fetchFinnhubQuote(s, apiKey!).then((r) => r ? { symbol: s, ...r } : null)))
           : Promise.resolve([]),
-        allYahooSymbols.length > 0 ? fetchYahooQuotesBatch(allYahooSymbols) : Promise.resolve({ results: new Map(), rateLimited: false }),
+        commoditySymbols.length > 0 ? fetchYahooQuotesBatch(commoditySymbols) : Promise.resolve({ results: new Map(), rateLimited: false }),
+        yahooStockSymbols.length > 0 ? fetchYahooQuotesBatch(yahooStockSymbols) : Promise.resolve({ results: new Map(), rateLimited: false }),
+        yahooSectorFallback.length > 0 ? fetchYahooQuotesBatch(yahooSectorFallback) : Promise.resolve({ results: new Map(), rateLimited: false }),
         cryptoIds.length > 0 ? fetchCoinGeckoMarkets(cryptoIds) : Promise.resolve([]),
       ]);
 
       const finnhubData = finnhubResults.status === 'fulfilled' ? finnhubResults.value : [];
-      const yahooData = yahooResults.status === 'fulfilled' ? yahooResults.value : { results: new Map<string, { price: number; change: number; sparkline: number[] }>(), rateLimited: false };
+      const emptyYahoo = { results: new Map<string, { price: number; change: number; sparkline: number[] }>(), rateLimited: false };
+      const yahooCommodity = yahooCommodityResults.status === 'fulfilled' ? yahooCommodityResults.value : emptyYahoo;
+      const yahooStock = yahooStockResults.status === 'fulfilled' ? yahooStockResults.value : emptyYahoo;
+      const yahooSector = yahooSectorResults.status === 'fulfilled' ? yahooSectorResults.value : emptyYahoo;
+      // Merge all Yahoo results into one map for unified lookup
+      const yahooData = {
+        results: new Map([...yahooCommodity.results, ...yahooStock.results, ...yahooSector.results]),
+        rateLimited: yahooCommodity.rateLimited || yahooStock.rateLimited || yahooSector.rateLimited,
+      };
       const cryptoData = cryptoResults.status === 'fulfilled' ? cryptoResults.value : [];
 
       const stocks: MarketQuote[] = [];
@@ -134,8 +146,23 @@ export async function getMarketDashboard(
         }
       }
 
+      // Sectors: prefer Finnhub data, fall back to Yahoo (matches getSectorSummary)
+      const sectorFinnhubHits = new Set<string>();
       const sectors: SectorPerformance[] = [];
+      for (const r of finnhubData) {
+        if (r && sectorSymbols.includes(r.symbol)) {
+          sectorFinnhubHits.add(r.symbol);
+          const meta = sectorMeta.get(r.symbol);
+          sectors.push({
+            symbol: r.symbol,
+            name: meta?.name ?? r.symbol,
+            change: r.changePercent,
+          });
+        }
+      }
+      // Yahoo fallback for sectors missed by Finnhub
       for (const s of sectorSymbols) {
+        if (sectorFinnhubHits.has(s)) continue;
         const yahoo = yahooData.results.get(s);
         if (yahoo) {
           const meta = sectorMeta.get(s);
@@ -147,17 +174,27 @@ export async function getMarketDashboard(
         }
       }
 
-      const crypto: CryptoQuote[] = cryptoData.map((coin) => {
-        const configEntry = config.crypto.find((c) => c.symbol === coin.id);
-        const meta = CRYPTO_META[coin.id];
-        return {
-          name: configEntry?.name ?? meta?.name ?? coin.id,
-          symbol: configEntry?.display ?? meta?.symbol ?? coin.id.toUpperCase(),
+      const crypto: CryptoQuote[] = [];
+      const cryptoById = new Map(cryptoData.map((c) => [c.id, c]));
+      for (const id of cryptoIds) {
+        const coin = cryptoById.get(id);
+        if (!coin) continue;
+        const configEntry = config.crypto.find((c) => c.symbol === id);
+        const meta = CRYPTO_META[id];
+        const prices = coin.sparkline_in_7d?.price;
+        const sparkline = prices && prices.length > 24 ? prices.slice(-48) : (prices || []);
+        crypto.push({
+          name: configEntry?.name ?? meta?.name ?? id,
+          symbol: configEntry?.display ?? meta?.symbol ?? id.toUpperCase(),
           price: coin.current_price ?? 0,
           change: coin.price_change_percentage_24h ?? 0,
-          sparkline: coin.sparkline_in_7d?.price ?? [],
-        };
-      });
+          sparkline,
+        });
+      }
+
+      if (crypto.length > 0 && crypto.every((q) => q.price === 0)) {
+        console.warn('[getMarketDashboard] CoinGecko returned all-zero prices');
+      }
 
       const hasData = stocks.length > 0 || commodities.length > 0 || sectors.length > 0 || crypto.length > 0;
       if (!hasData) return null;
