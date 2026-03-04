@@ -151,6 +151,8 @@ export interface ProviderCredentials {
   model: string;
   headers: Record<string, string>;
   extraBody?: Record<string, unknown>;
+  /** When true, use the native Ollama /api/chat format instead of OpenAI-compat */
+  useOllamaNativeApi?: boolean;
 }
 
 export async function getProviderCredentials(provider: string): Promise<ProviderCredentials | null> {
@@ -200,17 +202,30 @@ export async function getProviderCredentials(provider: string): Promise<Provider
 
     const rawMax = parseInt((await getSecret('OLLAMA_MAX_TOKENS')) || '1500', 10);
     const ollamaMaxTokens = Number.isFinite(rawMax) ? Math.min(Math.max(rawMax, 100), 4000) : 1500;
-    // Detect qwen3 thinking models and disable think mode — thinking tokens exhaust
-    // the max_tokens budget before producing any content when using the OpenAI API.
+    // qwen3 thinking models: use the native Ollama /api/chat endpoint which supports
+    // think:false directly. The OpenAI-compat /v1/chat/completions ignores think:false
+    // and routes all output to message.reasoning instead of message.content, causing timeouts.
     const resolvedModel = model || 'qwen3:8b';
     const isQwen3 = resolvedModel.startsWith('qwen3');
+    if (isQwen3) {
+      return {
+        apiUrl: new URL('/api/chat', apiUrl).toString(),
+        model: resolvedModel,
+        headers,
+        extraBody: {
+          options: { num_predict: ollamaMaxTokens },
+          think: false,
+          stream: false,
+        },
+        useOllamaNativeApi: true,
+      };
+    }
     return {
       apiUrl: new URL('/v1/chat/completions', apiUrl).toString(),
       model: resolvedModel,
       headers,
       extraBody: {
         max_tokens: ollamaMaxTokens,
-        ...(isQwen3 ? { think: false } : {}),
       },
     };
   }

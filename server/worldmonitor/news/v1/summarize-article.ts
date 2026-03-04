@@ -70,7 +70,7 @@ export async function summarizeArticle(
     };
   }
 
-  const { apiUrl, model, headers: providerHeaders, extraBody } = credentials;
+  const { apiUrl, model, headers: providerHeaders, extraBody, useOllamaNativeApi } = credentials;
 
   // Request validation
   if (!headlines || !Array.isArray(headlines) || headlines.length === 0) {
@@ -106,19 +106,21 @@ export async function summarizeArticle(
           lang,
         }, dbPrompt);
 
+        const requestBody = {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.3,
+          top_p: 0.9,
+          ...extraBody,
+        };
+        console.log(`[SummarizeArticle:${provider}] → ${apiUrl} model=${model} think=${(extraBody as any)?.think} max_tokens=${(extraBody as any)?.max_tokens} hasCFAccess=${!!providerHeaders['CF-Access-Client-Id']}`);
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { ...providerHeaders, 'User-Agent': CHROME_UA },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            temperature: 0.3,
-            top_p: 0.9,
-            ...extraBody,
-          }),
+          body: JSON.stringify(requestBody),
           signal: AbortSignal.timeout(60_000),
         });
 
