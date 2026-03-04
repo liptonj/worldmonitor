@@ -9,7 +9,7 @@
 INSERT INTO wm_admin.llm_providers (name, api_url, default_model, priority, enabled, api_key_secret_name)
 VALUES (
   'ollama',
-  'http://llm.mac.5ls.us/v1',
+  'https://ollama.5ls.us/v1',
   'qwen3:8b',
   3,
   true,
@@ -32,7 +32,7 @@ BEGIN
   -- OLLAMA_API_URL
   IF NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'OLLAMA_API_URL') THEN
     PERFORM vault.create_secret(
-      'http://llm.mac.5ls.us/v1/',
+      'https://ollama.5ls.us/v1/',
       'OLLAMA_API_URL',
       'Base URL for the Ollama OpenAI-compatible API (include trailing slash)'
     );
@@ -53,6 +53,24 @@ BEGIN
       '1500',
       'OLLAMA_MAX_TOKENS',
       'Max tokens for Ollama completions — thinking models (qwen3, deepseek-r1) need 1000+ to leave room for the answer after reasoning'
+    );
+  END IF;
+
+  -- OLLAMA_CF_ACCESS_CLIENT_ID (Cloudflare Access service token — set via admin portal)
+  IF NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'OLLAMA_CF_ACCESS_CLIENT_ID') THEN
+    PERFORM vault.create_secret(
+      '',
+      'OLLAMA_CF_ACCESS_CLIENT_ID',
+      'Cloudflare Access Service Token Client ID for Ollama endpoint auth'
+    );
+  END IF;
+
+  -- OLLAMA_CF_ACCESS_CLIENT_SECRET (Cloudflare Access service token — set via admin portal)
+  IF NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'OLLAMA_CF_ACCESS_CLIENT_SECRET') THEN
+    PERFORM vault.create_secret(
+      '',
+      'OLLAMA_CF_ACCESS_CLIENT_SECRET',
+      'Cloudflare Access Service Token Client Secret for Ollama endpoint auth'
     );
   END IF;
 END $$;

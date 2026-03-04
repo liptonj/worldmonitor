@@ -16,6 +16,7 @@ export interface LlmProvider {
   apiUrl: string;
   model: string;
   apiKey: string;
+  extraHeaders?: Record<string, string>;
 }
 
 export interface LlmPromptResult {
@@ -54,11 +55,21 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
       if (!secretName) return null;
       const apiKey = await getSecret(secretName);
       if (apiKey) {
+        const extraHeaders: Record<string, string> = {};
+        if ((row.name ?? '') === 'ollama') {
+          const [cfId, cfSecret] = await Promise.all([
+            getSecret('OLLAMA_CF_ACCESS_CLIENT_ID'),
+            getSecret('OLLAMA_CF_ACCESS_CLIENT_SECRET'),
+          ]);
+          if (cfId) extraHeaders['CF-Access-Client-Id'] = cfId;
+          if (cfSecret) extraHeaders['CF-Access-Client-Secret'] = cfSecret;
+        }
         const provider: LlmProvider = {
           name: row.name ?? '',
           apiUrl: row.api_url ?? '',
           model: row.default_model ?? '',
           apiKey,
+          ...(Object.keys(extraHeaders).length > 0 ? { extraHeaders } : {}),
         };
         if (redis) {
           try { await redis.setex('wm:llm:active-provider:v1', PROVIDER_CACHE_TTL, JSON.stringify(provider)); } catch { /* non-fatal */ }
