@@ -4,6 +4,7 @@ import { CHROME_UA } from '../../../_shared/constants';
 
 const SUMMARIZE_VIEW_TIMEOUT_MS = 90_000;
 const MIN_PANEL_LENGTH = 20;
+const MAX_PANEL_LENGTH = 80_000;
 
 interface SummarizeViewRequest {
   panelSnapshots?: string;
@@ -28,8 +29,10 @@ export async function summarizeView(
   };
 
   const snapshots = (req.panelSnapshots ?? '').trim();
-  if (snapshots.length < MIN_PANEL_LENGTH) {
-    return empty;
+  if (snapshots.length < MIN_PANEL_LENGTH) return empty;
+  if (snapshots.length > MAX_PANEL_LENGTH) {
+    console.warn('[SummarizeView] panelSnapshots too large, rejecting');
+    return { ...empty, provider: 'error' };
   }
 
   const provider = await getActiveLlmProvider();
@@ -76,7 +79,8 @@ export async function summarizeView(
     const reasoning = (firstChoice?.message as Record<string, unknown>)?.['reasoning'] as string | undefined;
 
     let raw = content || reasoning?.trim() || '';
-    raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    // Strip both closed <think>...</think> and unclosed <think>... (from reasoning models)
+    raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '').trim();
 
     if (!raw) return { ...empty, provider: 'error' };
 
