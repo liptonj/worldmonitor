@@ -1504,6 +1504,10 @@
   z-index: 5;
 }
 
+.map-bottom-grid.bottom-grid-hidden {
+  display: none !important;
+}
+
 /* Base state for placeholder */
 .map-bottom-grid::after {
   content: 'Drop panels here to move them below the map';

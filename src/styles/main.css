@@ -958,6 +958,11 @@ canvas,
   background: var(--green-dim);
 }
 
+.map-pin-btn.bottom-toggle-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
 /* Hidden by default — shown only inside 768px media query */
 .map-collapse-btn {
   display: none;
