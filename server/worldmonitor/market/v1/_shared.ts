@@ -15,7 +15,7 @@ export async function fetchYahooQuotesBatch(
   const results = new Map<string, { price: number; change: number; sparkline: number[] }>();
   if (symbols.length === 0) return { results, rateLimited: false };
 
-  const CONCURRENCY = 3;
+  const CONCURRENCY = 2;
   let failures = 0;
 
   for (let i = 0; i < symbols.length; i += CONCURRENCY) {
