@@ -46,6 +46,7 @@ import { mlWorker } from '@/services/ml-worker';
 import { UnifiedSettings } from '@/components/UnifiedSettings';
 import { t } from '@/services/i18n';
 import { TvModeController } from '@/services/tv-mode';
+import { formatClockTime } from '@/utils/display-prefs';
 
 export interface EventHandlerCallbacks {
   updateSearchIndex: () => void;
@@ -273,6 +274,13 @@ export class EventHandlerManager implements AppModule {
       this.updateHeaderThemeIcon();
     });
 
+    window.addEventListener('display-prefs-changed', () => {
+      if (this.clockIntervalId) {
+        clearInterval(this.clockIntervalId);
+      }
+      this.startHeaderClock();
+    });
+
     if (this.ctx.isDesktopApp) {
       if (this.boundDesktopExternalLinkHandler) {
         document.removeEventListener('click', this.boundDesktopExternalLinkHandler, true);
@@ -421,7 +429,7 @@ export class EventHandlerManager implements AppModule {
     const el = document.getElementById('headerClock');
     if (!el) return;
     const tick = () => {
-      el.textContent = new Date().toUTCString().replace('GMT', 'UTC');
+      el.textContent = formatClockTime(new Date());
     };
     tick();
     this.clockIntervalId = setInterval(tick, 1000);
