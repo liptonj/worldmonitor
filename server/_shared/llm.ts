@@ -57,12 +57,24 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
       if (apiKey) {
         const extraHeaders: Record<string, string> = {};
         if ((row.name ?? '') === 'ollama') {
-          const [cfId, cfSecret] = await Promise.all([
-            getSecret('OLLAMA_CF_ACCESS_CLIENT_ID'),
-            getSecret('OLLAMA_CF_ACCESS_CLIENT_SECRET'),
-          ]);
-          if (cfId) extraHeaders['CF-Access-Client-Id'] = cfId;
-          if (cfSecret) extraHeaders['CF-Access-Client-Secret'] = cfSecret;
+          // Use public.get_ollama_credentials() RPC (anon-callable) to get CF Access headers.
+          // This avoids needing SUPABASE_SERVICE_ROLE_KEY in the environment.
+          try {
+            const anonClient = createAnonClient();
+            const { data: credsData } = await anonClient.rpc('get_ollama_credentials');
+            if (Array.isArray(credsData) && credsData.length > 0) {
+              const creds = credsData[0] as { cf_access_client_id?: string | null; cf_access_client_secret?: string | null };
+              if (creds.cf_access_client_id) extraHeaders['CF-Access-Client-Id'] = creds.cf_access_client_id;
+              if (creds.cf_access_client_secret) extraHeaders['CF-Access-Client-Secret'] = creds.cf_access_client_secret;
+            }
+          } catch { /* non-fatal — CF Access headers optional if endpoint allows */ }
+          // Env fallback for local dev
+          if (!extraHeaders['CF-Access-Client-Id'] && process.env.OLLAMA_CF_ACCESS_CLIENT_ID) {
+            extraHeaders['CF-Access-Client-Id'] = process.env.OLLAMA_CF_ACCESS_CLIENT_ID;
+          }
+          if (!extraHeaders['CF-Access-Client-Secret'] && process.env.OLLAMA_CF_ACCESS_CLIENT_SECRET) {
+            extraHeaders['CF-Access-Client-Secret'] = process.env.OLLAMA_CF_ACCESS_CLIENT_SECRET;
+          }
         }
         const provider: LlmProvider = {
           name: row.name ?? '',
