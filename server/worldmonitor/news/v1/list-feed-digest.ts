@@ -280,7 +280,7 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
           }),
         );
 
-        Promise.all([
+        void Promise.all([
           redis.lpush(`wm:headlines:${category}`, ...serialized).then(() =>
             redis.ltrim(`wm:headlines:${category}`, 0, 99),
           ),
