@@ -13,20 +13,31 @@ export async function fetchYahooQuotesBatch(
   symbols: string[],
 ): Promise<{ results: Map<string, { price: number; change: number; sparkline: number[] }>; rateLimited: boolean }> {
   const results = new Map<string, { price: number; change: number; sparkline: number[] }>();
-  let rateLimitHits = 0;
-  let consecutiveFails = 0;
-  for (let i = 0; i < symbols.length; i++) {
-    const q = await fetchYahooQuote(symbols[i]!);
-    if (q) {
-      results.set(symbols[i]!, q);
-      consecutiveFails = 0;
-    } else {
-      rateLimitHits++;
-      consecutiveFails++;
+  if (symbols.length === 0) return { results, rateLimited: false };
+
+  const CONCURRENCY = 3;
+  let failures = 0;
+
+  for (let i = 0; i < symbols.length; i += CONCURRENCY) {
+    const chunk = symbols.slice(i, i + CONCURRENCY);
+    const settled = await Promise.allSettled(
+      chunk.map(async (s) => {
+        const q = await fetchYahooQuote(s);
+        return { symbol: s, quote: q };
+      }),
+    );
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value.quote) {
+        results.set(r.value.symbol, r.value.quote);
+      } else {
+        failures++;
+        const sym = r.status === 'fulfilled' ? r.value.symbol : 'unknown';
+        console.warn(`[Yahoo] Failed to fetch ${sym}`);
+      }
     }
-    if (consecutiveFails >= 5) break;
   }
-  return { results, rateLimited: rateLimitHits > symbols.length / 2 };
+
+  return { results, rateLimited: failures > symbols.length / 2 };
 }
 
 // Yahoo-only symbols: indices and futures not on Finnhub free tier

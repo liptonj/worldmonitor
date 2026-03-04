@@ -6,7 +6,7 @@ export const CHROME_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleW
  * Multiple handlers calling Yahoo concurrently causes IP-level rate limiting (429).
  */
 let yahooLastRequest = 0;
-const YAHOO_MIN_GAP_MS = 600;
+const YAHOO_MIN_GAP_MS = 200;
 let yahooQueue: Promise<void> = Promise.resolve();
 
 export function yahooGate(): Promise<void> {
