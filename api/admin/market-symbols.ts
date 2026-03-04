@@ -2,13 +2,19 @@ import { requireAdmin, errorResponse, corsHeaders } from './_auth';
 
 export const config = { runtime: 'edge' };
 
+// Exact-match keys only. market:quotes:v1, market:crypto:v1, market:commodities:v1
+// use symbol suffixes (e.g. market:quotes:v1:AAPL) and are not exact keys.
 const REDIS_CACHE_KEYS = [
   'market:symbols:v1',
-  'market:quotes:v1',
-  'market:crypto:v1',
-  'market:commodities:v1',
   'market:sectors:v1',
 ];
+
+function getKeyPrefix(): string {
+  const env = process.env.VERCEL_ENV;
+  if (!env || env === 'production') return '';
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) || 'dev';
+  return `${env}:${sha}:`;
+}
 
 async function invalidateRedisCache(): Promise<void> {
   const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
@@ -16,7 +22,9 @@ async function invalidateRedisCache(): Promise<void> {
   if (!redisUrl || !redisToken) return;
 
   try {
-    const path = ['del', ...REDIS_CACHE_KEYS.map((k) => encodeURIComponent(k))].join('/');
+    const prefix = getKeyPrefix();
+    const prefixedKeys = REDIS_CACHE_KEYS.map((k) => `${prefix}${k}`);
+    const path = ['del', ...prefixedKeys.map((k) => encodeURIComponent(k))].join('/');
     const res = await fetch(`${redisUrl}/${path}`, {
       headers: { Authorization: `Bearer ${redisToken}` },
     });
