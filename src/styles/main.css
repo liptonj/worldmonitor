@@ -740,7 +740,6 @@ canvas,
   opacity: 0.5;
   cursor: not-allowed;
 }
-
 .copy-link-btn {
   padding: 4px 10px;
   background: transparent;
@@ -5366,6 +5365,18 @@ body.playback-mode .status-dot {
   display: block;
   margin: 2px 0;
   opacity: 0.8;
+}
+
+.stale-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  color: var(--text-muted, #888);
+  background: var(--surface-alt, rgba(255,255,255,0.05));
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+  opacity: 0.7;
 }
 
 /* Predictions */

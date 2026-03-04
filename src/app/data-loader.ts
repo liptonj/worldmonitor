@@ -188,6 +188,7 @@ export class DataLoaderManager implements AppModule {
   private readonly perFeedFallbackIntelFeedLimit = 6;
   private readonly perFeedFallbackBatchSize = 2;
   private lastGoodDigest: ListFeedDigestResponse | null = null;
+  private lastCommodityData: Array<{ display: string; price: number | null; change: number | null; sparkline?: number[] }> = [];
 
   constructor(ctx: AppContext, callbacks: DataLoaderCallbacks) {
     this.ctx = ctx;
@@ -961,12 +962,18 @@ export class DataLoaderManager implements AppModule {
         sparkline: (q.sparkline?.length ?? 0) > 0 ? (q.sparkline ?? []) : undefined,
       }));
       if (commodityData.length > 0 && commodityData.some((d) => d.price !== null)) {
+        this.lastCommodityData = commodityData;
         commoditiesPanel.renderCommodities(commodityData);
+      } else if (this.lastCommodityData.length > 0) {
+        commoditiesPanel.renderCommodities(this.lastCommodityData, true);
       } else {
         commoditiesPanel.renderCommodities([]);
       }
     } catch {
       this.ctx.statusPanel?.updateApi('Finnhub', { status: 'error' });
+      if (this.lastCommodityData.length > 0) {
+        commoditiesPanel.renderCommodities(this.lastCommodityData, true);
+      }
     }
 
     try {

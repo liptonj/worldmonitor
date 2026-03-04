@@ -76,7 +76,7 @@ export class CommoditiesPanel extends Panel {
     super({ id: 'commodities', title: t('panels.commodities') });
   }
 
-  public renderCommodities(data: Array<{ display: string; price: number | null; change: number | null; sparkline?: number[] }>): void {
+  public renderCommodities(data: Array<{ display: string; price: number | null; change: number | null; sparkline?: number[] }>, stale = false): void {
     const validData = data.filter((d) => d.price !== null);
 
     if (validData.length === 0) {
@@ -84,13 +84,15 @@ export class CommoditiesPanel extends Panel {
       return;
     }
 
+    const staleBadge = stale ? '<span class="stale-badge" title="Data may be outdated">stale</span>' : '';
+
     const html =
       '<div class="commodities-grid">' +
       validData
         .map(
           (c) => `
         <div class="commodity-item">
-          <div class="commodity-name">${escapeHtml(c.display)}</div>
+          <div class="commodity-name">${escapeHtml(c.display)}${staleBadge}</div>
           ${miniSparkline(c.sparkline, c.change, 60, 18)}
           <div class="commodity-price">${formatPrice(c.price!)}</div>
           <div class="commodity-change ${getChangeClass(c.change!)}">${formatChange(c.change!)}</div>
