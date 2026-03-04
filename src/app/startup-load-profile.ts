@@ -7,7 +7,7 @@ export interface StartupLoadProfile {
   phaseC: StartupTaskName[];
 }
 
-export function getStartupLoadProfile(variant: string): StartupLoadProfile {
+export function getStartupLoadProfile(_variant: string): StartupLoadProfile {
   // Minimal full-profile default; variant refinements come later.
   return {
     initialRequestBudget: 10,

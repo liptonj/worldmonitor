@@ -17,6 +17,7 @@ import {
   CRYPTO_META,
 } from './_shared';
 import { cachedFetchJson, setCachedJson } from '../../../_shared/redis';
+import { BOOTSTRAP_CACHE_KEYS } from '../../../_shared/cache-keys';
 
 const REDIS_KEY = 'market:dashboard:v1';
 const REDIS_TTL = 480;
@@ -146,7 +147,7 @@ export async function getMarketDashboard(
         }
       }
       if (commodities.length > 0) {
-        setCachedJson('market:commodities:v1', { quotes: commodities }, 600).catch(() => {});
+        setCachedJson(BOOTSTRAP_CACHE_KEYS.commodities, { quotes: commodities }, 600).catch(() => {});
       }
 
       // Sectors: prefer Finnhub data, fall back to Yahoo (matches getSectorSummary)

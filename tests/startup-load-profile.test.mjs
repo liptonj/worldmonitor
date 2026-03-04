@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import { getStartupLoadProfile } from '../src/app/startup-load-profile.ts';
 
 describe('startup load profile', () => {
-  it('defines critical and deferred phases with request budget <= 10', () => {
+  it('defines critical and deferred phases with exact values', () => {
     const profile = getStartupLoadProfile('full');
-    assert.ok(profile.initialRequestBudget <= 10);
-    assert.ok(profile.phaseA.length > 0);
-    assert.ok(profile.phaseB.length > 0);
-    assert.ok(profile.phaseC.length > 0);
+    assert.strictEqual(profile.initialRequestBudget, 10);
+    assert.deepEqual(profile.phaseA, ['news', 'markets']);
+    assert.deepEqual(profile.phaseB, ['predictions', 'fred', 'oil', 'bis', 'pizzint']);
+    assert.deepEqual(profile.phaseC, ['intelligence', 'natural', 'weather', 'ais', 'cables', 'cyberThreats']);
+    assert.ok(profile.phaseA.every((t) => typeof t === 'string'));
+    assert.ok(profile.phaseB.every((t) => typeof t === 'string'));
+    assert.ok(profile.phaseC.every((t) => typeof t === 'string'));
   });
 });

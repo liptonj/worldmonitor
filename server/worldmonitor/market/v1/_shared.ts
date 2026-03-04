@@ -160,7 +160,7 @@ export async function fetchYahooQuote(
     }
 
     const data: YahooChartResponse = await resp.json();
-    const result = data.chart.result[0];
+    const result = data.chart?.result?.[0];
     const meta = result?.meta;
     if (!meta) {
       console.warn(`[Yahoo] ${symbol} no meta in response`);
