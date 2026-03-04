@@ -164,12 +164,10 @@ export async function invalidateLlmCache(): Promise<void> {
   if (redis) {
     try {
       await redis.del('wm:llm:active-provider:v1');
-      // Also clear all cached prompts
+      // Also clear all cached prompts (variadic del for single round-trip)
       const keys = await redis.keys('wm:llm:prompt:v1:*');
       if (keys.length > 0) {
-        for (const key of keys) {
-          await redis.del(key);
-        }
+        await redis.del(...keys);
       }
     } catch { /* non-fatal */ }
   }
