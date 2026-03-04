@@ -13,12 +13,7 @@ export default async function handler(req: Request): Promise<Response> {
   const { client } = admin;
 
   if (req.method === 'GET') {
-    const { data, error } = await client
-      .schema('wm_admin')
-      .from('feature_flags')
-      .select('*')
-      .order('category')
-      .order('key');
+    const { data, error } = await client.rpc('admin_get_feature_flags');
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     return new Response(JSON.stringify({ flags: data }), { status: 200, headers });
   }
@@ -26,10 +21,11 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'PUT') {
     const body = (await req.json()) as { key: string; value: unknown; description?: string };
     if (!body.key) return new Response(JSON.stringify({ error: 'key required' }), { status: 400, headers });
-    const { error } = await client
-      .schema('wm_admin')
-      .from('feature_flags')
-      .upsert({ key: body.key, value: body.value, description: body.description }, { onConflict: 'key' });
+    const { error } = await client.rpc('admin_upsert_feature_flag', {
+      p_key: body.key,
+      p_value: body.value,
+      p_description: body.description ?? null,
+    });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }

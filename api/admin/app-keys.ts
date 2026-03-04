@@ -15,11 +15,7 @@ export default async function handler(req: Request): Promise<Response> {
   const id = url.searchParams.get('id');
 
   if (req.method === 'GET') {
-    const { data, error } = await client
-      .schema('wm_admin')
-      .from('app_keys')
-      .select('id, description, enabled, created_at, revoked_at')
-      .order('created_at', { ascending: false });
+    const { data, error } = await client.rpc('admin_get_app_keys');
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     return new Response(JSON.stringify({ keys: data }), { status: 200, headers });
   }
@@ -32,21 +28,17 @@ export default async function handler(req: Request): Promise<Response> {
     const keyHash = Array.from(new Uint8Array(hash))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-    const { error } = await client
-      .schema('wm_admin')
-      .from('app_keys')
-      .insert({ key_hash: keyHash, description: body.description ?? null });
+    const { error } = await client.rpc('admin_insert_app_key', {
+      p_key_hash: keyHash,
+      p_description: body.description ?? null,
+    });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     return new Response(JSON.stringify({ ok: true }), { status: 201, headers });
   }
 
   if (req.method === 'DELETE') {
     if (!id) return new Response(JSON.stringify({ error: 'id required' }), { status: 400, headers });
-    const { error } = await client
-      .schema('wm_admin')
-      .from('app_keys')
-      .update({ enabled: false, revoked_at: new Date().toISOString() })
-      .eq('id', id);
+    const { error } = await client.rpc('admin_revoke_app_key', { p_id: id });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }

@@ -18,27 +18,13 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (req.method === 'GET') {
     if (id && showHistory) {
-      const { data, error } = await client
-        .schema('wm_admin')
-        .from('llm_prompt_history')
-        .select('id, prompt_id, system_prompt, changed_by, changed_at')
-        .eq('prompt_id', id)
-        .order('changed_at', { ascending: false })
-        .limit(20);
+      const { data, error } = await client.rpc('admin_get_llm_prompt_history', { p_prompt_id: id });
       if (error)
         return new Response(JSON.stringify({ error: 'Failed to load history' }), { status: 500, headers });
       return new Response(JSON.stringify(data), { status: 200, headers });
     }
 
-    let query = client
-      .schema('wm_admin')
-      .from('llm_prompts')
-      .select('*')
-      .order('prompt_key')
-      .order('variant')
-      .order('mode');
-    if (key) query = query.eq('prompt_key', key);
-    const { data, error } = await query;
+    const { data, error } = await client.rpc('admin_get_llm_prompts', { p_key: key ?? null });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     return new Response(JSON.stringify({ prompts: data }), { status: 200, headers });
   }
@@ -46,11 +32,11 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'PUT') {
     if (!id) return new Response(JSON.stringify({ error: 'id required' }), { status: 400, headers });
     const body = (await req.json()) as { system_prompt?: string; user_prompt?: string };
-    const { error } = await client
-      .schema('wm_admin')
-      .from('llm_prompts')
-      .update({ system_prompt: body.system_prompt, user_prompt: body.user_prompt })
-      .eq('id', id);
+    const { error } = await client.rpc('admin_update_llm_prompt', {
+      p_id: id,
+      p_system_prompt: body.system_prompt ?? null,
+      p_user_prompt: body.user_prompt ?? null,
+    });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }

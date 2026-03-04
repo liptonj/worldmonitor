@@ -18,14 +18,14 @@ export default async function handler(req: Request): Promise<Response> {
   const { client } = admin;
 
   const [flags, sources, providers, prompts, appKeys] = await Promise.all([
-    client.schema('wm_admin').from('feature_flags').select('*'),
-    client.schema('wm_admin').from('news_sources').select('*'),
-    client.schema('wm_admin').from('llm_providers').select('*'),
-    client.schema('wm_admin').from('llm_prompts').select('*'),
-    client.schema('wm_admin').from('app_keys').select('id, description, enabled, created_at, revoked_at'),
+    client.rpc('admin_get_feature_flags'),
+    client.rpc('admin_get_news_sources'),
+    client.rpc('admin_get_llm_providers'),
+    client.rpc('admin_get_llm_prompts'),
+    client.rpc('admin_get_app_keys'),
   ]);
 
-  // Vault secret names require service role — Vault RPCs are revoked from all users
+  // Vault secret names require service role — Vault RPCs are restricted to service_role
   let vaultSecretNames: unknown[] = [];
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     const serviceClient = createServiceClient();

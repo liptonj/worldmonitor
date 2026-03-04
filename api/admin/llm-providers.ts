@@ -16,11 +16,7 @@ export default async function handler(req: Request): Promise<Response> {
   const id = url.searchParams.get('id');
 
   if (req.method === 'GET') {
-    const { data, error } = await client
-      .schema('wm_admin')
-      .from('llm_providers')
-      .select('*')
-      .order('priority');
+    const { data, error } = await client.rpc('admin_get_llm_providers');
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     return new Response(JSON.stringify({ providers: data }), { status: 200, headers });
   }
@@ -28,7 +24,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'PUT') {
     if (!id) return new Response(JSON.stringify({ error: 'id required' }), { status: 400, headers });
     const body = await req.json();
-    const { error } = await client.schema('wm_admin').from('llm_providers').update(body).eq('id', id);
+    const { error } = await client.rpc('admin_update_llm_provider', { p_id: id, p_data: body });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     await invalidateLlmCache();
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });

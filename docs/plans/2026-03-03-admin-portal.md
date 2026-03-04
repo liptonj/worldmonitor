@@ -17,7 +17,7 @@
 - Existing HTML multi-page pattern: `settings.html` → `src/settings-main.ts` → `src/settings-window.ts`
 - Vite multi-page input is in `vite.config.ts` at `build.rollupOptions.input` (line ~749): already has `main`, `settings`, `liveChannels` entries — add `admin`
 - All Vercel API routes live in `/api/` — TypeScript or JavaScript
-- Redis client: `server/_shared/redis.ts` already exports `cachedFetchJson` and a `redis` client
+- Redis: `server/_shared/redis.ts` exports raw HTTP helpers (`getCachedJson`, `setCachedJson`, `cachedFetchJson`). The `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` env vars point to a self-hosted `serverless-redis-http` (SRH) Docker container at `redis.5ls.us` that fronts a native Redis instance. SRH is Upstash-compatible, so the `@upstash/redis` SDK works against it. Task 6a adds an SDK client export to `redis.ts` for the new admin helpers.
 - `@supabase/supabase-js` needs to be installed
 
 ### Secrets that MUST stay in `process.env` forever (never move to Vault)
@@ -646,7 +646,7 @@ npx tsx --test tests/secrets.test.mts
  *   SUPABASE_*, CONVEX_URL, VERCEL_*, NODE_ENV
  */
 
-import { redis } from './redis';
+import { getRedisClient } from './redis';
 import { createServiceClient } from './supabase';
 
 const CACHE_TTL_SECONDS = 900; // 15 minutes
@@ -681,12 +681,15 @@ export async function getSecret(secretName: string): Promise<string | undefined>
     return process.env[secretName] ?? undefined;
   }
 
-  // 1. Redis cache
-  try {
-    const cached = await redis.get<string>(vaultCacheKey(secretName));
-    if (cached !== null && cached !== undefined) return cached;
-  } catch {
-    // Redis miss — continue
+  // 1. Redis cache (via @upstash/redis SDK → self-hosted SRH container)
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      const cached = await redis.get<string>(vaultCacheKey(secretName));
+      if (cached !== null && cached !== undefined) return cached;
+    } catch {
+      // Redis miss — continue
+    }
   }
 
   // 2. Supabase Vault
@@ -698,7 +701,9 @@ export async function getSecret(secretName: string): Promise<string | undefined>
       { schema: 'wm_admin' },
     );
     if (!error && data) {
-      try { await redis.setex(vaultCacheKey(secretName), CACHE_TTL_SECONDS, data); } catch { /* non-fatal */ }
+      if (redis) {
+        try { await redis.setex(vaultCacheKey(secretName), CACHE_TTL_SECONDS, data); } catch { /* non-fatal */ }
+      }
       return data as string;
     }
   } catch {
@@ -711,7 +716,10 @@ export async function getSecret(secretName: string): Promise<string | undefined>
 
 /** Call after updating a secret via admin portal to clear the cache. */
 export async function invalidateSecretCache(secretName: string): Promise<void> {
-  try { await redis.del(vaultCacheKey(secretName)); } catch { /* non-fatal */ }
+  const redis = getRedisClient();
+  if (redis) {
+    try { await redis.del(vaultCacheKey(secretName)); } catch { /* non-fatal */ }
+  }
 }
 ```
 
@@ -774,13 +782,9 @@ npx tsx --test tests/llm-helpers.test.mts
  * Falls back to hard-coded constants if Supabase is unavailable.
  */
 
-import { redis } from './redis';
+import { getRedisClient } from './redis';
 import { createServiceClient } from './supabase';
 import { getSecret } from './secrets';
-
-// Hard-coded fallbacks (used when Supabase is unavailable)
-const FALLBACK_GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const FALLBACK_GROQ_MODEL = 'llama-3.1-8b-instant';
 
 const PROVIDER_CACHE_TTL = 900; // 15 minutes
 const PROMPT_CACHE_TTL = 900;
@@ -802,51 +806,49 @@ export interface LlmPromptResult {
  * Falls back to Groq env var if Supabase is unavailable.
  */
 export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
-  // Try Redis cache first
-  try {
-    const cached = await redis.get<LlmProvider>('wm:llm:active-provider:v1');
-    if (cached) return cached;
-  } catch { /* non-fatal */ }
+  const redis = getRedisClient();
 
-  // Try Supabase
-  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  // 1. Redis cache
+  if (redis) {
     try {
-      const supabase = createServiceClient();
-      const { data, error } = await supabase
-        .schema('wm_admin')
-        .from('llm_providers')
-        .select('name, api_url, default_model, api_key_secret_name')
-        .eq('enabled', true)
-        .order('priority', { ascending: true })
-        .limit(1)
-        .single();
-
-      if (!error && data) {
-        const apiKey = await getSecret(data.api_key_secret_name);
-        if (apiKey) {
-          const provider: LlmProvider = {
-            name: data.name,
-            apiUrl: data.api_url,
-            model: data.default_model,
-            apiKey,
-          };
-          try { await redis.setex('wm:llm:active-provider:v1', PROVIDER_CACHE_TTL, JSON.stringify(provider)); } catch { /* non-fatal */ }
-          return provider;
-        }
-      }
-    } catch { /* fall through */ }
+      const cached = await redis.get<LlmProvider>('wm:llm:active-provider:v1');
+      if (cached) return cached;
+    } catch { /* non-fatal */ }
   }
 
-  // Env fallback
-  const apiKey = await getSecret('GROQ_API_KEY');
-  if (!apiKey) return null;
+  // 2. Supabase
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
 
-  return {
-    name: 'groq',
-    apiUrl: process.env.LLM_API_URL || FALLBACK_GROQ_URL,
-    model: process.env.LLM_MODEL || FALLBACK_GROQ_MODEL,
-    apiKey,
-  };
+  try {
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .schema('wm_admin')
+      .from('llm_providers')
+      .select('name, api_url, default_model, api_key_secret_name')
+      .eq('enabled', true)
+      .order('priority', { ascending: true })
+      .limit(1)
+      .single();
+
+    if (!error && data) {
+      const apiKey = await getSecret(data.api_key_secret_name);
+      if (apiKey) {
+        const provider: LlmProvider = {
+          name: data.name,
+          apiUrl: data.api_url,
+          model: data.default_model,
+          apiKey,
+        };
+        if (redis) {
+          try { await redis.setex('wm:llm:active-provider:v1', PROVIDER_CACHE_TTL, JSON.stringify(provider)); } catch { /* non-fatal */ }
+        }
+        return provider;
+      }
+    }
+  } catch { /* fall through */ }
+
+  // 3. No provider available
+  return null;
 }
 
 /**
@@ -860,12 +862,17 @@ export async function getLlmPrompt(
   mode: string,
 ): Promise<LlmPromptResult | null> {
   const cacheKey = `wm:llm:prompt:v1:${promptKey}:${variant}:${mode}`;
+  const redis = getRedisClient();
 
-  try {
-    const cached = await redis.get<LlmPromptResult>(cacheKey);
-    if (cached) return cached;
-  } catch { /* non-fatal */ }
+  // 1. Redis cache
+  if (redis) {
+    try {
+      const cached = await redis.get<LlmPromptResult>(cacheKey);
+      if (cached) return cached;
+    } catch { /* non-fatal */ }
+  }
 
+  // 2. Supabase
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return null;
   }
@@ -873,7 +880,6 @@ export async function getLlmPrompt(
   try {
     const supabase = createServiceClient();
 
-    // Try most-specific match first, then fall back
     const candidates = [
       { variant, mode },
       { variant, mode: null },
@@ -898,7 +904,9 @@ export async function getLlmPrompt(
           systemPrompt: data.system_prompt,
           userPrompt: data.user_prompt ?? '',
         };
-        try { await redis.setex(cacheKey, PROMPT_CACHE_TTL, JSON.stringify(result)); } catch { /* non-fatal */ }
+        if (redis) {
+          try { await redis.setex(cacheKey, PROMPT_CACHE_TTL, JSON.stringify(result)); } catch { /* non-fatal */ }
+        }
         return result;
       }
     }
@@ -917,10 +925,13 @@ export function buildPrompt(template: string, vars: Record<string, string>): str
 
 /** Invalidate LLM caches after admin changes */
 export async function invalidateLlmCache(): Promise<void> {
-  try {
-    await redis.del('wm:llm:active-provider:v1');
-    // Prompt caches will expire naturally after 15 min
-  } catch { /* non-fatal */ }
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      await redis.del('wm:llm:active-provider:v1');
+      // Prompt caches will expire naturally after 15 min
+    } catch { /* non-fatal */ }
+  }
 }
 ```
 
@@ -2057,6 +2068,69 @@ Add to the install step:
 npm install @supabase/supabase-js zod
 ```
 
+> **Note:** `@upstash/redis` and `@upstash/ratelimit` are already installed (used by `api/_rate-limit.js`). No additional Redis packages needed.
+
+#### Task 6a — Export `@upstash/redis` SDK Client from `redis.ts`
+
+The existing `server/_shared/redis.ts` uses raw `fetch()` calls against the Upstash-compatible REST API (served by the self-hosted SRH Docker container at `redis.5ls.us`). The new admin helpers (`secrets.ts`, `llm.ts`, `news-sources.ts`) use the `@upstash/redis` SDK which speaks the same protocol.
+
+**Add to the top of `server/_shared/redis.ts`:**
+
+```typescript
+import { Redis } from '@upstash/redis';
+
+/**
+ * @upstash/redis SDK client — talks to the self-hosted serverless-redis-http
+ * container (SRH) at UPSTASH_REDIS_REST_URL. SRH proxies to native Redis.
+ * Used by admin helpers (secrets, LLM, news-sources) for .get(), .setex(), .del().
+ * Existing raw fetch helpers below remain for backward compatibility.
+ */
+let _redis: Redis | null = null;
+
+export function getRedisClient(): Redis | null {
+  if (_redis) return _redis;
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  _redis = new Redis({ url, token });
+  return _redis;
+}
+
+export { _redis as redis };
+```
+
+> **Why `getRedisClient()` instead of a top-level `export const redis = new Redis(...)`?** — At module load time during Vercel cold start, env vars may not be populated yet. The lazy getter ensures the client is created only when first needed.
+
+**Update imports in `secrets.ts`, `llm.ts`, `news-sources.ts`:**
+
+Replace:
+```typescript
+import { redis } from './redis';
+```
+
+With:
+```typescript
+import { getRedisClient } from './redis';
+```
+
+And each call site becomes:
+```typescript
+const redis = getRedisClient();
+if (redis) {
+  const cached = await redis.get<string>(cacheKey);
+  // ...
+}
+```
+
+If `getRedisClient()` returns `null` (no Redis env vars), the helper simply skips the cache layer and goes straight to Supabase.
+
+**Commit:**
+
+```bash
+git add server/_shared/redis.ts
+git commit -m "feat: export @upstash/redis SDK client from redis.ts for admin helpers"
+```
+
 #### Task 4 — Additional Schema Objects
 
 Add these to the migration SQL file **after** the existing `news_sources` table definition:
@@ -2339,7 +2413,7 @@ Add to `vercel.json` a new top-level `rewrites` array (or append if it exists):
 
 ```typescript
 // server/_shared/news-sources.ts
-import { redis } from './redis';
+import { getRedisClient } from './redis';
 import { createServiceClient } from './supabase';
 
 export interface DynamicFeed {
@@ -2361,12 +2435,15 @@ export async function getNewsSources(
   lang: string,
 ): Promise<Record<string, DynamicFeed[]>> {
   const cacheKey = `wm:feeds:v1:${variant}:${lang}`;
+  const redis = getRedisClient();
 
   // 1. Redis cache
-  try {
-    const cached = await redis.get<Record<string, DynamicFeed[]>>(cacheKey);
-    if (cached) return cached;
-  } catch { /* non-fatal */ }
+  if (redis) {
+    try {
+      const cached = await redis.get<Record<string, DynamicFeed[]>>(cacheKey);
+      if (cached) return cached;
+    } catch { /* non-fatal */ }
+  }
 
   // 2. Supabase
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -2392,16 +2469,16 @@ export async function getNewsSources(
       tier: row.tier,
     }));
 
-    // Filter by language
     const filtered = feeds.filter(f => !f.lang || f.lang === lang || f.lang === 'en');
 
-    // Group by category
     const grouped: Record<string, DynamicFeed[]> = {};
     for (const feed of filtered) {
       (grouped[feed.category] ??= []).push(feed);
     }
 
-    try { await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(grouped)); } catch { /* non-fatal */ }
+    if (redis) {
+      try { await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(grouped)); } catch { /* non-fatal */ }
+    }
     return grouped;
   } catch { return {}; }
 }
@@ -2411,11 +2488,14 @@ export async function getNewsSources(
  */
 export async function getIntelSources(lang: string): Promise<DynamicFeed[]> {
   const cacheKey = `wm:feeds:intel:v1:${lang}`;
+  const redis = getRedisClient();
 
-  try {
-    const cached = await redis.get<DynamicFeed[]>(cacheKey);
-    if (cached) return cached;
-  } catch { /* non-fatal */ }
+  if (redis) {
+    try {
+      const cached = await redis.get<DynamicFeed[]>(cacheKey);
+      if (cached) return cached;
+    } catch { /* non-fatal */ }
+  }
 
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return [];
 
@@ -2441,17 +2521,23 @@ export async function getIntelSources(lang: string): Promise<DynamicFeed[]> {
         tier: row.tier,
       }));
 
-    try { await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(feeds)); } catch { /* non-fatal */ }
+    if (redis) {
+      try { await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(feeds)); } catch { /* non-fatal */ }
+    }
     return feeds;
   } catch { return []; }
 }
 
 export async function invalidateNewsFeedCache(): Promise<void> {
-  // Invalidation is approximate — delete known keys; others expire naturally
-  try {
-    const keys = await redis.keys('wm:feeds:*');
-    if (keys.length) await redis.del(...keys);
-  } catch { /* non-fatal */ }
+  const redis = getRedisClient();
+  if (!redis) return;
+  // Delete known cache key patterns; others expire naturally after 15 min
+  const variants = ['full', 'tech', 'finance', 'happy'];
+  const langs = ['en', 'de', 'fr', 'es', 'ar'];
+  const keys: string[] = [];
+  for (const v of variants) for (const l of langs) keys.push(`wm:feeds:v1:${v}:${l}`);
+  for (const l of langs) keys.push(`wm:feeds:intel:v1:${l}`);
+  try { await redis.del(...keys); } catch { /* non-fatal */ }
 }
 ```
 

@@ -1,3 +1,47 @@
+# Fix display Schema Function Search Path Mutable Warnings
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** Add `SET search_path = ''` to every `display` and `public` schema function that is missing it, eliminating all 24 `function_search_path_mutable` security advisor warnings.
+
+**Architecture:** A single migration file patches all affected functions with `CREATE OR REPLACE FUNCTION` — the simplest safe approach. Each function body is unchanged; only the `SET search_path = ''` clause is added to the function header and all unqualified table/schema references inside are fully qualified. No application code changes needed since the fix is purely at the database level.
+
+**Tech Stack:** PostgreSQL 17 (Supabase), `apply_migration` MCP tool for deployment, `get_advisors` MCP tool to verify.
+
+---
+
+## Background: Why This Matters
+
+PostgreSQL's `search_path` controls which schema is searched when an unqualified object name (e.g. `pairings` instead of `display.pairings`) is referenced. If an attacker or misconfigured role can change `search_path`, they can hijack a `SECURITY DEFINER` function into calling a malicious shadow table instead of the real one. The fix is to set `search_path = ''` (empty) in the function definition, which forces all identifiers to be fully qualified.
+
+**Functions affected:** 24 total across `display` and `public` schemas.
+
+All unqualified table/function references inside each function body must also be schema-qualified once `search_path = ''` is set, or the function will error at runtime.
+
+---
+
+## Pre-flight Check
+
+Before starting, verify current warning count:
+
+```
+MCP: get_advisors(project_id="fmultmlsevqgtnqzaylg", type="security")
+```
+
+Expected: 24+ warnings all named `function_search_path_mutable` in `display` or `public` schemas. Zero warnings in `wm_admin` (already fixed).
+
+---
+
+### Task 1: Fix `display.update_updated_at` and `display.update_release_artifacts_updated_at`
+
+**Files:**
+- Create: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+These two are simple `RETURNS TRIGGER` functions that only reference `NEW` (a trigger pseudo-row — no schema needed). The fix is just adding `SET search_path = ''`.
+
+**Step 1: Create the migration file**
+
+```sql
 -- supabase/migrations/20260303000002_fix_display_search_path.sql
 -- Fix function_search_path_mutable warnings: display + public schemas
 -- Adds SET search_path = '' to all 24 affected functions.
@@ -26,7 +70,52 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+```
 
+**Step 2: Apply via MCP**
+
+```
+MCP: apply_migration(
+  project_id="fmultmlsevqgtnqzaylg",
+  name="fix_display_search_path",
+  query=<contents of the file above>
+)
+```
+
+Expected: `{"success": true}`
+
+**Step 3: Verify no runtime error**
+
+```
+MCP: execute_sql(
+  project_id="fmultmlsevqgtnqzaylg",
+  query="SELECT display.update_updated_at IS NOT NULL;"
+)
+```
+
+Expected: query returns without error (the function exists and is callable).
+
+**Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260303000002_fix_display_search_path.sql
+git commit -m "fix(db): add SET search_path='' to display.update_updated_at and update_release_artifacts_updated_at"
+```
+
+---
+
+### Task 2: Fix `display.update_status_timestamp` and `display.status_values_changed`
+
+**Files:**
+- Modify: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+Both reference `display.pairings` inside their bodies (must be fully qualified with `search_path = ''`).
+
+`status_values_changed` uses `display.pairings%ROWTYPE` which requires full qualification.
+
+**Step 1: Append to the migration file**
+
+```sql
 -- 3. display.update_status_timestamp (trigger: updates status_updated_at)
 CREATE OR REPLACE FUNCTION display.update_status_timestamp()
 RETURNS trigger
@@ -105,7 +194,40 @@ BEGIN
     RETURN has_changes;
 END;
 $$;
+```
 
+**Step 2: Apply via MCP** (append-only additions — safe to re-run CREATE OR REPLACE)
+
+**Step 3: Spot-check**
+
+```
+MCP: execute_sql(
+  project_id="fmultmlsevqgtnqzaylg",
+  query="SELECT proname, proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='display' AND proname IN ('update_status_timestamp','status_values_changed');"
+)
+```
+
+Expected: both rows show `proconfig = ["search_path=\"\""]`
+
+**Step 4: Commit**
+
+```bash
+git commit -am "fix(db): add SET search_path='' to display.update_status_timestamp and status_values_changed"
+```
+
+---
+
+### Task 3: Fix `display.ensure_single_latest` and `display.prevent_immutable_device_updates`
+
+**Files:**
+- Modify: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+`ensure_single_latest` references `display.releases` (must qualify).
+`prevent_immutable_device_updates` uses only `OLD`/`NEW` trigger rows — no schema refs needed in body.
+
+**Step 1: Append to migration**
+
+```sql
 -- 5. display.ensure_single_latest (trigger: enforces single is_latest per channel)
 CREATE OR REPLACE FUNCTION display.ensure_single_latest()
 RETURNS trigger
@@ -143,7 +265,28 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+```
 
+**Step 2: Apply via MCP**
+
+**Step 3: Commit**
+
+```bash
+git commit -am "fix(db): add SET search_path='' to display.ensure_single_latest and prevent_immutable_device_updates"
+```
+
+---
+
+### Task 4: Fix `display.pairings_presence_trigger` and `display.broadcast_commands_changes`
+
+**Files:**
+- Modify: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+Both reference `display.connection_heartbeats` and `realtime.broadcast_changes` — must be fully qualified.
+
+**Step 1: Append to migration**
+
+```sql
 -- 7. display.pairings_presence_trigger (trigger: upserts connection heartbeat)
 CREATE OR REPLACE FUNCTION display.pairings_presence_trigger()
 RETURNS trigger
@@ -191,7 +334,28 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+```
 
+**Step 2: Apply via MCP**
+
+**Step 3: Commit**
+
+```bash
+git commit -am "fix(db): add SET search_path='' to display.pairings_presence_trigger and broadcast_commands_changes"
+```
+
+---
+
+### Task 5: Fix `display.cleanup_old_commands`, `display.cleanup_rate_limits`, `display.cleanup_old_logs`
+
+**Files:**
+- Modify: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+All reference `display.*` tables — must qualify. `cleanup_old_logs` is already `SECURITY DEFINER` but missing `search_path`.
+
+**Step 1: Append to migration**
+
+```sql
 -- 9. display.cleanup_old_commands (expires pending + deletes old commands)
 CREATE OR REPLACE FUNCTION display.cleanup_old_commands()
 RETURNS integer
@@ -249,7 +413,28 @@ BEGIN
     WHERE created_at < NOW() - INTERVAL '30 days';
 END;
 $$;
+```
 
+**Step 2: Apply via MCP**
+
+**Step 3: Commit**
+
+```bash
+git commit -am "fix(db): add SET search_path='' to display cleanup functions"
+```
+
+---
+
+### Task 6: Fix `display.check_connection_timeouts`
+
+**Files:**
+- Modify: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+References `display.pairings` — must qualify.
+
+**Step 1: Append to migration**
+
+```sql
 -- 12. display.check_connection_timeouts (marks stale connections as disconnected)
 CREATE OR REPLACE FUNCTION display.check_connection_timeouts(timeout_seconds integer DEFAULT 60)
 RETURNS integer
@@ -281,7 +466,28 @@ BEGIN
     RETURN updated_count;
 END;
 $$;
+```
 
+**Step 2: Apply via MCP**
+
+**Step 3: Commit**
+
+```bash
+git commit -am "fix(db): add SET search_path='' to display.check_connection_timeouts"
+```
+
+---
+
+### Task 7: Fix `display.check_rate_limit`
+
+**Files:**
+- Modify: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+References `display.rate_limits` in an `INSERT ... ON CONFLICT` — must qualify the table name in both the INSERT target and the conflict update's backreference.
+
+**Step 1: Append to migration**
+
+```sql
 -- 13. display.check_rate_limit (upserts rate limit counter, returns bool)
 CREATE OR REPLACE FUNCTION display.check_rate_limit(
     rate_key text,
@@ -316,7 +522,39 @@ BEGIN
     RETURN current_count <= max_requests;
 END;
 $$;
+```
 
+**Step 2: Apply via MCP**
+
+**Step 3: Spot-check the function still works**
+
+```
+MCP: execute_sql(
+  project_id="fmultmlsevqgtnqzaylg",
+  query="SELECT display.check_rate_limit('test_search_path_fix', 100, 60);"
+)
+```
+
+Expected: `true`
+
+**Step 4: Commit**
+
+```bash
+git commit -am "fix(db): add SET search_path='' to display.check_rate_limit"
+```
+
+---
+
+### Task 8: Fix `display.clear_expired_pairing_codes`, `display.clear_pairing_code`, `display.generate_pairing_code`
+
+**Files:**
+- Modify: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+All reference `display.devices` and/or `display.pairings`. `generate_pairing_code` uses `md5()` and `random()` — these are built-in Postgres functions not affected by `search_path`.
+
+**Step 1: Append to migration**
+
+```sql
 -- 14. display.clear_expired_pairing_codes (clears expired codes from devices + pairings)
 CREATE OR REPLACE FUNCTION display.clear_expired_pairing_codes()
 RETURNS integer
@@ -395,7 +633,29 @@ BEGIN
     RETURN new_code;
 END;
 $$;
+```
 
+**Step 2: Apply via MCP**
+
+**Step 3: Commit**
+
+```bash
+git commit -am "fix(db): add SET search_path='' to display pairing code functions"
+```
+
+---
+
+### Task 9: Fix `display.set_latest_release` (both overloads) and `display.user_can_access_device` (both overloads)
+
+**Files:**
+- Modify: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+`set_latest_release` has two overloads (1-arg and 2-arg). Both reference `display.releases`.
+`user_can_access_device` has two overloads (by `serial_number` text, by `device_uuid` uuid). Both call `display.is_admin()` and reference `display.user_devices`, `display.user_profiles` — must qualify. They also reference `auth.uid()` which is already schema-qualified.
+
+**Step 1: Append to migration**
+
+```sql
 -- 17. display.set_latest_release(text) — 1-arg overload
 CREATE OR REPLACE FUNCTION display.set_latest_release(target_version text)
 RETURNS void
@@ -482,7 +742,28 @@ BEGIN
     );
 END;
 $$;
+```
 
+**Step 2: Apply via MCP**
+
+**Step 3: Commit**
+
+```bash
+git commit -am "fix(db): add SET search_path='' to display.set_latest_release and user_can_access_device"
+```
+
+---
+
+### Task 10: Fix `public` schema wrappers (`public.set_latest_release`, `public.display_check_rate_limit`, `public.display_commands_broadcast_trigger`, `public.display_firmware_updates_broadcast_trigger`, `public.display_heartbeats_broadcast_trigger`)
+
+**Files:**
+- Modify: `supabase/migrations/20260303000002_fix_display_search_path.sql`
+
+These are thin wrappers or realtime broadcast triggers living in `public`. They call `display.*` functions or `realtime.broadcast_changes` — all must be fully qualified.
+
+**Step 1: Append to migration**
+
+```sql
 -- 21. public.set_latest_release — delegates to display schema
 CREATE OR REPLACE FUNCTION public.set_latest_release(
     target_version text,
@@ -585,3 +866,102 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+```
+
+**Step 2: Apply via MCP**
+
+**Step 3: Commit**
+
+```bash
+git commit -am "fix(db): add SET search_path='' to all public schema display wrapper functions"
+```
+
+---
+
+### Task 11: Verify all warnings are gone
+
+**Step 1: Run security advisor**
+
+```
+MCP: get_advisors(project_id="fmultmlsevqgtnqzaylg", type="security")
+```
+
+Expected result: **zero** `function_search_path_mutable` warnings. The only remaining warning should be `auth_leaked_password_protection` (a Supabase Auth config setting, not a function issue — handled separately if desired).
+
+**Step 2: Run performance advisor for completeness**
+
+```
+MCP: get_advisors(project_id="fmultmlsevqgtnqzaylg", type="performance")
+```
+
+Review any performance warnings — these are pre-existing and out of scope for this plan.
+
+**Step 3: Confirm function proconfig in the DB**
+
+```
+MCP: execute_sql(
+  project_id="fmultmlsevqgtnqzaylg",
+  query="
+    SELECT n.nspname AS schema, p.proname AS function_name,
+           p.proconfig
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname IN ('display', 'public')
+      AND p.proname IN (
+        'update_updated_at','update_release_artifacts_updated_at',
+        'update_status_timestamp','status_values_changed',
+        'ensure_single_latest','prevent_immutable_device_updates',
+        'pairings_presence_trigger','broadcast_commands_changes',
+        'cleanup_old_commands','cleanup_rate_limits','cleanup_old_logs',
+        'check_connection_timeouts','check_rate_limit',
+        'clear_expired_pairing_codes','clear_pairing_code','generate_pairing_code',
+        'set_latest_release','user_can_access_device',
+        'display_check_rate_limit','display_commands_broadcast_trigger',
+        'display_firmware_updates_broadcast_trigger','display_heartbeats_broadcast_trigger'
+      )
+    ORDER BY n.nspname, p.proname;
+  "
+)
+```
+
+Expected: every row shows `proconfig = [\"search_path=\"\"\"]`
+
+**Step 4: Final commit**
+
+```bash
+git commit -am "fix(db): all display/public function_search_path_mutable warnings resolved"
+```
+
+---
+
+## Summary of Changes
+
+| Schema | Function | Fix Applied |
+|--------|----------|-------------|
+| `display` | `update_updated_at` | + `SET search_path = ''` |
+| `display` | `update_release_artifacts_updated_at` | + `SET search_path = ''` |
+| `display` | `update_status_timestamp` | + `SET search_path = ''` |
+| `display` | `status_values_changed` | + `SET search_path = ''`, qualified `display.pairings` |
+| `display` | `ensure_single_latest` | + `SET search_path = ''`, qualified `display.releases` |
+| `display` | `prevent_immutable_device_updates` | + `SET search_path = ''` |
+| `display` | `pairings_presence_trigger` | + `SET search_path = ''`, qualified `display.connection_heartbeats` |
+| `display` | `broadcast_commands_changes` | + `SET search_path = ''`, qualified `realtime.broadcast_changes` |
+| `display` | `cleanup_old_commands` | + `SET search_path = ''`, qualified `display.commands` |
+| `display` | `cleanup_rate_limits` | + `SET search_path = ''`, qualified `display.rate_limits` |
+| `display` | `cleanup_old_logs` | + `SET search_path = ''`, qualified `display.device_logs` |
+| `display` | `check_connection_timeouts` | + `SET search_path = ''`, qualified `display.pairings` |
+| `display` | `check_rate_limit` | + `SET search_path = ''`, qualified `display.rate_limits` |
+| `display` | `clear_expired_pairing_codes` | + `SET search_path = ''`, qualified `display.devices`, `display.pairings` |
+| `display` | `clear_pairing_code` | + `SET search_path = ''`, qualified `display.devices`, `display.pairings` |
+| `display` | `generate_pairing_code` | + `SET search_path = ''`, qualified `display.devices`, `display.pairings` |
+| `display` | `set_latest_release` (1-arg) | + `SET search_path = ''`, qualified `display.releases` |
+| `display` | `set_latest_release` (2-arg) | + `SET search_path = ''`, qualified `display.releases` |
+| `display` | `user_can_access_device` (text) | + `SET search_path = ''`, qualified `display.*`, `display.is_admin()` |
+| `display` | `user_can_access_device` (uuid) | + `SET search_path = ''`, qualified `display.*`, `display.is_admin()` |
+| `public` | `set_latest_release` | + `SET search_path = ''`, qualified `display.set_latest_release()` |
+| `public` | `display_check_rate_limit` | + `SET search_path = ''`, qualified `display.check_rate_limit()` |
+| `public` | `display_commands_broadcast_trigger` | + `SET search_path = ''`, qualified `realtime.broadcast_changes` |
+| `public` | `display_firmware_updates_broadcast_trigger` | + `SET search_path = ''`, qualified `realtime.broadcast_changes` |
+| `public` | `display_heartbeats_broadcast_trigger` | + `SET search_path = ''`, qualified `realtime.broadcast_changes` |
+
+**Out of scope:** `auth_leaked_password_protection` — this is a Supabase Auth dashboard setting (enable HaveIBeenPwned password checking), not a SQL function issue. Enable it in the Supabase dashboard under Authentication → Password Security.
