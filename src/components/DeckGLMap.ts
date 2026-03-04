@@ -369,6 +369,17 @@ export class DeckGLMap {
   private debouncedFetchBases: () => void;
   private rafUpdateLayers: () => void;
   private moveTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private deckReady = false;
+
+  private deckErrorHandler = (event: ErrorEvent): void => {
+    if (
+      event.error instanceof TypeError &&
+      event.message?.includes("Cannot read properties of null (reading 'id')")
+    ) {
+      event.preventDefault();
+      console.warn('[DeckGLMap] Suppressed non-fatal deck.gl interleaved render error');
+    }
+  };
 
   constructor(container: HTMLElement, initialState: DeckMapState) {
     this.container = container;
@@ -376,13 +387,13 @@ export class DeckGLMap {
     this.hotspots = [...INTEL_HOTSPOTS];
 
     this.debouncedRebuildLayers = debounce(() => {
-      if (this.renderPaused || this.webglLost || !this.maplibreMap) return;
+      if (this.renderPaused || this.webglLost || !this.maplibreMap || !this.deckReady) return;
       this.maplibreMap.resize();
       try { this.deckOverlay?.setProps({ layers: this.buildLayers() }); } catch { /* map mid-teardown */ }
     }, 150);
     this.debouncedFetchBases = debounce(() => this.fetchServerBases(), 300);
     this.rafUpdateLayers = rafSchedule(() => {
-      if (this.renderPaused || this.webglLost || !this.maplibreMap) return;
+      if (this.renderPaused || this.webglLost || !this.maplibreMap || !this.deckReady) return;
       try { this.deckOverlay?.setProps({ layers: this.buildLayers() }); } catch { /* map mid-teardown */ }
     });
 
@@ -398,6 +409,7 @@ export class DeckGLMap {
     });
 
     this.initMapLibre();
+    window.addEventListener('error', this.deckErrorHandler);
 
     this.maplibreMap?.on('load', () => {
       this.rebuildTechHQSupercluster();
@@ -508,6 +520,7 @@ export class DeckGLMap {
     });
 
     this.maplibreMap.addControl(this.deckOverlay as unknown as maplibregl.IControl);
+    this.deckReady = true;
     requestAnimationFrame(() => this.updateLayers());
 
     this.maplibreMap.on('movestart', () => {
@@ -3584,7 +3597,7 @@ export class DeckGLMap {
   }
 
   private updateLayers(): void {
-    if (this.renderPaused || this.webglLost || !this.maplibreMap) return;
+    if (this.renderPaused || this.webglLost || !this.maplibreMap || !this.deckReady) return;
     const startTime = performance.now();
     try {
       this.deckOverlay?.setProps({ layers: this.buildLayers() });
@@ -4562,6 +4575,7 @@ export class DeckGLMap {
   }
 
   public destroy(): void {
+    window.removeEventListener('error', this.deckErrorHandler);
     if (this.moveTimeoutId) {
       clearTimeout(this.moveTimeoutId);
       this.moveTimeoutId = null;
