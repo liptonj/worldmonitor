@@ -10,7 +10,7 @@ INSERT INTO wm_admin.llm_providers (name, api_url, default_model, priority, enab
 VALUES (
   'ollama',
   'https://ollama.5ls.us/v1',
-  'qwen3:8b',
+  'qwen3-wm',
   3,
   true,
   'OLLAMA_API_KEY'
@@ -41,18 +41,18 @@ BEGIN
   -- OLLAMA_MODEL
   IF NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'OLLAMA_MODEL') THEN
     PERFORM vault.create_secret(
-      'qwen3:8b',
+      'qwen3-wm',
       'OLLAMA_MODEL',
-      'Ollama model name — must be pulled on the Ollama server (e.g. qwen3:8b, llama3.1:8b)'
+      'Ollama model name — must be pulled on the Ollama server (e.g. qwen3-wm, llama3.1:8b)'
     );
   END IF;
 
   -- OLLAMA_MAX_TOKENS
   IF NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'OLLAMA_MAX_TOKENS') THEN
     PERFORM vault.create_secret(
-      '1500',
+      '3000',
       'OLLAMA_MAX_TOKENS',
-      'Max tokens for Ollama completions — thinking models (qwen3, deepseek-r1) need 1000+ to leave room for the answer after reasoning'
+      'Max tokens for Ollama completions — thinking models (qwen3-wm, deepseek-r1) need 1000+ to leave room for the answer after reasoning'
     );
   END IF;
 

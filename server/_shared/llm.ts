@@ -102,10 +102,11 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
  */
 export async function getLlmPrompt(
   promptKey: string,
-  variant: string,
-  mode: string,
+  variant: string | null,
+  mode: string | null,
+  model?: string | null,
 ): Promise<LlmPromptResult | null> {
-  const cacheKey = `wm:llm:prompt:v1:${promptKey}:${variant}:${mode}`;
+  const cacheKey = `wm:llm:prompt:v1:${promptKey}:${variant ?? 'null'}:${mode ?? 'null'}:${model ?? 'null'}`;
   const redis = getRedisClient();
 
   // 1. Redis cache
@@ -130,6 +131,7 @@ export async function getLlmPrompt(
       p_key: promptKey,
       p_variant: variant ?? null,
       p_mode: mode ?? null,
+      p_model: model ?? null,
     });
 
     const row = Array.isArray(data) && data.length > 0 ? data[0] as Record<string, string> : null;
@@ -162,7 +164,13 @@ export async function invalidateLlmCache(): Promise<void> {
   if (redis) {
     try {
       await redis.del('wm:llm:active-provider:v1');
-      // Prompt caches will expire naturally after 15 min
+      // Also clear all cached prompts
+      const keys = await redis.keys('wm:llm:prompt:v1:*');
+      if (keys.length > 0) {
+        for (const key of keys) {
+          await redis.del(key);
+        }
+      }
     } catch { /* non-fatal */ }
   }
 }
