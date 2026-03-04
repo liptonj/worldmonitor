@@ -1,5 +1,6 @@
 import { Panel } from './Panel';
 import { getLocale } from '@/services/i18n';
+import { getTimeFormat } from '@/utils/display-prefs';
 
 interface CityEntry {
   id: string;
@@ -93,22 +94,26 @@ function saveSelectedCities(ids: string[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
 }
 
-function getTimeInZone(tz: string): { h: number; m: number; s: number; dayOfWeek: string } {
+function getTimeInZone(tz: string): { h: number; m: number; s: number; dayOfWeek: string; period?: string; h24: number } {
   const now = new Date();
+  const is12h = getTimeFormat() === '12h';
   const parts = new Intl.DateTimeFormat(getLocale(), {
     timeZone: tz, hour: 'numeric', minute: 'numeric', second: 'numeric',
-    hour12: false, weekday: 'short',
+    hour12: is12h, weekday: 'short',
     numberingSystem: 'latn',
   }).formatToParts(now);
-  let h = 0, m = 0, s = 0, dayOfWeek = '';
+  let h = 0, m = 0, s = 0, dayOfWeek = '', period = '';
   for (const p of parts) {
     if (p.type === 'hour') h = parseInt(p.value, 10);
     if (p.type === 'minute') m = parseInt(p.value, 10);
     if (p.type === 'second') s = parseInt(p.value, 10);
     if (p.type === 'weekday') dayOfWeek = p.value;
+    if (p.type === 'dayPeriod') period = p.value;
   }
-  if (h === 24) h = 0;
-  return { h, m, s, dayOfWeek };
+  const h24 = is12h
+    ? (period === 'AM' ? (h === 12 ? 0 : h) : (h === 12 ? 12 : h + 12))
+    : (h === 24 ? 0 : h);
+  return { h, m, s, dayOfWeek, h24, ...(is12h && period ? { period } : {}) };
 }
 
 function getTzAbbr(tz: string): string {
@@ -182,6 +187,9 @@ export class WorldClockPanel extends Panel {
   private dragging = false;
   private dragCityId: string | null = null;
   private dragStartY = 0;
+  private displayPrefsHandler = (): void => {
+    if (!this.showingSettings && !this.dragging) this.renderClocks();
+  };
 
   constructor() {
     super({ id: 'world-clock', title: 'World Clock', trackActivity: false });
@@ -216,6 +224,7 @@ export class WorldClockPanel extends Panel {
     this.tickInterval = setInterval(() => {
       if (!this.showingSettings && !this.dragging) this.renderClocks();
     }, 1000);
+    window.addEventListener('display-prefs-changed', this.displayPrefsHandler);
   }
 
   private toggleSettings(): void {
@@ -328,16 +337,21 @@ export class WorldClockPanel extends Panel {
 
     let html = STYLE + '<div class="wc-container">';
     for (const city of sorted) {
-      const { h, m, s, dayOfWeek } = getTimeInZone(city.timezone);
-      const isDay = h >= 6 && h < 20;
-      const pct = ((h * 3600 + m * 60 + s) / 86400) * 100;
+      const t = getTimeInZone(city.timezone);
+      const { h, m, s, dayOfWeek, h24 } = t;
+      const isDay = h24 >= 6 && h24 < 20;
+      const pct = ((h24 * 3600 + m * 60 + s) / 86400) * 100;
       const abbr = getTzAbbr(city.timezone);
       const isHome = city.id === this.homeCityId;
       const isWeekday = dayOfWeek !== 'Sat' && dayOfWeek !== 'Sun';
 
+      const timeStr = getTimeFormat() === '12h'
+        ? `${t.h}:${pad2(m)}:${pad2(s)} ${t.period ?? ''}`.trim()
+        : `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+
       let statusHtml = '';
       if (city.marketOpen !== undefined && city.marketClose !== undefined) {
-        const isOpen = isWeekday && h >= city.marketOpen && h < city.marketClose;
+        const isOpen = isWeekday && h24 >= city.marketOpen && h24 < city.marketClose;
         statusHtml = isOpen
           ? '<span class="wc-status open"><span class="wc-dot open"></span>OPEN</span>'
           : '<span class="wc-status closed"><span class="wc-dot closed"></span>CLSD</span>';
@@ -347,13 +361,14 @@ export class WorldClockPanel extends Panel {
       if (isHome) rowCls.push('wc-home');
       if (!isDay) rowCls.push('wc-night');
 
-      html += `<div class="${rowCls.join(' ')}" data-city-id="${city.id}"><div class="wc-drag-handle" title="Drag to reorder">\u22EE</div><div class="wc-info"><div class="wc-name">${city.city}${isHome ? '<span class="wc-home-tag">\u2302</span>' : ''}</div><div class="wc-detail"><span class="wc-exchange">${city.label}</span>${statusHtml}</div></div><div class="wc-clock"><div class="wc-time">${pad2(h)}:${pad2(m)}:${pad2(s)}</div><div class="wc-tz"><div class="wc-bar-wrap"><div class="wc-bar ${isDay ? 'day' : 'night'}" style="width:${pct.toFixed(1)}%"></div></div><span>${dayOfWeek} ${abbr}</span></div></div></div>`;
+      html += `<div class="${rowCls.join(' ')}" data-city-id="${city.id}"><div class="wc-drag-handle" title="Drag to reorder">\u22EE</div><div class="wc-info"><div class="wc-name">${city.city}${isHome ? '<span class="wc-home-tag">\u2302</span>' : ''}</div><div class="wc-detail"><span class="wc-exchange">${city.label}</span>${statusHtml}</div></div><div class="wc-clock"><div class="wc-time">${timeStr}</div><div class="wc-tz"><div class="wc-bar-wrap"><div class="wc-bar ${isDay ? 'day' : 'night'}" style="width:${pct.toFixed(1)}%"></div></div><span>${dayOfWeek} ${abbr}</span></div></div></div>`;
     }
     html += '</div>';
     this.setContent(html);
   }
 
   destroy(): void {
+    window.removeEventListener('display-prefs-changed', this.displayPrefsHandler);
     if (this.tickInterval) {
       clearInterval(this.tickInterval);
       this.tickInterval = null;
