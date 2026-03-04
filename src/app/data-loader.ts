@@ -1,13 +1,9 @@
 import type { AppContext, AppModule } from '@/app/app-context';
 import type { NewsItem, MapLayers, SocialUnrestEvent } from '@/types';
-import type { MarketData } from '@/types';
 import type { TimeRange } from '@/components';
 import {
   getFeeds,
   getIntelSources,
-  SECTORS,
-  COMMODITIES,
-  MARKET_SYMBOLS,
   SITE_VARIANT,
   LAYER_TO_SOURCE,
 } from '@/config';
@@ -16,8 +12,7 @@ import { tokenizeForMatch, matchKeyword } from '@/utils/keyword-match';
 import {
   fetchCategoryFeeds,
   getFeedFailures,
-  fetchMultipleStocks,
-  fetchCrypto,
+  fetchMarketDashboard,
   fetchPredictions,
   fetchEarthquakes,
   fetchWeatherAlerts,
@@ -907,65 +902,52 @@ export class DataLoaderManager implements AppModule {
 
   async loadMarkets(): Promise<void> {
     try {
-      const stocksResult = await fetchMultipleStocks(MARKET_SYMBOLS, {
-        onBatch: (partialStocks) => {
-          this.ctx.latestMarkets = partialStocks;
-          (this.ctx.panels['markets'] as MarketPanel).renderMarkets(partialStocks);
-        },
-      });
+      const dashboard = await fetchMarketDashboard();
 
-      this.ctx.latestMarkets = stocksResult.data;
-      (this.ctx.panels['markets'] as MarketPanel).renderMarkets(stocksResult.data, stocksResult.rateLimited);
+      // Stocks panel
+      const stockData = dashboard.stocks.map((q) => ({
+        symbol: q.symbol,
+        name: q.name,
+        display: q.display || q.symbol,
+        price: q.price != null ? q.price : null,
+        change: q.change ?? null,
+        sparkline: q.sparkline.length > 0 ? q.sparkline : undefined,
+      }));
+      this.ctx.latestMarkets = stockData;
+      (this.ctx.panels['markets'] as MarketPanel).renderMarkets(
+        stockData,
+        dashboard.rateLimited,
+      );
 
-      if (stocksResult.rateLimited && stocksResult.data.length === 0) {
-        const rlMsg = 'Market data temporarily unavailable (rate limited) — retrying shortly';
-        this.ctx.panels['commodities']?.showError(rlMsg);
-      } else if (stocksResult.skipped) {
+      if (dashboard.finnhubSkipped) {
         this.ctx.statusPanel?.updateApi('Finnhub', { status: 'error' });
       } else {
-        this.ctx.statusPanel?.updateApi('Finnhub', { status: 'ok' });
+        this.ctx.statusPanel?.updateApi('Finnhub', { status: stockData.length > 0 ? 'ok' : 'error' });
       }
 
-      // Sector heatmap: always attempt loading regardless of market rate-limit status
+      // Sector heatmap
       const hydratedSectors = getHydratedData('sectors') as GetSectorSummaryResponse | undefined;
       if (hydratedSectors?.sectors?.length) {
-        const mapped = hydratedSectors.sectors.map((s) => ({ name: s.name, change: s.change }));
-        (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(mapped);
-      } else if (!stocksResult.skipped) {
-        const sectorsResult = await fetchMultipleStocks(
-          SECTORS.map((s) => ({ ...s, display: s.name })),
-          {
-            onBatch: (partialSectors) => {
-              (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(
-                partialSectors.map((s) => ({ name: s.name, change: s.change }))
-              );
-            },
-          }
-        );
         (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(
-          sectorsResult.data.map((s) => ({ name: s.name, change: s.change }))
+          hydratedSectors.sectors.map((s) => ({ name: s.name, change: s.change })),
+        );
+      } else if (dashboard.sectors.length > 0) {
+        (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(
+          dashboard.sectors.map((s) => ({ name: s.name, change: s.change })),
         );
       }
 
+      // Commodities panel
       const commoditiesPanel = this.ctx.panels['commodities'] as CommoditiesPanel;
-      const mapCommodity = (c: MarketData) => ({ display: c.display, price: c.price, change: c.change, sparkline: c.sparkline });
-
-      let commoditiesLoaded = stocksResult.rateLimited && stocksResult.data.length === 0;
-      for (let attempt = 0; attempt < 3 && !commoditiesLoaded; attempt++) {
-        if (attempt > 0) {
-          commoditiesPanel.showRetrying();
-          await new Promise(r => setTimeout(r, 20_000));
-        }
-        const commoditiesResult = await fetchMultipleStocks(COMMODITIES, {
-          onBatch: (partial) => commoditiesPanel.renderCommodities(partial.map(mapCommodity)),
-        });
-        const mapped = commoditiesResult.data.map(mapCommodity);
-        if (mapped.some(d => d.price !== null)) {
-          commoditiesPanel.renderCommodities(mapped);
-          commoditiesLoaded = true;
-        }
-      }
-      if (!commoditiesLoaded) {
+      const commodityData = dashboard.commodities.map((q) => ({
+        display: q.display || q.symbol,
+        price: q.price != null ? q.price : null,
+        change: q.change ?? null,
+        sparkline: q.sparkline.length > 0 ? q.sparkline : undefined,
+      }));
+      if (commodityData.length > 0 && commodityData.some((d) => d.price !== null)) {
+        commoditiesPanel.renderCommodities(commodityData);
+      } else {
         commoditiesPanel.renderCommodities([]);
       }
     } catch {
@@ -973,14 +955,17 @@ export class DataLoaderManager implements AppModule {
     }
 
     try {
-      let crypto = await fetchCrypto();
-      if (crypto.length === 0) {
-        (this.ctx.panels['crypto'] as CryptoPanel).showRetrying();
-        await new Promise(r => setTimeout(r, 20_000));
-        crypto = await fetchCrypto();
-      }
-      (this.ctx.panels['crypto'] as CryptoPanel).renderCrypto(crypto);
-      this.ctx.statusPanel?.updateApi('CoinGecko', { status: crypto.length > 0 ? 'ok' : 'error' });
+      // Crypto panel — also from dashboard (second call hits circuit breaker cache, no network)
+      const dashboard = await fetchMarketDashboard();
+      const cryptoData = dashboard.crypto.map((q) => ({
+        name: q.name,
+        symbol: q.symbol,
+        price: q.price,
+        change: q.change,
+        sparkline: q.sparkline.length > 0 ? q.sparkline : undefined,
+      }));
+      (this.ctx.panels['crypto'] as CryptoPanel).renderCrypto(cryptoData);
+      this.ctx.statusPanel?.updateApi('CoinGecko', { status: cryptoData.length > 0 ? 'ok' : 'error' });
     } catch {
       this.ctx.statusPanel?.updateApi('CoinGecko', { status: 'error' });
     }

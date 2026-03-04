@@ -10,6 +10,7 @@
  *   - ListEtfFlows          (Yahoo Finance BTC spot ETF flow estimates)
  *   - GetCountryStockIndex  (Yahoo Finance national stock indices)
  *   - ListGulfQuotes        (Yahoo Finance GCC indices, currencies, oil)
+ *   - GetMarketDashboard    (unified stocks, commodities, sectors, crypto)
  */
 
 import type { MarketServiceHandler } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
@@ -21,6 +22,7 @@ import { listStablecoinMarkets } from './list-stablecoin-markets';
 import { listEtfFlows } from './list-etf-flows';
 import { getCountryStockIndex } from './get-country-stock-index';
 import { listGulfQuotes } from './list-gulf-quotes';
+import { getMarketDashboard } from './get-market-dashboard';
 
 export const marketHandler: MarketServiceHandler = {
   listMarketQuotes,
@@ -31,4 +33,5 @@ export const marketHandler: MarketServiceHandler = {
   listEtfFlows,
   getCountryStockIndex,
   listGulfQuotes,
+  getMarketDashboard,
 };

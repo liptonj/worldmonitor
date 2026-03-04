@@ -35,6 +35,11 @@ export const YAHOO_ONLY_SYMBOLS = new Set([
   'GC=F', 'CL=F', 'NG=F', 'SI=F', 'HG=F',
 ]);
 
+/** Returns true if symbol is Yahoo-only (indices, futures) — use instead of static set for dynamic config. */
+export function isYahooOnlySymbol(symbol: string): boolean {
+  return symbol.startsWith('^') || symbol.includes('=');
+}
+
 // Known crypto IDs and their metadata
 export const CRYPTO_META: Record<string, { name: string; symbol: string }> = {
   bitcoin: { name: 'Bitcoin', symbol: 'BTC' },

@@ -9,6 +9,7 @@ import type {
   ListCryptoQuotesResponse,
   CryptoQuote,
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
+import { getConfiguredSymbols } from '../../../_shared/market-symbols';
 import { CRYPTO_META, fetchCoinGeckoMarkets } from './_shared';
 import { cachedFetchJson } from '../../../_shared/redis';
 
@@ -21,7 +22,11 @@ export async function listCryptoQuotes(
   _ctx: ServerContext,
   req: ListCryptoQuotesRequest,
 ): Promise<ListCryptoQuotesResponse> {
-  const ids = req.ids.length > 0 ? req.ids : Object.keys(CRYPTO_META);
+  const dbCrypto = await getConfiguredSymbols('crypto');
+  const ids = dbCrypto ? dbCrypto.map((s) => s.symbol) : (req.ids.length > 0 ? req.ids : Object.keys(CRYPTO_META));
+  const dynamicMeta: Record<string, { name: string; symbol: string }> = dbCrypto
+    ? Object.fromEntries(dbCrypto.map((s) => [s.symbol, { name: s.name, symbol: s.display || s.symbol.toUpperCase() }]))
+    : CRYPTO_META;
 
   const cacheKey = `${REDIS_CACHE_KEY}:${[...ids].sort().join(',')}`;
 
@@ -39,7 +44,7 @@ export async function listCryptoQuotes(
     for (const id of ids) {
       const coin = byId.get(id);
       if (!coin) continue;
-      const meta = CRYPTO_META[id];
+      const meta = dynamicMeta[id];
       const prices = coin.sparkline_in_7d?.price;
       const sparkline = prices && prices.length > 24 ? prices.slice(-48) : (prices || []);
 

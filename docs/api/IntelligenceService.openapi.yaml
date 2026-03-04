@@ -245,6 +245,38 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Error'
+    /api/intelligence/v1/get-global-intel-digest:
+        get:
+            tags:
+                - IntelligenceService
+            summary: GetGlobalIntelDigest
+            description: GetGlobalIntelDigest synthesizes all data sources into a unified global intelligence assessment.
+            operationId: GetGlobalIntelDigest
+            parameters:
+                - name: force_refresh
+                  in: query
+                  required: false
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetGlobalIntelDigestResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidationError'
+                default:
+                    description: Error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Error'
 components:
     schemas:
         Error:
@@ -726,4 +758,20 @@ components:
                 model:
                     type: string
                 provider:
+                    type: string
+        GetGlobalIntelDigestRequest:
+            type: object
+            properties:
+                forceRefresh:
+                    type: boolean
+        GetGlobalIntelDigestResponse:
+            type: object
+            properties:
+                digest:
+                    type: string
+                model:
+                    type: string
+                provider:
+                    type: string
+                generatedAt:
                     type: string

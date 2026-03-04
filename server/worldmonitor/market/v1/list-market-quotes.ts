@@ -9,7 +9,8 @@ import type {
   MarketQuote,
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
 import { getSecret } from '../../../_shared/secrets';
-import { YAHOO_ONLY_SYMBOLS, fetchFinnhubQuote, fetchYahooQuotesBatch } from './_shared';
+import { getConfiguredSymbols, type SymbolEntry } from '../../../_shared/market-symbols';
+import { isYahooOnlySymbol, fetchFinnhubQuote, fetchYahooQuotesBatch } from './_shared';
 import { cachedFetchJson } from '../../../_shared/redis';
 
 const REDIS_CACHE_KEY = 'market:quotes:v1';
@@ -30,8 +31,15 @@ export async function listMarketQuotes(
   _ctx: ServerContext,
   req: ListMarketQuotesRequest,
 ): Promise<ListMarketQuotesResponse> {
+  // DB symbols are authoritative; client-provided symbols are a fallback only
+  const dbEntries = await getConfiguredSymbols('stock');
+  const symbols = dbEntries ? dbEntries.map((s) => s.symbol) : (req.symbols ?? []);
+  const metaMap = new Map<string, SymbolEntry>(
+    (dbEntries ?? []).map((e) => [e.symbol, e]),
+  );
+
   const now = Date.now();
-  const key = cacheKey(req.symbols);
+  const key = cacheKey(symbols);
 
   // Layer 1: in-memory cache (same instance)
   const memCached = quotesCache.get(key);
@@ -39,16 +47,15 @@ export async function listMarketQuotes(
     return memCached.data;
   }
 
-  const redisKey = redisCacheKey(req.symbols);
+  const redisKey = redisCacheKey(symbols);
 
   try {
   const result = await cachedFetchJson<ListMarketQuotesResponse>(redisKey, REDIS_CACHE_TTL, async () => {
     const apiKey = await getSecret('FINNHUB_API_KEY');
-    const symbols = req.symbols;
     if (!symbols.length) return { quotes: [], finnhubSkipped: !apiKey, skipReason: !apiKey ? 'FINNHUB_API_KEY not configured' : '', rateLimited: false };
 
-    const finnhubSymbols = symbols.filter((s) => !YAHOO_ONLY_SYMBOLS.has(s));
-    const yahooSymbols = symbols.filter((s) => YAHOO_ONLY_SYMBOLS.has(s));
+    const finnhubSymbols = symbols.filter((s) => !isYahooOnlySymbol(s));
+    const yahooSymbols = symbols.filter((s) => isYahooOnlySymbol(s));
 
     const quotes: MarketQuote[] = [];
 
@@ -59,10 +66,11 @@ export async function listMarketQuotes(
       );
       for (const r of results) {
         if (r) {
+          const meta = metaMap.get(r.symbol);
           quotes.push({
             symbol: r.symbol,
-            name: r.symbol,
-            display: r.symbol,
+            name: meta?.name ?? r.symbol,
+            display: meta?.display ?? r.symbol,
             price: r.price,
             change: r.changePercent,
             sparkline: [],
@@ -86,10 +94,11 @@ export async function listMarketQuotes(
         if (quotes.some((q) => q.symbol === s)) continue;
         const yahoo = batch.results.get(s);
         if (yahoo) {
+          const meta = metaMap.get(s);
           quotes.push({
             symbol: s,
-            name: s,
-            display: s,
+            name: meta?.name ?? s,
+            display: meta?.display ?? s,
             price: yahoo.price,
             change: yahoo.change,
             sparkline: yahoo.sparkline,
@@ -108,6 +117,10 @@ export async function listMarketQuotes(
         ? { quotes: [], finnhubSkipped: false, skipReason: '', rateLimited: true }
         : null;
     }
+
+    // Preserve DB sort order
+    const orderMap = new Map(symbols.map((s, i) => [s, i]));
+    quotes.sort((a, b) => (orderMap.get(a.symbol) ?? 999) - (orderMap.get(b.symbol) ?? 999));
 
     // Only report skipped if Finnhub key missing AND Yahoo fallback didn't cover the gap
     const coveredByYahoo = finnhubSymbols.every((s) => quotes.some((q) => q.symbol === s));

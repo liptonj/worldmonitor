@@ -1,8 +1,10 @@
 syntax = "proto3";
 package worldmonitor.intelligence.v1;
 
+import "sebuf/http/annotations.proto";
+
 message GetGlobalIntelDigestRequest {
-  bool force_refresh = 1;
+  bool force_refresh = 1 [(sebuf.http.query) = { name: "force_refresh" }];
 }
 
 message GetGlobalIntelDigestResponse {

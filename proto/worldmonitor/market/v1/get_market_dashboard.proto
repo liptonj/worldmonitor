@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package worldmonitor.market.v1;
+
+import "sebuf/http/annotations.proto";
+import "worldmonitor/market/v1/market_quote.proto";
+
+// GetMarketDashboardRequest requires no parameters — symbols come from DB config.
+message GetMarketDashboardRequest {}
+
+// GetMarketDashboardResponse contains all core market data in one response.
+message GetMarketDashboardResponse {
+  // Stock and index quotes (DB-configured, Finnhub + Yahoo).
+  repeated MarketQuote stocks = 1;
+  // Commodity futures quotes (DB-configured, Yahoo).
+  repeated CommodityQuote commodities = 2;
+  // Sector ETF performance (DB-configured, Finnhub/Yahoo).
+  repeated SectorPerformance sectors = 3;
+  // Cryptocurrency quotes (DB-configured, CoinGecko).
+  repeated CryptoQuote crypto = 4;
+  // True when Finnhub API key is not configured.
+  bool finnhub_skipped = 5;
+  // Reason when Finnhub was skipped.
+  string skip_reason = 6;
+  // True when upstream APIs rate-limited the request.
+  bool rate_limited = 7;
+}

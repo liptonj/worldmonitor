@@ -149,6 +149,17 @@ export interface DeductSituationResponse {
   provider: string;
 }
 
+export interface GetGlobalIntelDigestRequest {
+  forceRefresh: boolean;
+}
+
+export interface GetGlobalIntelDigestResponse {
+  digest: string;
+  model: string;
+  provider: string;
+  generatedAt: string;
+}
+
 export type SeverityLevel = "SEVERITY_LEVEL_UNSPECIFIED" | "SEVERITY_LEVEL_LOW" | "SEVERITY_LEVEL_MEDIUM" | "SEVERITY_LEVEL_HIGH";
 
 export type TrendDirection = "TREND_DIRECTION_UNSPECIFIED" | "TREND_DIRECTION_RISING" | "TREND_DIRECTION_STABLE" | "TREND_DIRECTION_FALLING";
@@ -357,6 +368,31 @@ export class IntelligenceServiceClient {
     }
 
     return await resp.json() as DeductSituationResponse;
+  }
+
+  async getGlobalIntelDigest(req: GetGlobalIntelDigestRequest, options?: IntelligenceServiceCallOptions): Promise<GetGlobalIntelDigestResponse> {
+    let path = "/api/intelligence/v1/get-global-intel-digest";
+    const params = new URLSearchParams();
+    if (req.forceRefresh) params.set("force_refresh", String(req.forceRefresh));
+    const url = this.baseURL + path + (params.toString() ? "?" + params.toString() : "");
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+      ...options?.headers,
+    };
+
+    const resp = await this.fetchFn(url, {
+      method: "GET",
+      headers,
+      signal: options?.signal,
+    });
+
+    if (!resp.ok) {
+      return this.handleError(resp);
+    }
+
+    return await resp.json() as GetGlobalIntelDigestResponse;
   }
 
   private async handleError(resp: Response): Promise<never> {
