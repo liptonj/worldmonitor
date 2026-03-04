@@ -180,6 +180,7 @@ import { initMetaTags } from '@/services/meta-tags';
 import { installRuntimeFetchPatch, installWebApiRedirect } from '@/services/runtime';
 import { loadDesktopSecrets } from '@/services/runtime-config';
 import { applyStoredTheme } from '@/utils/theme-manager';
+import { initDisplayPrefs } from '@/utils/display-prefs';
 import { SITE_VARIANT } from '@/config/variant';
 import { clearChunkReloadGuard, installChunkReloadGuard } from '@/bootstrap/chunk-reload';
 
@@ -240,6 +241,7 @@ if (urlParams.get('settings') === '1') {
   );
 } else {
   void (async () => {
+    await initDisplayPrefs();
     const app = new App('app');
     await app.init();
     clearChunkReloadGuard(chunkReloadStorageKey);
