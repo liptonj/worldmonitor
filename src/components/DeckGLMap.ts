@@ -499,7 +499,7 @@ export class DeckGLMap {
 
     this.deckOverlay = new MapboxOverlay({
       interleaved: true,
-      layers: this.buildLayers(),
+      layers: [],
       getTooltip: (info: PickingInfo) => this.getTooltip(info),
       onClick: (info: PickingInfo) => this.handleClick(info),
       pickingRadius: 10,
@@ -508,6 +508,7 @@ export class DeckGLMap {
     });
 
     this.maplibreMap.addControl(this.deckOverlay as unknown as maplibregl.IControl);
+    requestAnimationFrame(() => this.updateLayers());
 
     this.maplibreMap.on('movestart', () => {
       if (this.moveTimeoutId) {
