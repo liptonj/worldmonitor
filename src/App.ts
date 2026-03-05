@@ -474,7 +474,11 @@ export class App {
     void preloadCountryGeometry().catch(() => {});
 
     await fetchBootstrapData(SITE_VARIANT || 'full');
-    await Promise.all([loadNewsSources(), loadFeatureFlags()]);
+    // Fire sources and flags immediately — no await. loadNews() waits for them
+    // internally (up to 3s) via the sourcesReady promise. Every other task
+    // (markets, predictions, fred, bis, etc.) runs immediately without waiting.
+    const sourcesReady = Promise.all([loadNewsSources(), loadFeatureFlags()]);
+    this.dataLoader.setSourcesReady(sourcesReady);
 
     performance.mark('wm:bootstrap-done');
     performance.measure('wm:bootstrap', 'wm:layout-done', 'wm:bootstrap-done');

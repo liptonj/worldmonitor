@@ -170,6 +170,8 @@ export class DataLoaderManager implements AppModule {
   private ctx: AppContext;
   private callbacks: DataLoaderCallbacks;
 
+  private sourcesReady: Promise<void> = Promise.resolve(); // default: already ready
+
   private mapFlashCache: Map<string, number> = new Map();
   private readonly MAP_FLASH_COOLDOWN_MS = 10 * 60 * 1000;
   private readonly applyTimeRangeFilterToNewsPanelsDebounced = debounce(() => {
@@ -191,6 +193,10 @@ export class DataLoaderManager implements AppModule {
   constructor(ctx: AppContext, callbacks: DataLoaderCallbacks) {
     this.ctx = ctx;
     this.callbacks = callbacks;
+  }
+
+  public setSourcesReady(promise: Promise<unknown>): void {
+    this.sourcesReady = promise.then(() => {}).catch(() => {});
   }
 
   init(): void {}
@@ -755,6 +761,17 @@ export class DataLoaderManager implements AppModule {
 
     // Fire digest fetch early (non-blocking) — await before category loop
     const digestPromise = this.tryFetchDigest();
+
+    // Wait for news sources to be loaded — but never more than 3s.
+    // App.init() fires loadNewsSources() and flags in parallel without awaiting them,
+    // so on a warm bootstrap cache this resolves in ~0ms (IndexedDB fast-path).
+    // On cold cache, we wait up to 3s then proceed with whatever is available
+    // (stale digest path handles empty feeds gracefully).
+    const SOURCES_WAIT_MS = 3000;
+    await Promise.race([
+      this.sourcesReady,
+      new Promise<void>((resolve) => setTimeout(resolve, SOURCES_WAIT_MS)),
+    ]);
 
     const feedsMap = getFeeds();
     const categories = Object.entries(feedsMap)
