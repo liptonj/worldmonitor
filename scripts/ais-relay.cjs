@@ -1290,6 +1290,9 @@ function getRouteGroup(pathname) {
   if (pathname.startsWith('/ucdp-events')) return 'ucdp-events';
   if (pathname.startsWith('/oref')) return 'oref';
   if (pathname === '/notam') return 'notam';
+  if (pathname === '/bootstrap') return 'bootstrap';
+  if (pathname.startsWith('/panel/')) return 'panel';
+  if (pathname.startsWith('/map/')) return 'map';
   return 'other';
 }
 
@@ -3289,14 +3292,54 @@ function handleNotamProxyRequest(req, res) {
 // CORS origin allowlist — only our domains can use this relay
 const ALLOWED_ORIGINS = [
   'https://worldmonitor.app',
+  'https://www.worldmonitor.app',
   'https://tech.worldmonitor.app',
   'https://finance.worldmonitor.app',
+  'https://info.5ls.us',
   'http://localhost:5173',   // Vite dev
   'http://localhost:5174',   // Vite dev alt port
   'http://localhost:4173',   // Vite preview
   'https://localhost',       // Tauri desktop
   'tauri://localhost',       // Tauri iOS/macOS
 ];
+
+// --- Phase 4: HTTP Endpoints (bootstrap, panel, map) ---
+const PHASE4_CHANNEL_KEYS = {
+  stablecoins: 'relay:stablecoins:v1',
+  'etf-flows': 'relay:etf-flows:v1',
+  trade: 'relay:trade:v1',
+  'gulf-quotes': 'relay:gulf-quotes:v1',
+  spending: 'relay:spending:v1',
+  'tech-events': 'relay:tech-events:v1',
+  fred: 'relay:fred:v1',
+  oil: 'relay:oil:v1',
+  bis: 'relay:bis:v1',
+  flights: 'relay:flights:v1',
+  weather: 'relay:weather:v1',
+  natural: 'relay:natural:v1',
+  eonet: 'relay:eonet:v1',
+  gdacs: 'relay:gdacs:v1',
+  'gps-interference': 'relay:gps-interference:v1',
+  cables: 'relay:cables:v1',
+  cyber: 'relay:cyber:v1',
+  'service-status': 'relay:service-status:v1',
+  markets: 'market:dashboard:v1',
+  'macro-signals': 'economic:macro-signals:v1',
+  'strategic-risk': 'risk:scores:sebuf:v1',
+  predictions: 'relay:predictions:v1',
+  'supply-chain': 'supply_chain:chokepoints:v1',
+  'strategic-posture': 'theater-posture:sebuf:v1',
+  giving: 'giving:summary:v1',
+  'config:news-sources': 'relay:config:news-sources',
+  'config:feature-flags': 'relay:config:feature-flags',
+};
+const PHASE4_MAP_KEYS = {
+  'supply-chain': 'supply_chain:chokepoints:v1',
+  gdacs: 'relay:gdacs:v1',
+  eonet: 'relay:eonet:v1',
+  natural: 'relay:natural:v1',
+  cables: 'relay:cables:v1',
+};
 
 function getCorsOrigin(req) {
   const origin = req.headers.origin || '';
@@ -3808,6 +3851,51 @@ const server = http.createServer(async (req, res) => {
     handleYouTubeLiveRequest(req, res);
   } else if (pathname === '/notam') {
     handleNotamProxyRequest(req, res);
+  } else if (pathname === '/bootstrap') {
+    try {
+      const entries = await Promise.all(
+        Object.entries(PHASE4_CHANNEL_KEYS).map(async ([channel, key]) => {
+          const data = await redisGet(key);
+          return [channel, data];
+        })
+      );
+      const result = Object.fromEntries(entries.filter(([, v]) => v !== null));
+      sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(result));
+    } catch (err) {
+      console.error('[bootstrap] error:', err?.message ?? err);
+      safeEnd(res, 500, { 'Content-Type': 'application/json' },
+        JSON.stringify({ error: 'Bootstrap failed' }));
+    }
+  } else if (pathname.startsWith('/panel/')) {
+    const channel = pathname.slice('/panel/'.length).split('/')[0] || '';
+    const key = PHASE4_CHANNEL_KEYS[channel];
+    if (!key) {
+      safeEnd(res, 404, { 'Content-Type': 'application/json' },
+        JSON.stringify({ error: 'Unknown channel' }));
+      return;
+    }
+    const data = await redisGet(key);
+    if (!data) {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(data));
+  } else if (pathname.startsWith('/map/')) {
+    const layer = pathname.slice('/map/'.length).split('/')[0] || '';
+    const key = PHASE4_MAP_KEYS[layer];
+    if (!key) {
+      safeEnd(res, 404, { 'Content-Type': 'application/json' },
+        JSON.stringify({ error: 'Unknown layer' }));
+      return;
+    }
+    const data = await redisGet(key);
+    if (!data) {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(data));
   } else {
     res.writeHead(404);
     res.end();
