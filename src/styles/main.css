@@ -9569,13 +9569,14 @@ a.prediction-link:hover {
 
   .panel {
     width: 100% !important;
-    min-height: 250px;
-    max-height: min(70vh, 500px);
+    min-height: 200px;
+    max-height: min(80vh, 600px);
   }
 
   .panel-content {
     font-size: 13px;
     -webkit-overflow-scrolling: touch;
+    overflow-x: auto;
   }
 
   /* Make map section smaller on mobile to show panels */
@@ -9824,6 +9825,145 @@ a.prediction-link:hover {
   .mobile-nav-backdrop.active {
     display: block;
     pointer-events: auto;
+  }
+
+  /* === Panel-wide & span resets (no-op on flex layout but defensive for future) === */
+  .panel-wide {
+    min-height: 280px;
+    max-height: none;
+  }
+  .panel.span-2,
+  .panel.span-3,
+  .panel.span-4 {
+    min-height: 250px !important;
+  }
+  /* === Live news player sizing === */
+  .live-news-player {
+    aspect-ratio: 16 / 9;
+    max-height: 50vh;
+  }
+  .live-news-native-video {
+    max-height: 50vh;
+  }
+
+  /* === Touch targets and typography === */
+  .item-title {
+    min-height: 44px;
+    padding: 4px 0;
+    font-size: 14px;
+    line-height: 1.5;
+    display: flex;
+    align-items: center;
+  }
+  .item-source {
+    font-size: 10px;
+  }
+  .related-assets {
+    padding: 6px;
+    flex-wrap: wrap;
+  }
+  .cluster-meta {
+    flex-wrap: wrap;
+  }
+  .live-channel-btn {
+    min-height: 36px;
+    padding: 6px 10px;
+    flex-shrink: 0;
+  }
+  .ucdp-tab,
+  .disp-tab,
+  .giving-tab,
+  .sa-filter {
+    min-height: 36px;
+    padding: 6px 10px;
+  }
+  /* Tables: overflow on panel-content, NOT display:block on table — overflow-x added above */
+
+  /* === Multi-column grid overrides === */
+  .heatmap {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .etf-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .panel-toggle-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .sources-toggle-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* === Channel switcher horizontal scroll === */
+  .live-news-switcher {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .live-news-switcher::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* === Breaking news banner === */
+  .breaking-alert-content {
+    flex-wrap: wrap;
+  }
+  .breaking-alert-headline {
+    white-space: normal;
+    font-size: 12px;
+  }
+  .breaking-alert-meta {
+    display: none;
+  }
+  /* === Critical posture banner — match mobile header height === */
+  .critical-posture-banner {
+    top: 40px;
+  }
+  .banner-content {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .banner-headline {
+    font-size: 12px;
+  }
+  .banner-stats {
+    font-size: 10px;
+  }
+  /* === Modals === */
+  .signal-modal {
+    width: 95%;
+  }
+  .signal-modal-content {
+    max-height: 60vh;
+  }
+  .story-modal-content {
+    max-height: 85vh;
+  }
+  .summarize-view-modal {
+    width: 95%;
+    max-width: none;
+  }
+
+  /* === Safe area insets === */
+  .header {
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  }
+  .header.mobile-nav-open .header-right {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .panels-grid {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+  /* === Fullscreen fix: dvh for mobile browser toolbars (with vh fallback) === */
+  .live-news-fullscreen {
+    height: 100vh !important;
+    height: 100dvh !important;
+  }
+  .live-news-fullscreen .panel-content,
+  .live-news-fullscreen .map-container {
+    height: calc(100vh - 80px) !important;
+    height: calc(100dvh - 80px) !important;
   }
 }
 

@@ -1554,3 +1554,21 @@
   height: 100%;
   min-height: 150px;
 }
+
+/* ============================================================
+   Mobile overrides (max-width: 768px)
+   ============================================================ */
+@media (max-width: 768px) {
+  .disp-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .giving-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .giving-crypto-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .giving-inst-grid {
+    grid-template-columns: 1fr;
+  }
+}
