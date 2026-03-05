@@ -46,4 +46,14 @@ describe('apply* stubs are implemented', () => {
       );
     });
   }
+
+  for (const name of ['applyAisSignals', 'applyCableHealth', 'applyFlightDelays', 'applyWeatherAlerts']) {
+    it(`${name} is not empty`, () => {
+      const src = readFileSync('src/app/data-loader.ts', 'utf-8');
+      assert.ok(
+        src.includes(`render${name.replace('apply', '')}`),
+        `${name} must use a render helper`
+      );
+    });
+  }
 });

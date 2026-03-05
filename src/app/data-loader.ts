@@ -24,9 +24,11 @@ import {
   isAisConfigured,
   fetchCableActivity,
   fetchCableHealth,
+  parseCableHealthPayload,
   fetchProtestEvents,
   getProtestStatus,
   fetchFlightDelays,
+  parseFlightDelaysPayload,
   fetchMilitaryFlights,
   fetchMilitaryVessels,
   initMilitaryVesselStream,
@@ -868,13 +870,17 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  private renderWeatherAlerts(alerts: import('@/services/weather').WeatherAlert[]): void {
+    this.ctx.map?.setWeatherAlerts(alerts);
+    this.ctx.map?.setLayerReady('weather', alerts.length > 0);
+    this.ctx.statusPanel?.updateFeed('Weather', { status: 'ok', itemCount: alerts.length });
+    dataFreshness.recordUpdate('weather', alerts.length);
+  }
+
   async loadWeatherAlerts(): Promise<void> {
     try {
       const alerts = await fetchWeatherAlerts();
-      this.ctx.map?.setWeatherAlerts(alerts);
-      this.ctx.map?.setLayerReady('weather', alerts.length > 0);
-      this.ctx.statusPanel?.updateFeed('Weather', { status: 'ok', itemCount: alerts.length });
-      dataFreshness.recordUpdate('weather', alerts.length);
+      this.renderWeatherAlerts(alerts);
     } catch (error) {
       this.ctx.map?.setLayerReady('weather', false);
       this.ctx.statusPanel?.updateFeed('Weather', { status: 'error' });
@@ -1250,40 +1256,44 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  private renderAisSignals(disruptions: import('@/types').AisDisruptionEvent[], density: import('@/types').AisDensityZone[]): void {
+    const aisStatus = getAisStatus();
+    this.ctx.map?.setAisData(disruptions, density);
+    signalAggregator.ingestAisDisruptions(disruptions);
+    ingestAisDisruptionsForCII(disruptions);
+    (this.ctx.panels['cii'] as CIIPanel)?.refresh();
+    updateAndCheck([
+      { type: 'ais_gaps', region: 'global', count: disruptions.length },
+    ]).then(anomalies => {
+      if (anomalies.length > 0) {
+        signalAggregator.ingestTemporalAnomalies(anomalies);
+        ingestTemporalAnomaliesForCII(anomalies);
+        (this.ctx.panels['cii'] as CIIPanel)?.refresh();
+      }
+    }).catch(() => { });
+
+    const hasData = disruptions.length > 0 || density.length > 0;
+    this.ctx.map?.setLayerReady('ais', hasData);
+
+    const shippingCount = disruptions.length + density.length;
+    const shippingStatus = shippingCount > 0 ? 'ok' : (aisStatus.connected ? 'warning' : 'error');
+    this.ctx.statusPanel?.updateFeed('Shipping', {
+      status: shippingStatus,
+      itemCount: shippingCount,
+      errorMessage: !aisStatus.connected && shippingCount === 0 ? 'AIS snapshot unavailable' : undefined,
+    });
+    this.ctx.statusPanel?.updateApi('AISStream', {
+      status: aisStatus.connected ? 'ok' : 'warning',
+    });
+    if (hasData) {
+      dataFreshness.recordUpdate('ais', shippingCount);
+    }
+  }
+
   async loadAisSignals(): Promise<void> {
     try {
       const { disruptions, density } = await fetchAisSignals();
-      const aisStatus = getAisStatus();
-      this.ctx.map?.setAisData(disruptions, density);
-      signalAggregator.ingestAisDisruptions(disruptions);
-      ingestAisDisruptionsForCII(disruptions);
-      (this.ctx.panels['cii'] as CIIPanel)?.refresh();
-      updateAndCheck([
-        { type: 'ais_gaps', region: 'global', count: disruptions.length },
-      ]).then(anomalies => {
-        if (anomalies.length > 0) {
-          signalAggregator.ingestTemporalAnomalies(anomalies);
-          ingestTemporalAnomaliesForCII(anomalies);
-          (this.ctx.panels['cii'] as CIIPanel)?.refresh();
-        }
-      }).catch(() => { });
-
-      const hasData = disruptions.length > 0 || density.length > 0;
-      this.ctx.map?.setLayerReady('ais', hasData);
-
-      const shippingCount = disruptions.length + density.length;
-      const shippingStatus = shippingCount > 0 ? 'ok' : (aisStatus.connected ? 'warning' : 'error');
-      this.ctx.statusPanel?.updateFeed('Shipping', {
-        status: shippingStatus,
-        itemCount: shippingCount,
-        errorMessage: !aisStatus.connected && shippingCount === 0 ? 'AIS snapshot unavailable' : undefined,
-      });
-      this.ctx.statusPanel?.updateApi('AISStream', {
-        status: aisStatus.connected ? 'ok' : 'warning',
-      });
-      if (hasData) {
-        dataFreshness.recordUpdate('ais', shippingCount);
-      }
+      this.renderAisSignals(disruptions, density);
     } catch (error) {
       this.ctx.map?.setLayerReady('ais', false);
       this.ctx.statusPanel?.updateFeed('Shipping', { status: 'error', errorMessage: String(error) });
@@ -1334,14 +1344,18 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  private renderCableHealth(cables: Record<string, import('@/types').CableHealthRecord>): void {
+    this.ctx.map?.setCableHealth(cables);
+    const cableIds = Object.keys(cables);
+    const faultCount = cableIds.filter((id) => cables[id]?.status === 'fault').length;
+    const degradedCount = cableIds.filter((id) => cables[id]?.status === 'degraded').length;
+    this.ctx.statusPanel?.updateFeed('CableHealth', { status: 'ok', itemCount: faultCount + degradedCount });
+  }
+
   async loadCableHealth(): Promise<void> {
     try {
       const healthData = await fetchCableHealth();
-      this.ctx.map?.setCableHealth(healthData.cables);
-      const cableIds = Object.keys(healthData.cables);
-      const faultCount = cableIds.filter((id) => healthData.cables[id]?.status === 'fault').length;
-      const degradedCount = cableIds.filter((id) => healthData.cables[id]?.status === 'degraded').length;
-      this.ctx.statusPanel?.updateFeed('CableHealth', { status: 'ok', itemCount: faultCount + degradedCount });
+      this.renderCableHealth(healthData.cables);
     } catch {
       this.ctx.statusPanel?.updateFeed('CableHealth', { status: 'error' });
     }
@@ -1401,19 +1415,23 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  private renderFlightDelays(delays: import('@/services/aviation').AirportDelayAlert[]): void {
+    this.ctx.map?.setFlightDelays(delays);
+    this.ctx.map?.setLayerReady('flights', delays.length > 0);
+    this.ctx.intelligenceCache.flightDelays = delays;
+    const severe = delays.filter(d => d.severity === 'major' || d.severity === 'severe' || d.delayType === 'closure');
+    if (severe.length > 0) ingestAviationForCII(severe);
+    this.ctx.statusPanel?.updateFeed('Flights', {
+      status: 'ok',
+      itemCount: delays.length,
+    });
+    this.ctx.statusPanel?.updateApi('FAA', { status: 'ok' });
+  }
+
   async loadFlightDelays(): Promise<void> {
     try {
       const delays = await fetchFlightDelays();
-      this.ctx.map?.setFlightDelays(delays);
-      this.ctx.map?.setLayerReady('flights', delays.length > 0);
-      this.ctx.intelligenceCache.flightDelays = delays;
-      const severe = delays.filter(d => d.severity === 'major' || d.severity === 'severe' || d.delayType === 'closure');
-      if (severe.length > 0) ingestAviationForCII(severe);
-      this.ctx.statusPanel?.updateFeed('Flights', {
-        status: 'ok',
-        itemCount: delays.length,
-      });
-      this.ctx.statusPanel?.updateApi('FAA', { status: 'ok' });
+      this.renderFlightDelays(delays);
     } catch (error) {
       this.ctx.map?.setLayerReady('flights', false);
       this.ctx.statusPanel?.updateFeed('Flights', { status: 'error', errorMessage: String(error) });
@@ -2342,10 +2360,45 @@ applyMarkets(payload: unknown): void {
   }
   applyNatural(_payload: unknown): void {}
   applyCyberThreats(_payload: unknown): void {}
-  applyCableHealth(_payload: unknown): void {}
-  applyFlightDelays(_payload: unknown): void {}
-  applyAisSignals(_payload: unknown): void {}
-  applyWeatherAlerts(_payload: unknown): void {}
+
+  applyAisSignals(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const snap = payload as { disruptions?: import('@/types').AisDisruptionEvent[]; density?: import('@/types').AisDensityZone[] };
+    if (!Array.isArray(snap.disruptions) || !Array.isArray(snap.density)) return;
+    this.renderAisSignals(snap.disruptions, snap.density);
+  }
+
+  applyCableHealth(payload: unknown): void {
+    const healthData = parseCableHealthPayload(payload);
+    if (!healthData) return;
+    this.renderCableHealth(healthData.cables);
+  }
+
+  applyFlightDelays(payload: unknown): void {
+    const delays = parseFlightDelaysPayload(payload);
+    if (!delays) return;
+    this.renderFlightDelays(delays);
+  }
+
+  applyWeatherAlerts(payload: unknown): void {
+    if (!Array.isArray(payload)) return;
+    const alerts = payload.map((a: unknown) => {
+      const item = a as Record<string, unknown>;
+      return {
+        id: String(item.id ?? ''),
+        event: String(item.event ?? ''),
+        severity: (item.severity ?? 'Unknown') as import('@/services/weather').WeatherAlert['severity'],
+        headline: String(item.headline ?? ''),
+        description: String(item.description ?? ''),
+        areaDesc: String(item.areaDesc ?? ''),
+        onset: item.onset ? new Date(item.onset as string | number) : new Date(),
+        expires: item.expires ? new Date(item.expires as string | number) : new Date(),
+        coordinates: (Array.isArray(item.coordinates) ? item.coordinates : []) as [number, number][],
+        centroid: Array.isArray(item.centroid) ? (item.centroid as [number, number]) : undefined,
+      };
+    });
+    this.renderWeatherAlerts(alerts);
+  }
   applySpending(_payload: unknown): void {}
   applyGiving(_payload: unknown): void {}
   applyTelegramIntel(_payload: unknown): void {}

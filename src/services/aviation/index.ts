@@ -88,6 +88,14 @@ function toDisplayAlert(proto: ProtoAlert): AirportDelayAlert {
   };
 }
 
+/** Parse relay-push payload (raw API response) to AirportDelayAlert[]. */
+export function parseFlightDelaysPayload(payload: unknown): AirportDelayAlert[] | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const raw = payload as { alerts?: ProtoAlert[] };
+  if (!Array.isArray(raw.alerts)) return null;
+  return raw.alerts.map(toDisplayAlert);
+}
+
 // --- Client + circuit breaker ---
 
 const client = new AviationServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });

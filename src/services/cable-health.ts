@@ -72,3 +72,18 @@ export function getCableHealthRecord(cableId: string): CableHealthRecord | undef
 export function getCableHealthMap(): Record<string, CableHealthRecord> {
   return cachedResponse?.cables ?? {};
 }
+
+/** Parse relay-push payload (raw API response) to CableHealthResponse. */
+export function parseCableHealthPayload(payload: unknown): CableHealthResponse | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const raw = payload as { cables?: Record<string, ProtoCableHealthRecord>; generatedAt?: number };
+  if (!raw.cables || typeof raw.cables !== 'object') return null;
+  const cables: Record<string, CableHealthRecord> = {};
+  for (const [id, proto] of Object.entries(raw.cables)) {
+    cables[id] = toRecord(proto);
+  }
+  return {
+    generatedAt: raw.generatedAt ? new Date(raw.generatedAt).toISOString() : new Date().toISOString(),
+    cables,
+  };
+}
