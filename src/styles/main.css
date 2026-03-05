@@ -2195,6 +2195,33 @@ body.panel-resize-active iframe {
   color: var(--green);
 }
 
+.live-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 16px;
+  border-radius: 3px;
+  min-height: 32px;
+  min-width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.live-close-btn:hover {
+  color: var(--text);
+  background: var(--darken-medium);
+}
+
+@media (max-width: 768px) {
+  .live-close-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
 .live-news-fullscreen {
   position: fixed !important;
   top: 0 !important;

@@ -282,6 +282,17 @@ export class EventHandlerManager implements AppModule {
       this.updateHeaderThemeIcon();
     });
 
+    document.addEventListener('panel-close-request', ((e: Event) => {
+      const { panelId } = (e as CustomEvent<{ panelId: string }>).detail;
+      const config = this.ctx.panelSettings[panelId];
+      if (config) {
+        config.enabled = false;
+        trackPanelToggled(panelId, false);
+        saveToStorage(STORAGE_KEYS.panels, this.ctx.panelSettings);
+        this.applyPanelSettings();
+      }
+    }) as EventListener);
+
     this.displayPrefsHandler = () => {
       if (this.clockIntervalId) {
         clearInterval(this.clockIntervalId);

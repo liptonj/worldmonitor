@@ -72,6 +72,7 @@ export class LiveWebcamsPanel extends Panel {
   constructor() {
     super({ id: 'live-webcams', title: t('panels.liveWebcams'), className: 'panel-wide' });
     this.createFullscreenButton();
+    this.createCloseButton();
     this.createToolbar();
     this.setupIntersectionObserver();
     this.setupIdleDetection();
@@ -91,6 +92,22 @@ export class LiveWebcamsPanel extends Panel {
     });
     const header = this.element.querySelector('.panel-header');
     header?.appendChild(this.fullscreenBtn);
+  }
+
+  private createCloseButton(): void {
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'live-close-btn';
+    closeBtn.title = 'Close panel';
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.destroyIframes();
+      this.element.dispatchEvent(
+        new CustomEvent('panel-close-request', { bubbles: true, detail: { panelId: this.panelId } })
+      );
+    });
+    const header = this.element.querySelector('.panel-header');
+    header?.appendChild(closeBtn);
   }
 
   private toggleFullscreen(): void {

@@ -656,6 +656,23 @@ export class LiveNewsPanel extends Panel {
     header?.appendChild(this.muteBtn);
 
     this.createFullscreenButton();
+    this.createCloseButton();
+  }
+
+  private createCloseButton(): void {
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'live-close-btn';
+    closeBtn.title = 'Close panel';
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.destroyPlayer();
+      this.element.dispatchEvent(
+        new CustomEvent('panel-close-request', { bubbles: true, detail: { panelId: this.panelId } })
+      );
+    });
+    const header = this.element.querySelector('.panel-header');
+    header?.appendChild(closeBtn);
   }
 
   private createFullscreenButton(): void {
