@@ -378,7 +378,6 @@ log "Process manager: ${MANAGER}"
 case "${MANAGER}" in
   pm2)     restart_pm2 ;;
   systemd)
-    local svc_env_file
     svc_env_file="$(systemctl show -p EnvironmentFile --value "${RELAY_SERVICE_NAME}" 2>/dev/null || echo "")"
     if [[ -n "${svc_env_file}" ]]; then
       log "systemd EnvironmentFile: ${svc_env_file}"
