@@ -3932,11 +3932,526 @@ const wss = new WebSocketServer({
 //      When omitted (null), relay uses the warm response body directly —
 //      needed for handlers with parameterized Redis keys.
 
+// ── Phase 3A: Simple Channels (direct fetch from external APIs) ─────────────
+const PHASE3A_TIMEOUT_MS = 10_000;
+
+// Yahoo Finance rate-limit gate (min 350ms between requests)
+let yahooLastRequest = 0;
+const YAHOO_MIN_GAP_MS = 350;
+let yahooQueue = Promise.resolve();
+function yahooGate() {
+  yahooQueue = yahooQueue.then(async () => {
+    const elapsed = Date.now() - yahooLastRequest;
+    if (elapsed < YAHOO_MIN_GAP_MS) await new Promise(r => setTimeout(r, YAHOO_MIN_GAP_MS - elapsed));
+    yahooLastRequest = Date.now();
+  });
+  return yahooQueue;
+}
+
+async function fetchStablecoins() {
+  const coins = 'tether,usd-coin,dai,first-digital-usd,ethena-usde';
+  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coins}&order=market_cap_desc&sparkline=false&price_change_percentage=7d`;
+  const resp = await fetch(url, {
+    headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(PHASE3A_TIMEOUT_MS),
+  });
+  if (resp.status === 429) throw new Error('CoinGecko rate limited');
+  if (!resp.ok) throw new Error(`CoinGecko HTTP ${resp.status}`);
+  const data = await resp.json();
+  const stablecoins = data.map((coin) => {
+    const price = coin.current_price || 0;
+    const deviation = Math.abs(price - 1.0);
+    let pegStatus;
+    if (deviation <= 0.005) pegStatus = 'ON PEG';
+    else if (deviation <= 0.01) pegStatus = 'SLIGHT DEPEG';
+    else pegStatus = 'DEPEGGED';
+    return {
+      id: coin.id,
+      symbol: (coin.symbol || '').toUpperCase(),
+      name: coin.name,
+      price,
+      deviation: +(deviation * 100).toFixed(3),
+      pegStatus,
+      marketCap: coin.market_cap || 0,
+      volume24h: coin.total_volume || 0,
+      change24h: coin.price_change_percentage_24h || 0,
+      change7d: coin.price_change_percentage_7d_in_currency || 0,
+      image: coin.image || '',
+    };
+  });
+  const totalMarketCap = stablecoins.reduce((s, c) => s + c.marketCap, 0);
+  const totalVolume24h = stablecoins.reduce((s, c) => s + c.volume24h, 0);
+  const depeggedCount = stablecoins.filter(c => c.pegStatus === 'DEPEGGED').length;
+  return {
+    timestamp: new Date().toISOString(),
+    summary: {
+      totalMarketCap,
+      totalVolume24h,
+      coinCount: stablecoins.length,
+      depeggedCount,
+      healthStatus: depeggedCount === 0 ? 'HEALTHY' : depeggedCount === 1 ? 'CAUTION' : 'WARNING',
+    },
+    stablecoins,
+  };
+}
+
+const ETF_LIST = [
+  { ticker: 'IBIT', issuer: 'BlackRock' },
+  { ticker: 'FBTC', issuer: 'Fidelity' },
+  { ticker: 'ARKB', issuer: 'ARK/21Shares' },
+  { ticker: 'BITB', issuer: 'Bitwise' },
+  { ticker: 'GBTC', issuer: 'Grayscale' },
+  { ticker: 'HODL', issuer: 'VanEck' },
+  { ticker: 'BRRR', issuer: 'Valkyrie' },
+  { ticker: 'EZBC', issuer: 'Franklin' },
+  { ticker: 'BTCO', issuer: 'Invesco' },
+  { ticker: 'BTCW', issuer: 'WisdomTree' },
+];
+
+async function fetchEtfChart(ticker) {
+  await yahooGate();
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=5d&interval=1d`;
+  const resp = await fetch(url, { headers: { 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(PHASE3A_TIMEOUT_MS) });
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+function parseEtfChartData(chart, ticker, issuer) {
+  try {
+    const result = chart?.chart?.result?.[0];
+    if (!result) return null;
+    const quote = result.indicators?.quote?.[0];
+    const closes = (quote?.close || []).filter(v => v != null);
+    const volumes = (quote?.volume || []).filter(v => v != null);
+    if (closes.length < 2) return null;
+    const latestPrice = closes[closes.length - 1];
+    const prevPrice = closes[closes.length - 2];
+    const priceChange = prevPrice ? ((latestPrice - prevPrice) / prevPrice * 100) : 0;
+    const latestVolume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
+    const avgVolume = volumes.length > 1 ? volumes.slice(0, -1).reduce((a, b) => a + b, 0) / (volumes.length - 1) : latestVolume;
+    const volumeRatio = avgVolume > 0 ? latestVolume / avgVolume : 1;
+    const direction = priceChange > 0.1 ? 'inflow' : priceChange < -0.1 ? 'outflow' : 'neutral';
+    const estFlowMagnitude = latestVolume * latestPrice * (priceChange > 0 ? 1 : -1) * 0.1;
+    return {
+      ticker,
+      issuer,
+      price: +latestPrice.toFixed(2),
+      priceChange: +priceChange.toFixed(2),
+      volume: latestVolume,
+      avgVolume: Math.round(avgVolume),
+      volumeRatio: +volumeRatio.toFixed(2),
+      direction,
+      estFlow: Math.round(estFlowMagnitude),
+    };
+  } catch { return null; }
+}
+
+async function fetchEtfFlows() {
+  const etfs = [];
+  let misses = 0;
+  for (const etf of ETF_LIST) {
+    const chart = await fetchEtfChart(etf.ticker);
+    if (chart) {
+      const parsed = parseEtfChartData(chart, etf.ticker, etf.issuer);
+      if (parsed) etfs.push(parsed);
+      else misses++;
+    } else misses++;
+    if (misses >= 3 && etfs.length === 0) break;
+  }
+  if (etfs.length === 0) {
+    return {
+      timestamp: new Date().toISOString(),
+      summary: { etfCount: 0, totalVolume: 0, totalEstFlow: 0, netDirection: 'UNAVAILABLE', inflowCount: 0, outflowCount: 0 },
+      etfs: [],
+      rateLimited: misses >= 3,
+    };
+  }
+  const totalVolume = etfs.reduce((s, e) => s + e.volume, 0);
+  const totalEstFlow = etfs.reduce((s, e) => s + e.estFlow, 0);
+  etfs.sort((a, b) => b.volume - a.volume);
+  return {
+    timestamp: new Date().toISOString(),
+    summary: {
+      etfCount: etfs.length,
+      totalVolume,
+      totalEstFlow,
+      netDirection: totalEstFlow > 0 ? 'NET INFLOW' : totalEstFlow < 0 ? 'NET OUTFLOW' : 'NEUTRAL',
+      inflowCount: etfs.filter(e => e.direction === 'inflow').length,
+      outflowCount: etfs.filter(e => e.direction === 'outflow').length,
+    },
+    etfs,
+    rateLimited: false,
+  };
+}
+
+const WTO_MEMBER_CODES = {
+  '840': 'United States', '156': 'China', '276': 'Germany', '392': 'Japan', '826': 'United Kingdom',
+  '356': 'India', '076': 'Brazil', '643': 'Russia', '410': 'South Korea', '036': 'Australia',
+  '124': 'Canada', '484': 'Mexico', '250': 'France', '380': 'Italy', '528': 'Netherlands',
+};
+const MAJOR_REPORTERS = ['840', '156', '276', '392', '826', '356', '076', '643', '410', '036', '124', '484', '250', '380', '528'];
+
+async function wtoFetch(path, params) {
+  const apiKey = process.env.WTO_API_KEY;
+  if (!apiKey) {
+    console.warn('[relay] WTO_API_KEY not set — trade channel disabled');
+    return null;
+  }
+  try {
+    const url = new URL(`https://api.wto.org/timeseries/v1${path}`);
+    if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    const res = await fetch(url.toString(), {
+      headers: { 'Ocp-Apim-Subscription-Key': apiKey, 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (res.status === 204) return { Dataset: [] };
+    if (!res.ok) return null;
+    return res.json();
+  } catch (e) {
+    console.warn('[relay] WTO fetch error:', e?.message ?? e);
+    return null;
+  }
+}
+
+async function fetchTrade() {
+  const currentYear = new Date().getFullYear();
+  const reporters = MAJOR_REPORTERS.join(',');
+  const [agriData, nonAgriData] = await Promise.all([
+    wtoFetch('/data', { i: 'TP_A_0160', r: reporters, ps: `${currentYear - 3}-${currentYear}`, fmt: 'json', mode: 'full', max: '500' }),
+    wtoFetch('/data', { i: 'TP_A_0430', r: reporters, ps: `${currentYear - 3}-${currentYear}`, fmt: 'json', mode: 'full', max: '500' }),
+  ]);
+  if (!agriData && !nonAgriData) {
+    return { barriers: [], fetchedAt: new Date().toISOString(), upstreamUnavailable: true };
+  }
+  function parseRows(data) {
+    const dataset = Array.isArray(data) ? data : data?.Dataset ?? data?.dataset ?? [];
+    return dataset.map((row) => ({
+      country: WTO_MEMBER_CODES[row.ReportingEconomyCode] ?? row.ReportingEconomy ?? '',
+      countryCode: String(row.ReportingEconomyCode ?? ''),
+      year: parseInt(row.Year ?? row.year ?? '0', 10),
+      value: parseFloat(row.Value ?? row.value ?? ''),
+    })).filter(r => !isNaN(r.year) && !isNaN(r.value));
+  }
+  const agriRows = agriData ? parseRows(agriData) : [];
+  const nonAgriRows = nonAgriData ? parseRows(nonAgriData) : [];
+  const latestAgri = new Map();
+  for (const row of agriRows) {
+    const ex = latestAgri.get(row.countryCode);
+    if (!ex || row.year > ex.year) latestAgri.set(row.countryCode, row);
+  }
+  const latestNonAgri = new Map();
+  for (const row of nonAgriRows) {
+    const ex = latestNonAgri.get(row.countryCode);
+    if (!ex || row.year > ex.year) latestNonAgri.set(row.countryCode, row);
+  }
+  const barriers = [];
+  const allCodes = new Set([...latestAgri.keys(), ...latestNonAgri.keys()]);
+  for (const code of allCodes) {
+    const agri = latestAgri.get(code);
+    const nonAgri = latestNonAgri.get(code);
+    const agriRate = agri?.value ?? 0;
+    const nonAgriRate = nonAgri?.value ?? 0;
+    const gap = agriRate - nonAgriRate;
+    const country = agri?.country ?? nonAgri?.country ?? code;
+    const year = String(agri?.year ?? nonAgri?.year ?? '');
+    barriers.push({
+      id: `${code}-tariff-gap-${year}`,
+      notifyingCountry: country,
+      title: `Agricultural tariff: ${agriRate.toFixed(1)}% vs Non-agricultural: ${nonAgriRate.toFixed(1)} (gap: ${gap > 0 ? '+' : ''}${gap.toFixed(1)}pp)`,
+      measureType: gap > 10 ? 'High agricultural protection' : gap > 5 ? 'Moderate agricultural protection' : 'Low tariff gap',
+      productDescription: 'Agricultural vs Non-agricultural products',
+      objective: gap > 0 ? 'Agricultural sector protection' : 'Uniform tariff structure',
+      status: gap > 10 ? 'high' : gap > 5 ? 'moderate' : 'low',
+      dateDistributed: year,
+      sourceUrl: 'https://stats.wto.org',
+    });
+  }
+  barriers.sort((a, b) => {
+    const gapA = parseFloat(a.title.match(/gap: ([+-]?\d+\.?\d*)/)?.[1] ?? '0');
+    const gapB = parseFloat(b.title.match(/gap: ([+-]?\d+\.?\d*)/)?.[1] ?? '0');
+    return gapB - gapA;
+  });
+  return { barriers: barriers.slice(0, 50), fetchedAt: new Date().toISOString(), upstreamUnavailable: false };
+}
+
+const GULF_SYMBOLS = [
+  { symbol: '^TASI.SR', name: 'Tadawul All Share', country: 'Saudi Arabia', flag: '🇸🇦', type: 'index' },
+  { symbol: 'DFMGI.AE', name: 'Dubai Financial Market', country: 'UAE', flag: '🇦🇪', type: 'index' },
+  { symbol: 'UAE', name: 'Abu Dhabi (iShares)', country: 'UAE', flag: '🇦🇪', type: 'index' },
+  { symbol: 'QAT', name: 'Qatar (iShares)', country: 'Qatar', flag: '🇶🇦', type: 'index' },
+  { symbol: 'GULF', name: 'Gulf Dividend (WisdomTree)', country: 'Kuwait', flag: '🇰🇼', type: 'index' },
+  { symbol: '^MSM', name: 'Muscat MSM 30', country: 'Oman', flag: '🇴🇲', type: 'index' },
+  { symbol: 'SARUSD=X', name: 'Saudi Riyal', country: 'Saudi Arabia', flag: '🇸🇦', type: 'currency' },
+  { symbol: 'AEDUSD=X', name: 'UAE Dirham', country: 'UAE', flag: '🇦🇪', type: 'currency' },
+  { symbol: 'QARUSD=X', name: 'Qatari Riyal', country: 'Qatar', flag: '🇶🇦', type: 'currency' },
+  { symbol: 'KWDUSD=X', name: 'Kuwaiti Dinar', country: 'Kuwait', flag: '🇰🇼', type: 'currency' },
+  { symbol: 'BHDUSD=X', name: 'Bahraini Dinar', country: 'Bahrain', flag: '🇧🇭', type: 'currency' },
+  { symbol: 'OMRUSD=X', name: 'Omani Rial', country: 'Oman', flag: '🇴🇲', type: 'currency' },
+  { symbol: 'CL=F', name: 'WTI Crude', country: '', flag: '🛢️', type: 'oil' },
+  { symbol: 'BZ=F', name: 'Brent Crude', country: '', flag: '🛢️', type: 'oil' },
+];
+
+async function fetchYahooQuote(symbol) {
+  await yahooGate();
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`;
+  const resp = await fetch(url, { headers: { 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(PHASE3A_TIMEOUT_MS) });
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  const result = data.chart?.result?.[0];
+  const meta = result?.meta;
+  if (!meta) return null;
+  const price = meta.regularMarketPrice;
+  const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+  const change = ((price - prevClose) / prevClose) * 100;
+  const closes = result.indicators?.quote?.[0]?.close;
+  const sparkline = (closes?.filter(v => v != null) || []);
+  return { price, change, sparkline };
+}
+
+async function fetchGulfQuotes() {
+  const results = new Map();
+  let failures = 0;
+  for (const s of GULF_SYMBOLS) {
+    const q = await fetchYahooQuote(s.symbol);
+    if (q) results.set(s.symbol, q);
+    else failures++;
+  }
+  const quotes = [];
+  for (const s of GULF_SYMBOLS) {
+    const yahoo = results.get(s.symbol);
+    if (yahoo) {
+      quotes.push({
+        symbol: s.symbol,
+        name: s.name,
+        country: s.country,
+        flag: s.flag,
+        type: s.type,
+        price: yahoo.price,
+        change: yahoo.change,
+        sparkline: yahoo.sparkline,
+      });
+    }
+  }
+  return { quotes, rateLimited: failures > GULF_SYMBOLS.length / 2 };
+}
+
+async function fetchSpending() {
+  const periodStart = new Date();
+  periodStart.setDate(periodStart.getDate() - 7);
+  const periodEnd = new Date();
+  const startStr = periodStart.toISOString().slice(0, 10);
+  const endStr = periodEnd.toISOString().slice(0, 10);
+  const AWARD_TYPE_MAP = { A: 'contract', B: 'contract', C: 'contract', D: 'contract', '02': 'grant', '03': 'grant', '04': 'grant', '05': 'grant', '06': 'grant', '10': 'grant', '07': 'loan', '08': 'loan' };
+  try {
+    const resp = await fetch('https://api.usaspending.gov/api/v2/search/spending_by_award/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({
+        filters: {
+          time_period: [{ start_date: startStr, end_date: endStr }],
+          award_type_codes: ['A', 'B', 'C', 'D'],
+        },
+        fields: ['Award ID', 'Recipient Name', 'Award Amount', 'Awarding Agency', 'Description', 'Start Date', 'Award Type'],
+        limit: 15,
+        order: 'desc',
+        sort: 'Award Amount',
+      }),
+    });
+    if (!resp.ok) throw new Error(`USASpending API error: ${resp.status}`);
+    const data = await resp.json();
+    const results = data.results || [];
+    const awards = results.map((r) => ({
+      id: String(r['Award ID'] || ''),
+      recipientName: String(r['Recipient Name'] || 'Unknown'),
+      amount: Number(r['Award Amount']) || 0,
+      agency: String(r['Awarding Agency'] || 'Unknown'),
+      description: String(r['Description'] || '').slice(0, 200),
+      startDate: String(r['Start Date'] || ''),
+      awardType: AWARD_TYPE_MAP[String(r['Award Type'] || '')] || 'other',
+    }));
+    const totalAmount = awards.reduce((s, a) => s + a.amount, 0);
+    return {
+      awards,
+      totalAmount,
+      periodStart: startStr,
+      periodEnd: endStr,
+      fetchedAt: new Date(),
+    };
+  } catch (err) {
+    return { awards: [], totalAmount: 0, periodStart: startStr, periodEnd: endStr, fetchedAt: new Date() };
+  }
+}
+
+// Minimal city coords for tech-events geocoding (common conference cities)
+const CITY_COORDS = {
+  'dubai': { lat: 25.2048, lng: 55.2708, country: 'UAE', virtual: false },
+  'san francisco': { lat: 37.7749, lng: -122.4194, country: 'USA', virtual: false },
+  'new york': { lat: 40.7128, lng: -74.0060, country: 'USA', virtual: false },
+  'london': { lat: 51.5074, lng: -0.1278, country: 'UK', virtual: false },
+  'paris': { lat: 48.8566, lng: 2.3522, country: 'France', virtual: false },
+  'berlin': { lat: 52.5200, lng: 13.4050, country: 'Germany', virtual: false },
+  'amsterdam': { lat: 52.3676, lng: 4.9041, country: 'Netherlands', virtual: false },
+  'barcelona': { lat: 41.3851, lng: 2.1734, country: 'Spain', virtual: false },
+  'lisbon': { lat: 38.7223, lng: -9.1393, country: 'Portugal', virtual: false },
+  'toronto': { lat: 43.6532, lng: -79.3832, country: 'Canada', virtual: false },
+  'singapore': { lat: 1.3521, lng: 103.8198, country: 'Singapore', virtual: false },
+  'tokyo': { lat: 35.6762, lng: 139.6503, country: 'Japan', virtual: false },
+  'tel aviv': { lat: 32.0853, lng: 34.7818, country: 'Israel', virtual: false },
+  'austin': { lat: 30.2672, lng: -97.7431, country: 'USA', virtual: false },
+  'las vegas': { lat: 36.1699, lng: -115.1398, country: 'USA', virtual: false },
+  'online': { lat: 0, lng: 0, country: 'Virtual', virtual: true },
+};
+
+function normalizeLocation(loc) {
+  if (!loc) return null;
+  let n = loc.toLowerCase().trim().replace(/^hybrid:\s*/i, '');
+  if (CITY_COORDS[n]) return { ...CITY_COORDS[n], original: loc };
+  const parts = n.split(',');
+  if (parts.length > 1 && CITY_COORDS[parts[0].trim()]) return { ...CITY_COORDS[parts[0].trim()], original: loc };
+  for (const [key, c] of Object.entries(CITY_COORDS)) {
+    if (n.includes(key) || key.includes(n)) return { ...c, original: loc };
+  }
+  return null;
+}
+
+function parseTechEventsICS(icsText) {
+  const events = [];
+  const blocks = icsText.split('BEGIN:VEVENT').slice(1);
+  for (const block of blocks) {
+    const summary = block.match(/SUMMARY:(.+)/)?.[1]?.trim();
+    const location = block.match(/LOCATION:(.+)/)?.[1]?.trim() || '';
+    const dtstart = block.match(/DTSTART;VALUE=DATE:(\d+)/)?.[1];
+    const dtend = block.match(/DTEND;VALUE=DATE:(\d+)/)?.[1];
+    const url = block.match(/URL:(.+)/)?.[1]?.trim() || '';
+    const uid = block.match(/UID:(.+)/)?.[1]?.trim() || '';
+    if (!summary || !dtstart) continue;
+    const startDate = `${dtstart.slice(0, 4)}-${dtstart.slice(4, 6)}-${dtstart.slice(6, 8)}`;
+    const endDate = dtend ? `${dtend.slice(0, 4)}-${dtend.slice(4, 6)}-${dtend.slice(6, 8)}` : startDate;
+    let type = 'other';
+    if (summary.startsWith('Earnings:')) type = 'earnings';
+    else if (summary.startsWith('IPO')) type = 'ipo';
+    else if (location) type = 'conference';
+    const coords = normalizeLocation(location || null);
+    events.push({ id: uid, title: summary, type, location, coords: coords ?? undefined, startDate, endDate, url, source: 'techmeme', description: '' });
+  }
+  return events.sort((a, b) => a.startDate.localeCompare(b.startDate));
+}
+
+function parseDevEventsRSS(rssText) {
+  const events = [];
+  const itemMatches = rssText.matchAll(/<item>([\s\S]*?)<\/item>/g);
+  for (const match of itemMatches) {
+    const item = match[1];
+    const title = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/);
+    const link = item.match(/<link>(.*?)<\/link>/)?.[1] ?? '';
+    const desc = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>|<description>(.*?)<\/description>/s);
+    const guid = item.match(/<guid[^>]*>(.*?)<\/guid>/)?.[1] ?? '';
+    const titleStr = title ? (title[1] ?? title[2]) : null;
+    if (!titleStr) continue;
+    const dateMatch = (desc?.[1] ?? desc?.[2] ?? '').match(/on\s+(\w+\s+\d{1,2},?\s+\d{4})/i);
+    let startDate = null;
+    if (dateMatch) {
+      const d = new Date(dateMatch[1]);
+      if (!isNaN(d.getTime())) startDate = d.toISOString().slice(0, 10);
+    }
+    if (!startDate) continue;
+    const eventDate = new Date(startDate);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    if (eventDate < now) continue;
+    let location = null;
+    const locMatch = (desc?.[1] ?? desc?.[2] ?? '').match(/(?:in|at)\s+([A-Za-z\s]+,\s*[A-Za-z\s]+)(?:\.|$)/i);
+    if (locMatch) location = locMatch[1].trim();
+    if ((desc?.[1] ?? desc?.[2] ?? '').toLowerCase().includes('online')) location = 'Online';
+    const coords = location && location !== 'Online' ? normalizeLocation(location) : (location === 'Online' ? { lat: 0, lng: 0, country: 'Virtual', original: 'Online', virtual: true } : null);
+    events.push({ id: guid || `dev-events-${titleStr.slice(0, 20)}`, title: titleStr, type: 'conference', location: location || '', coords: coords ?? undefined, startDate, endDate: startDate, url: link, source: 'dev.events', description: '' });
+  }
+  return events;
+}
+
+const CURATED_TECH_EVENTS = [
+  { id: 'step-dubai-2026', title: 'STEP Dubai 2026', type: 'conference', location: 'Dubai Internet City, Dubai', coords: { lat: 25.0956, lng: 55.1548, country: 'UAE', original: 'Dubai Internet City, Dubai', virtual: false }, startDate: '2026-02-11', endDate: '2026-02-12', url: 'https://dubai.stepconference.com', source: 'curated', description: 'Intelligence Everywhere: The AI Economy - 8,000+ attendees, 400+ startups' },
+  { id: 'gitex-global-2026', title: 'GITEX Global 2026', type: 'conference', location: 'Dubai World Trade Centre, Dubai', coords: { lat: 25.2285, lng: 55.2867, country: 'UAE', original: 'Dubai World Trade Centre, Dubai', virtual: false }, startDate: '2026-12-07', endDate: '2026-12-11', url: 'https://www.gitex.com', source: 'curated', description: "World's largest tech & startup show" },
+  { id: 'token2049-dubai-2026', title: 'TOKEN2049 Dubai 2026', type: 'conference', location: 'Dubai, UAE', coords: { lat: 25.2048, lng: 55.2708, country: 'UAE', original: 'Dubai, UAE', virtual: false }, startDate: '2026-04-29', endDate: '2026-04-30', url: 'https://www.token2049.com', source: 'curated', description: 'Premier crypto event in Dubai' },
+  { id: 'collision-2026', title: 'Collision 2026', type: 'conference', location: 'Toronto, Canada', coords: { lat: 43.6532, lng: -79.3832, country: 'Canada', original: 'Toronto, Canada', virtual: false }, startDate: '2026-06-22', endDate: '2026-06-25', url: 'https://collisionconf.com', source: 'curated', description: "North America's fastest growing tech conference" },
+  { id: 'web-summit-2026', title: 'Web Summit 2026', type: 'conference', location: 'Lisbon, Portugal', coords: { lat: 38.7223, lng: -9.1393, country: 'Portugal', original: 'Lisbon, Portugal', virtual: false }, startDate: '2026-11-02', endDate: '2026-11-05', url: 'https://websummit.com', source: 'curated', description: "The world's premier tech conference" },
+];
+
+async function fetchTechEvents() {
+  const [icsRes, rssRes] = await Promise.allSettled([
+    fetch('https://www.techmeme.com/newsy_events.ics', { headers: { 'User-Agent': CHROME_UA } }),
+    fetch('https://dev.events/rss.xml', { headers: { 'User-Agent': CHROME_UA } }),
+  ]);
+  let events = [];
+  if (icsRes.status === 'fulfilled' && icsRes.value.ok) events.push(...parseTechEventsICS(await icsRes.value.text()));
+  if (rssRes.status === 'fulfilled' && rssRes.value.ok) events.push(...parseDevEventsRSS(await rssRes.value.text()));
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  for (const c of CURATED_TECH_EVENTS) {
+    if (new Date(c.startDate) >= now) events.push(c);
+  }
+  const seen = new Set();
+  events = events.filter((e) => {
+    const key = e.title.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 30) + e.startDate.slice(0, 4);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  events.sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const conferences = events.filter(e => e.type === 'conference');
+  const mappableCount = conferences.filter(e => e.coords && !e.coords.virtual).length;
+  return { success: true, count: events.length, conferenceCount: conferences.length, mappableCount, lastUpdated: new Date().toISOString(), events, error: '' };
+}
+
+// Phase 3A cron schedules
+cron.schedule('1-59/5 * * * *', async () => {
+  try {
+    await directFetchAndBroadcast('stablecoins', 'relay:stablecoins:v1', 60, fetchStablecoins);
+  } catch (err) {
+    console.error('[relay] stablecoins cron error:', err?.message ?? err);
+  }
+});
+cron.schedule('2-59/5 * * * *', async () => {
+  try {
+    await directFetchAndBroadcast('etf-flows', 'relay:etf-flows:v1', 300, fetchEtfFlows);
+  } catch (err) {
+    console.error('[relay] etf-flows cron error:', err?.message ?? err);
+  }
+});
+cron.schedule('1-59/10 * * * *', async () => {
+  try {
+    await directFetchAndBroadcast('trade', 'relay:trade:v1', 21600, fetchTrade);
+  } catch (err) {
+    console.error('[relay] trade cron error:', err?.message ?? err);
+  }
+});
+cron.schedule('*/15 * * * *', async () => {
+  try {
+    await directFetchAndBroadcast('gulf-quotes', 'relay:gulf-quotes:v1', 480, fetchGulfQuotes);
+  } catch (err) {
+    console.error('[relay] gulf-quotes cron error:', err?.message ?? err);
+  }
+});
+cron.schedule('*/30 * * * *', async () => {
+  try {
+    await directFetchAndBroadcast('spending', 'relay:spending:v1', 1800, fetchSpending);
+  } catch (err) {
+    console.error('[relay] spending cron error:', err?.message ?? err);
+  }
+});
+cron.schedule('*/15 * * * *', async () => {
+  try {
+    await directFetchAndBroadcast('tech-events', 'relay:tech-events:v1', 21600, fetchTechEvents);
+  } catch (err) {
+    console.error('[relay] tech-events cron error:', err?.message ?? err);
+  }
+});
+
 // Every 5 min — market data (staggered: :00, :01, :02, :03)
 scheduleWarmAndBroadcast('*/5 * * * *',     'markets',        '/api/market/v1/get-market-dashboard',       'market:dashboard:v1');
-scheduleWarmAndBroadcast('1-59/5 * * * *',  'stablecoins',    '/api/market/v1/list-stablecoin-markets');
-scheduleWarmAndBroadcast('2-59/5 * * * *',  'etf-flows',      '/api/market/v1/list-etf-flows',            'market:etf-flows:v1');
 scheduleWarmAndBroadcast('3-59/5 * * * *',  'macro-signals',  '/api/economic/v1/get-macro-signals',       'economic:macro-signals:v1');
+// stablecoins, etf-flows, trade — now direct fetch (Phase 3A)
 scheduleWarmAndBroadcast('*/5 * * * *',     'strategic-risk', '/api/intelligence/v1/get-risk-scores');
 scheduleWarmAndBroadcast('1-59/5 * * * *',  'predictions',    '/api/prediction/v1/list-prediction-markets');
 
@@ -3948,7 +4463,7 @@ scheduleWarmAndBroadcast('3-59/5 * * * *',  'news:happy',   '/api/news/v1/list-f
 
 // Every 10 min — intelligence / conflict / trade (staggered: :00, :01, :02, ...)
 scheduleWarmAndBroadcast('*/10 * * * *',    'intelligence',      '/api/intelligence/v1/get-global-intel-digest', 'digest:global:v1');
-scheduleWarmAndBroadcast('1-59/10 * * * *', 'trade',             '/api/trade/v1/get-trade-barriers');
+// trade — now direct fetch (Phase 3A)
 scheduleWarmAndBroadcast('2-59/10 * * * *', 'supply-chain',      '/api/supply-chain/v1/get-chokepoint-status',   'supply_chain:chokepoints:v1');
 scheduleWarmAndBroadcast('3-59/10 * * * *', 'strategic-posture', '/api/military/v1/get-theater-posture');
 scheduleWarmAndBroadcast('4-59/10 * * * *', 'pizzint',           '/api/intelligence/v1/get-pizzint-status');
@@ -4075,9 +4590,7 @@ scheduleWarmAndBroadcast('*/10 * * * *', 'iran-events',       '/api/conflict/v1/
 scheduleWarmAndBroadcast('*/5 * * * *',  'gps-interference',  '/api/gpsjam');
 scheduleWarmAndBroadcast('*/30 * * * *', 'eonet',             '/api/natural-events/v1/list-events');
 scheduleWarmAndBroadcast('*/30 * * * *', 'gdacs',             '/api/natural-events/v1/list-disasters');
-scheduleWarmAndBroadcast('*/15 * * * *', 'gulf-quotes',       '/api/market/v1/list-gulf-quotes');
-scheduleWarmAndBroadcast('*/15 * * * *', 'tech-events',       '/api/research/v1/list-tech-events');
-scheduleWarmAndBroadcast('*/30 * * * *', 'spending',          '/api/spending/v1/get-spending-summary');
+// gulf-quotes, tech-events, spending — now direct fetch (Phase 3A)
 scheduleWarmAndBroadcast('*/10 * * * *', 'weather',           '/api/weather/v1/get-alerts');
 
 // ── AIS direct broadcast (relay already has this data) ──────────────────────
