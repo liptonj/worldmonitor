@@ -3965,20 +3965,112 @@ scheduleWarmAndBroadcast('*/30 * * * *',    'fred',    '/api/economic/v1/get-fre
 scheduleWarmAndBroadcast('1-59/30 * * * *', 'oil',     '/api/economic/v1/get-energy-prices');
 scheduleWarmAndBroadcast('2-59/30 * * * *', 'natural', '/api/wildfire/v1/list-fire-detections', 'wildfire:fires:v1');
 
-// Every 60 min — BIS, flights, giving
+// Every 60 min — BIS, flights
 scheduleWarmAndBroadcast('0 * * * *',  'bis',     '/api/economic/v1/get-bis-policy-rates', 'economic:bis:policy:v1');
 scheduleWarmAndBroadcast('5 * * * *',  'flights', '/api/aviation/v1/list-airport-delays');
-scheduleWarmAndBroadcast('10 * * * *', 'giving',  '/api/giving/v1/get-giving-summary',     'giving:summary:v1');
 
-// Every 1 min — telegram intel
-scheduleWarmAndBroadcast('* * * * *', 'telegram', '/api/telegram-feed?limit=50');
+// Giving — static data from published annual reports (24h TTL, no Vercel round-trip)
+function fetchGivingSummary() {
+  const gofundme = { platform: 'GoFundMe', dailyVolumeUsd: 9e9 / 365, activeCampaignsSampled: 0, newCampaigns24h: 0, donationVelocity: 0, dataFreshness: 'annual', lastUpdated: new Date().toISOString() };
+  const globalGiving = { platform: 'GlobalGiving', dailyVolumeUsd: 100e6 / 365, activeCampaignsSampled: 0, newCampaigns24h: 0, donationVelocity: 0, dataFreshness: 'annual', lastUpdated: new Date().toISOString() };
+  const justGiving = { platform: 'JustGiving', dailyVolumeUsd: 7e9 / 365, activeCampaignsSampled: 0, newCampaigns24h: 0, donationVelocity: 0, dataFreshness: 'annual', lastUpdated: new Date().toISOString() };
+  const platforms = [gofundme, globalGiving, justGiving];
+  const crypto = { dailyInflowUsd: 2e9 / 365, trackedWallets: 150, transactions24h: 0, topReceivers: ['Endaoment', 'The Giving Block', 'UNICEF Crypto Fund', 'Save the Children'], pctOfTotal: 0.8 };
+  const institutional = { oecdOdaAnnualUsdBn: 223.7, oecdDataYear: 2023, cafWorldGivingIndex: 34, cafDataYear: 2024, candidGrantsTracked: 18e6, dataLag: 'Annual' };
+  const categories = [
+    { category: 'Medical & Health', share: 0.33, change24h: 0, activeCampaigns: 0, trending: true },
+    { category: 'Disaster Relief', share: 0.15, change24h: 0, activeCampaigns: 0, trending: false },
+    { category: 'Education', share: 0.12, change24h: 0, activeCampaigns: 0, trending: false },
+    { category: 'Community', share: 0.10, change24h: 0, activeCampaigns: 0, trending: false },
+    { category: 'Memorials', share: 0.08, change24h: 0, activeCampaigns: 0, trending: false },
+    { category: 'Animals & Pets', share: 0.07, change24h: 0, activeCampaigns: 0, trending: false },
+    { category: 'Environment', share: 0.05, change24h: 0, activeCampaigns: 0, trending: false },
+    { category: 'Hunger & Food', share: 0.05, change24h: 0, activeCampaigns: 0, trending: false },
+    { category: 'Other', share: 0.05, change24h: 0, activeCampaigns: 0, trending: false },
+  ];
+  const totalDailyVolume = platforms.reduce((s, p) => s + p.dailyVolumeUsd, 0) + crypto.dailyInflowUsd;
+  let activityIndex = 50;
+  const volumeRatio = totalDailyVolume / 50e6;
+  activityIndex += Math.min(20, Math.max(-20, (volumeRatio - 1) * 20));
+  activityIndex += platforms.filter(p => p.dailyVolumeUsd > 0).length * 2;
+  activityIndex = Math.max(0, Math.min(100, Math.round(activityIndex)));
+  const trend = activityIndex >= 65 ? 'rising' : activityIndex <= 35 ? 'falling' : 'stable';
+  return {
+    summary: {
+      generatedAt: new Date().toISOString(),
+      activityIndex,
+      trend,
+      estimatedDailyFlowUsd: totalDailyVolume,
+      platforms,
+      categories,
+      crypto,
+      institutional,
+    },
+  };
+}
+cron.schedule('0 0 * * *', async () => {
+  await directFetchAndBroadcast('giving', 'giving:summary:v1', 86400, fetchGivingSummary);
+});
+// Broadcast giving on startup so subscribers get data immediately
+void directFetchAndBroadcast('giving', 'giving:summary:v1', 86400, fetchGivingSummary).catch(() => {});
 
-// Every 5 min — config channels
-scheduleWarmAndBroadcast('*/5 * * * *', 'config:news-sources',  '/api/config/news-sources?variant=full');
-scheduleWarmAndBroadcast('*/5 * * * *', 'config:feature-flags', '/api/config/feature-flags');
+// Every 1 min — telegram intel (direct broadcast from in-memory state)
+cron.schedule('* * * * *', () => {
+  const items = Array.isArray(telegramState.items) ? telegramState.items : [];
+  broadcastToChannel('telegram', {
+    source: 'telegram',
+    earlySignal: true,
+    enabled: TELEGRAM_ENABLED,
+    count: items.length,
+    updatedAt: telegramState.lastPollAt ? new Date(telegramState.lastPollAt).toISOString() : null,
+    items,
+  });
+});
 
-// Every 5 min — additional channels
-scheduleWarmAndBroadcast('*/5 * * * *',  'oref',              '/api/oref-alerts');
+// Every 5 min — config channels (direct Supabase fetch, no Vercel round-trip)
+async function fetchNewsSourcesConfig() {
+  if (!supabase) throw new Error('Supabase client not configured');
+  const { data, error } = await supabase.rpc('get_public_news_sources', { p_variant: 'full' });
+  if (error) throw new Error(error.message);
+  return data;
+}
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    await directFetchAndBroadcast('config:news-sources', 'relay:config:news-sources', 300, fetchNewsSourcesConfig);
+  } catch (err) {
+    if (!supabase) return;
+    console.warn(`[relay-cron] config:news-sources failed:`, err?.message ?? err);
+  }
+});
+
+async function fetchFeatureFlagsConfig() {
+  if (!supabase) throw new Error('Supabase client not configured');
+  const { data, error } = await supabase.rpc('get_public_feature_flags');
+  if (error) throw new Error(error.message);
+  const flags = {};
+  for (const row of data ?? []) flags[row.key] = row.value;
+  return flags;
+}
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    await directFetchAndBroadcast('config:feature-flags', 'relay:config:feature-flags', 300, fetchFeatureFlagsConfig);
+  } catch (err) {
+    if (!supabase) return;
+    console.warn(`[relay-cron] config:feature-flags failed:`, err?.message ?? err);
+  }
+});
+
+// Every 5 min — oref (direct broadcast from in-memory state)
+cron.schedule('*/5 * * * *', () => {
+  broadcastToChannel('oref', {
+    configured: OREF_ENABLED,
+    alerts: orefState.lastAlerts || [],
+    historyCount24h: orefState.historyCount24h,
+    totalHistoryCount: orefState.totalHistoryCount,
+    timestamp: orefState.lastPollAt ? new Date(orefState.lastPollAt).toISOString() : new Date().toISOString(),
+    ...(orefState.lastError ? { error: orefState.lastError } : {}),
+  });
+});
 scheduleWarmAndBroadcast('*/10 * * * *', 'iran-events',       '/api/conflict/v1/list-iran-events');
 scheduleWarmAndBroadcast('*/5 * * * *',  'gps-interference',  '/api/gpsjam');
 scheduleWarmAndBroadcast('*/30 * * * *', 'eonet',             '/api/natural-events/v1/list-events');

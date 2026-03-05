@@ -72,6 +72,7 @@ export default async function handler(req: Request): Promise<Response> {
         const key = `wm:headlines:${scope}`;
         await redis.lpush(key, item);
         await redis.ltrim(key, 0, 99);
+        await redis.expire(key, 86400); // 24 hours
       } catch {
         // non-fatal: continue with other scopes
       }

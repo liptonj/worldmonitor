@@ -282,10 +282,14 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
 
         void Promise.all([
           redis.lpush(`wm:headlines:${category}`, ...serialized).then(() =>
-            redis.ltrim(`wm:headlines:${category}`, 0, 99),
+            redis.ltrim(`wm:headlines:${category}`, 0, 99).then(() =>
+              redis.expire(`wm:headlines:${category}`, 86400),
+            ),
           ),
           redis.lpush('wm:headlines:global', ...serialized).then(() =>
-            redis.ltrim('wm:headlines:global', 0, 99),
+            redis.ltrim('wm:headlines:global', 0, 99).then(() =>
+              redis.expire('wm:headlines:global', 86400),
+            ),
           ),
         ]).catch(() => { /* non-fatal */ });
       }
