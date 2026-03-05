@@ -15,35 +15,44 @@ interface SummarizeViewResponse {
   model: string;
   provider: string;
   generatedAt: string;
+  errorCode?: 'provider_missing' | 'prompt_missing' | 'upstream_http_error' | 'empty_model_output' | 'timeout';
 }
 
 export async function summarizeView(
   _ctx: ServerContext,
   req: SummarizeViewRequest,
 ): Promise<SummarizeViewResponse> {
-  const empty: SummarizeViewResponse = {
+  const now = new Date().toISOString();
+  const empty = (errorCode?: SummarizeViewResponse['errorCode']): SummarizeViewResponse => ({
     summary: '',
     model: '',
-    provider: 'skipped',
-    generatedAt: new Date().toISOString(),
-  };
+    provider: errorCode ? 'error' : 'skipped',
+    generatedAt: now,
+    ...(errorCode ? { errorCode } : {}),
+  });
 
   const snapshots = (req.panelSnapshots ?? '').trim();
-  if (snapshots.length < MIN_PANEL_LENGTH) return empty;
+  if (snapshots.length < MIN_PANEL_LENGTH) return empty();
   if (snapshots.length > MAX_PANEL_LENGTH) {
-    console.warn('[SummarizeView] panelSnapshots too large, rejecting');
-    return { ...empty, provider: 'error' };
+    console.warn('[SummarizeView] panelSnapshots too large (%d bytes), rejecting', snapshots.length);
+    return empty('upstream_http_error');
   }
 
   const provider = await getActiveLlmProvider();
-  if (!provider) return empty;
-  const { apiKey, apiUrl, model, extraHeaders } = provider;
+  if (!provider) {
+    console.error('[SummarizeView] provider_missing — get_active_llm_provider returned null');
+    return empty('provider_missing');
+  }
 
-  const dateStr = new Date().toISOString().slice(0, 10);
+  const { apiKey, apiUrl, model, extraHeaders } = provider;
+  const dateStr = now.slice(0, 10);
 
   try {
     const dbPrompt = await getLlmPrompt('view_summary', null, null, model);
-    if (!dbPrompt) return { ...empty, provider: 'error' };
+    if (!dbPrompt) {
+      console.error('[SummarizeView] prompt_missing — get_llm_prompt("view_summary") returned null for model=%s', model);
+      return empty('prompt_missing');
+    }
 
     const systemPrompt = buildPrompt(dbPrompt.systemPrompt, { date: dateStr });
     const userPrompt = buildPrompt(dbPrompt.userPrompt ?? '', {
@@ -71,7 +80,10 @@ export async function summarizeView(
       signal: AbortSignal.timeout(SUMMARIZE_VIEW_TIMEOUT_MS),
     });
 
-    if (!resp.ok) return { ...empty, provider: 'error' };
+    if (!resp.ok) {
+      console.error('[SummarizeView] upstream_http_error — LLM returned HTTP %d (provider=%s model=%s)', resp.status, provider.name, model);
+      return empty('upstream_http_error');
+    }
 
     const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const firstChoice = data.choices?.[0];
@@ -79,10 +91,12 @@ export async function summarizeView(
     const reasoning = (firstChoice?.message as Record<string, unknown>)?.['reasoning'] as string | undefined;
 
     let raw = content || reasoning?.trim() || '';
-    // Strip both closed <think>...</think> and unclosed <think>... (from reasoning models)
     raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '').trim();
 
-    if (!raw) return { ...empty, provider: 'error' };
+    if (!raw) {
+      console.error('[SummarizeView] empty_model_output — LLM response had no usable content (provider=%s model=%s)', provider.name, model);
+      return empty('empty_model_output');
+    }
 
     return {
       summary: raw,
@@ -91,7 +105,13 @@ export async function summarizeView(
       generatedAt: new Date().toISOString(),
     };
   } catch (err) {
-    console.error('[SummarizeView] Error:', err);
-    return { ...empty, provider: 'error' };
+    // AbortSignal.timeout() throws AbortError in Chromium/Node, TimeoutError in Firefox
+    const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+    if (isTimeout) {
+      console.error('[SummarizeView] timeout — LLM request exceeded %dms (provider=%s model=%s)', SUMMARIZE_VIEW_TIMEOUT_MS, provider.name, model);
+      return empty('timeout');
+    }
+    console.error('[SummarizeView] error — %s (provider=%s model=%s)', (err instanceof Error ? err.message : String(err)), provider.name, model);
+    return empty('upstream_http_error');
   }
 }
