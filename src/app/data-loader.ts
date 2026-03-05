@@ -44,6 +44,7 @@ import {
   fetchRecentAwards,
   fetchOilAnalytics,
   fetchBisDashboard,
+  type BisData,
   fetchCyberThreats,
   drainTrendingSignals,
   fetchTradeRestrictions,
@@ -1883,10 +1884,10 @@ export class DataLoaderManager implements AppModule {
     const hCredit = getHydratedData('bisCredit') as { entries?: unknown[] } | undefined;
 
     if (hPolicy != null && hEer != null && hCredit != null) {
-      const data = {
-        policyRates: hPolicy.rates ?? [],
-        exchangeRates: hEer.rates ?? [],
-        creditToGdp: hCredit.entries ?? [],
+      const data: BisData = {
+        policyRates: (hPolicy.rates ?? []) as BisData['policyRates'],
+        exchangeRates: (hEer.rates ?? []) as BisData['exchangeRates'],
+        creditToGdp: (hCredit.entries ?? []) as BisData['creditToGdp'],
         fetchedAt: new Date(),
       };
       economicPanel?.updateBis(data);
