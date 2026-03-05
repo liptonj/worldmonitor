@@ -1,5 +1,5 @@
 /**
- * Relay HTTP fetch helpers for Phase 5 — bootstrap, panel, and map layer data.
+ * Relay HTTP fetch helpers for bootstrap, panel, and map layer data.
  * Used when frontend fetches directly from relay.5ls.us instead of Vercel.
  */
 

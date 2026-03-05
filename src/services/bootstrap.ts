@@ -30,7 +30,7 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
     /* IndexedDB unavailable */
   }
 
-  // Phase 2: Fetch fresh data from relay (Phase 5 — bootstrap at relay.5ls.us)
+  // Phase 2: Fetch fresh data from relay
   try {
     const url = `${RELAY_HTTP_BASE}/bootstrap?variant=${encodeURIComponent(variant)}`;
     const resp = await fetch(url, {

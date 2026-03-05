@@ -383,7 +383,6 @@ function sendCachedPayloads(ws, channels) {
 }
 
 // ── Intelligence channel warm (LLM route on Vercel) ──────────────────────────
-// Only remaining Vercel warm: get-global-intel-digest. All other channels use relay direct fetch.
 const VERCEL_APP_URL = process.env.VERCEL_APP_URL || 'https://worldmonitor.app';
 const RELAY_ALLOWED_WARM_HOSTS = process.env.RELAY_ALLOWED_WARM_HOSTS || 'worldmonitor.app,info.5ls.us';
 const ALLOWED_WARM_HOSTS = RELAY_ALLOWED_WARM_HOSTS
@@ -3272,7 +3271,7 @@ const ALLOWED_ORIGINS = [
   'tauri://localhost',       // Tauri iOS/macOS
 ];
 
-// --- Phase 4: HTTP Endpoints (bootstrap, panel, map) ---
+// --- HTTP Endpoints (bootstrap, panel, map) ---
 const PHASE4_CHANNEL_KEYS = {
   stablecoins: 'relay:stablecoins:v1',
   'etf-flows': 'relay:etf-flows:v1',
@@ -3998,14 +3997,10 @@ const wss = new WebSocketServer({
   },
 });
 
-// ── Register all warm-and-broadcast crons ───────────────────────────────────
+// ── Cron channel handlers ────────────────────────────────────────────────────
 // Stagger crons to avoid thundering herd when many fire at once.
-//
-// Key: when redisKey is provided, relay reads from Redis after warming.
-//      When omitted (null), relay uses the warm response body directly —
-//      needed for handlers with parameterized Redis keys.
 
-// ── Phase 3A: Simple Channels (direct fetch from external APIs) ─────────────
+// ── Simple Channels (direct fetch from external APIs) ───────────────────────
 const PHASE3A_TIMEOUT_MS = 10_000;
 
 // Yahoo Finance rate-limit gate (min 350ms between requests)
@@ -4477,7 +4472,7 @@ async function fetchTechEvents() {
   return { success: true, count: events.length, conferenceCount: conferences.length, mappableCount, lastUpdated: new Date().toISOString(), events, error: '' };
 }
 
-// --- Phase 3B: Medium Channels ---
+// ── Medium Channels ──────────────────────────────────────────────────────────
 const FRED_API_BASE = 'https://api.stlouisfed.org/fred';
 const FRED_DASHBOARD_SERIES = [
   { id: 'WALCL', limit: 120 },
@@ -5500,10 +5495,9 @@ async function fetchServiceStatus() {
   return { statuses: results };
 }
 
-// ── Phase 3C: Complex Channels (direct fetch) ─────────────────────────────────
+// ── Complex Channels ─────────────────────────────────────────────────────────
 const PHASE3C_TIMEOUT_MS = 15_000;
 
-// --- fetchMarkets: Finnhub + Yahoo + CoinGecko + Supabase symbols ---
 async function fetchMarketSymbols() {
   if (!supabase) return null;
   try {
@@ -6233,7 +6227,6 @@ async function fetchNewsDigest(variant, lang) {
   return { categories, feedStatuses, generatedAt: new Date().toISOString() };
 }
 
-// Phase 3A cron schedules
 cron.schedule('1-59/5 * * * *', async () => {
   try {
     await directFetchAndBroadcast('stablecoins', 'relay:stablecoins:v1', 60, fetchStablecoins);
@@ -6277,7 +6270,6 @@ cron.schedule('*/15 * * * *', async () => {
   }
 });
 
-// Phase 3C: markets, macro-signals, strategic-risk, predictions, news, supply-chain, strategic-posture, pizzint — now direct fetch
 cron.schedule('*/5 * * * *', async () => {
   try { await directFetchAndBroadcast('markets', 'market:dashboard:v1', 480, fetchMarkets); } catch (err) { console.error('[relay] markets cron error:', err?.message ?? err); }
 });
@@ -6318,9 +6310,7 @@ cron.schedule('3-59/10 * * * *', async () => {
 cron.schedule('4-59/10 * * * *', async () => {
   try { await directFetchAndBroadcast('pizzint', 'intel:pizzint:v1', 600, fetchPizzint); } catch (err) { console.error('[relay] pizzint cron error:', err?.message ?? err); }
 });
-// cyber — now direct fetch (Phase 3B)
 
-// Phase 3B: fred, oil, bis, flights, weather, natural, eonet, gdacs, gps-interference, cables, cyber, service-status — now direct fetch
 cron.schedule('*/30 * * * *', async () => {
   try { await directFetchAndBroadcast('fred', 'relay:fred:v1', 1800, fetchFred); } catch (err) { console.error('[relay] fred cron error:', err?.message ?? err); }
 });
@@ -6466,7 +6456,6 @@ cron.schedule('*/5 * * * *', () => {
 cron.schedule('*/10 * * * *', async () => {
   try { await directFetchAndBroadcast('iran-events', 'conflict:iran-events:v1', 600, fetchIranEvents); } catch (err) { console.error('[relay] iran-events cron error:', err?.message ?? err); }
 });
-// gps-interference, eonet, gdacs, weather — now direct fetch (Phase 3B)
 
 // ── AIS direct broadcast (relay already has this data) ──────────────────────
 cron.schedule('*/5 * * * *', () => {
