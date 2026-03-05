@@ -118,8 +118,9 @@ export class PanelLayoutManager implements AppModule {
 
   renderLayout(): void {
     this.ctx.container.innerHTML = `
-      <div class="header">
+      <div class="header" id="mainHeader">
         <div class="header-left">
+          <button class="hamburger-btn" id="hamburgerBtn" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>
           <div class="variant-switcher">${(() => {
         const local = this.ctx.isDesktopApp || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
         const vHref = (v: string, prod: string) => local || SITE_VARIANT === v ? '#' : prod;
@@ -199,6 +200,7 @@ export class PanelLayoutManager implements AppModule {
           </a>
         </div>
       </div>
+      <div class="mobile-nav-backdrop" id="mobileNavBackdrop"></div>
       <div class="main-content">
         <div class="map-section" id="mapSection">
           <div class="panel-header">
@@ -235,6 +237,7 @@ export class PanelLayoutManager implements AppModule {
     if (this.ctx.isMobile) {
       this.setupMobileMapToggle();
     }
+    this.setupMobileNav();
   }
 
   private setupMobileMapToggle(): void {
@@ -261,6 +264,50 @@ export class PanelLayoutManager implements AppModule {
       localStorage.setItem('mobile-map-collapsed', String(isCollapsed));
       if (!isCollapsed) window.dispatchEvent(new Event('resize'));
     });
+  }
+
+  private setupMobileNav(): void {
+    const header = document.getElementById('mainHeader');
+    const hamburgerBtn = document.getElementById('hamburgerBtn');
+    const backdrop = document.getElementById('mobileNavBackdrop');
+    if (!header || !hamburgerBtn || !backdrop) return;
+
+    const openMenu = () => {
+      header.classList.add('mobile-nav-open');
+      backdrop.classList.add('active');
+      hamburgerBtn.setAttribute('aria-expanded', 'true');
+    };
+
+    const closeMenu = () => {
+      header.classList.remove('mobile-nav-open');
+      backdrop.classList.remove('active');
+      hamburgerBtn.setAttribute('aria-expanded', 'false');
+    };
+
+    hamburgerBtn.addEventListener('click', () => {
+      if (header.classList.contains('mobile-nav-open')) {
+        closeMenu();
+      } else {
+        openMenu();
+      }
+    });
+
+    backdrop.addEventListener('click', closeMenu);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && header.classList.contains('mobile-nav-open')) {
+        closeMenu();
+      }
+    });
+
+    const closeOnClick = (selector: string) => {
+      document.querySelector(selector)?.addEventListener('click', closeMenu);
+    };
+    closeOnClick('#searchBtn');
+    closeOnClick('#headerThemeToggle');
+    closeOnClick('#unifiedSettingsMount');
+    closeOnClick('#fullscreenBtn');
+    closeOnClick('#tvModeBtn');
   }
 
   renderCriticalBanner(postures: TheaterPostureSummary[]): void {
