@@ -18,6 +18,8 @@ const crypto = require('crypto');
 const v8 = require('v8');
 const { WebSocketServer, WebSocket } = require('ws');
 const cron = require('node-cron');
+const Redis = require('ioredis');
+const { createClient: createSupabaseClient } = require('@supabase/supabase-js');
 
 // Log effective heap limit at startup (verifies NODE_OPTIONS=--max-old-space-size is active)
 const _heapStats = v8.getHeapStatistics();
@@ -167,6 +169,108 @@ function upstashSet(key, value, ttlSeconds) {
     req.end(body);
   });
 }
+
+// ─────────────────────────────────────────────────────────────
+// Direct Fetch Infrastructure — local Redis + Supabase for direct-fetch channels
+// ─────────────────────────────────────────────────────────────
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+  lazyConnect: true,
+  enableOfflineQueue: false,
+  maxRetriesPerRequest: 1,
+});
+
+redis.on('error', (err) => {
+  console.warn('[redis] connection error (caching disabled):', err.message);
+});
+
+redis.on('connect', () => {
+  console.log('[redis] connected to local Redis');
+});
+
+const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY
+  ? createSupabaseClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
+  : null;
+
+async function redisGet(key) {
+  try {
+    const val = await redis.get(key);
+    return val ? JSON.parse(val) : null;
+  } catch (err) {
+    console.warn('[redis] get error:', err.message);
+    return null;
+  }
+}
+
+async function redisSetex(key, ttlSec, value) {
+  try {
+    await redis.setex(key, ttlSec, JSON.stringify(value));
+  } catch (err) {
+    console.warn('[redis] setex error:', err.message);
+  }
+}
+
+async function redisDel(key) {
+  try {
+    await redis.del(key);
+  } catch (err) {
+    console.warn('[redis] del error:', err.message);
+  }
+}
+
+const MAX_TTL_SEC = 14 * 24 * 3600; // 1,209,600 seconds = 2 weeks
+
+async function directFetchAndBroadcast(channel, redisKey, ttlSec, fetcher) {
+  const effectiveTtl = Math.min(ttlSec, MAX_TTL_SEC);
+  const cached = await redisGet(redisKey);
+  if (cached) {
+    broadcastToChannel(channel, cached);
+    return;
+  }
+  let data;
+  try {
+    data = await fetcher();
+  } catch (err) {
+    console.warn(`[relay-fetch] ${channel} failed: ${err?.message ?? err} — retrying in 5s`);
+    await new Promise(r => setTimeout(r, 5000));
+    try {
+      data = await fetcher();
+    } catch (retryErr) {
+      console.error(`[relay-fetch] ${channel} retry failed: ${retryErr?.message ?? retryErr}`);
+      return;
+    }
+  }
+  if (data) {
+    await redisSetex(redisKey, effectiveTtl, data);
+    broadcastToChannel(channel, data);
+  }
+}
+
+async function auditStaleTTLs() {
+  let cursor = '0';
+  let fixed = 0;
+  do {
+    const [next, keys] = await redis.scan(cursor, 'COUNT', 100);
+    cursor = next;
+    for (const key of keys) {
+      const ttl = await redis.ttl(key);
+      if (ttl === -1) {
+        await redis.expire(key, MAX_TTL_SEC);
+        fixed++;
+      }
+    }
+  } while (cursor !== '0');
+  if (fixed > 0) console.log(`[redis-audit] Set TTL on ${fixed} immortal keys`);
+}
+
+cron.schedule('0 * * * *', async () => {
+  try {
+    await auditStaleTTLs();
+  } catch (err) {
+    console.error('[redis-audit] error:', err.message);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 
 let upstreamSocket = null;
 let upstreamPaused = false;
