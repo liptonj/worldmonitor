@@ -314,10 +314,24 @@ export class PanelLayoutManager implements AppModule {
     closeOnClick('#summarizeViewBtn');
     closeOnClick('.variant-switcher a');
 
+    // Close menu when region changes
+    const regionSelect = document.getElementById('regionSelect');
+    if (regionSelect) {
+      regionSelect.addEventListener('change', closeMenu);
+      cleanupFns.push(() => regionSelect.removeEventListener('change', closeMenu));
+    }
+
+    // Close menu when viewport exceeds mobile breakpoint (e.g. browser resize)
+    const resizeHandler = () => {
+      if (window.innerWidth > 768) closeMenu();
+    };
+    window.addEventListener('resize', resizeHandler);
+
     this.mobileNavCleanup = () => {
       hamburgerBtn.removeEventListener('click', toggleHandler);
       backdrop.removeEventListener('click', closeMenu);
       document.removeEventListener('keydown', keydownHandler);
+      window.removeEventListener('resize', resizeHandler);
       cleanupFns.forEach((fn) => fn());
     };
   }
