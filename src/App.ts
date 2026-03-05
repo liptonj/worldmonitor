@@ -412,7 +412,7 @@ export class App {
 
     // Display prefs: fetch admin defaults in background — never blocks first paint.
     // localStorage values (getTimeFormat/getTimezoneMode/getTempUnit) already work without
-    // this. When it resolves it dispatches 'display-prefs-changed' to update any components.
+    // this. When it resolves, adminDefaults is set; components read new values on next access.
     void initDisplayPrefs().catch(() => {});
 
     performance.mark('wm:layout-done');
