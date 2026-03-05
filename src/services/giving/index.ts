@@ -65,6 +65,12 @@ export interface GivingFetchResult {
 
 // ─── Proto -> display mapping ───
 
+/** Convert proto GetGivingSummaryResponse to display GivingSummary. Used by relay applyGiving. */
+export function protoToGivingSummary(proto: ProtoResponse): GivingSummary | null {
+  if (!proto?.summary) return null;
+  return toDisplaySummary(proto);
+}
+
 function toDisplaySummary(proto: ProtoResponse): GivingSummary {
   const s = proto.summary!;
   return {

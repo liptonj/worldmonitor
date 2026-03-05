@@ -46,6 +46,7 @@ import {
   fetchBisDashboard,
   type BisData,
   fetchCyberThreats,
+  adaptCyberThreatsResponse,
   drainTrendingSignals,
   fetchTradeDashboard,
   fetchSupplyChainDashboard,
@@ -70,6 +71,7 @@ import { fetchUnhcrPopulation } from '@/services/displacement';
 import { fetchClimateAnomalies } from '@/services/climate';
 import { fetchSecurityAdvisories } from '@/services/security-advisories';
 import { fetchTelegramFeed } from '@/services/telegram-intel';
+import { protoToGivingSummary, fetchGivingSummary } from '@/services/giving';
 import { fetchOrefAlerts, startOrefPolling, stopOrefPolling, onOrefAlertsUpdate } from '@/services/oref-alerts';
 import { enrichEventsWithExposure } from '@/services/population-exposure';
 import { debounce, getCircuitBreakerCooldownInfo } from '@/utils';
@@ -86,6 +88,10 @@ import type { GetBisPolicyRatesResponse, GetFredDashboardResponse, GetFredSeries
 import type { GetGlobalIntelDigestResponse } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import type { GetTradeBarriersResponse, GetTradeDashboardResponse } from '@/generated/client/worldmonitor/trade/v1/service_client';
 import type { GetChokepointStatusResponse, GetSupplyChainDashboardResponse } from '@/generated/client/worldmonitor/supply_chain/v1/service_client';
+import type { ListFireDetectionsResponse } from '@/generated/client/worldmonitor/wildfire/v1/service_client';
+import type { ListCyberThreatsResponse } from '@/generated/client/worldmonitor/cyber/v1/service_client';
+import type { ListPredictionMarketsResponse } from '@/generated/client/worldmonitor/prediction/v1/service_client';
+import type { GetGivingSummaryResponse } from '@/generated/client/worldmonitor/giving/v1/service_client';
 import { fetchNewsDigest } from '@/services/news-digest';
 import { fetchTechEvents } from '@/services/research';
 import {
@@ -108,6 +114,7 @@ import {
   SecurityAdvisoriesPanel,
   OrefSirensPanel,
   TelegramIntelPanel,
+  GivingPanel,
 } from '@/components';
 import type { GlobalDigestPanel } from '@/components/GlobalDigestPanel';
 import { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
@@ -772,18 +779,20 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  private renderPredictions(predictions: import('@/services/prediction').PredictionMarket[]): void {
+    this.ctx.latestPredictions = predictions;
+    (this.ctx.panels['polymarket'] as PredictionPanel).renderPredictions(predictions);
+    this.ctx.statusPanel?.updateFeed('Polymarket', { status: 'ok', itemCount: predictions.length });
+    this.ctx.statusPanel?.updateApi('Polymarket', { status: 'ok' });
+    dataFreshness.recordUpdate('polymarket', predictions.length);
+    dataFreshness.recordUpdate('predictions', predictions.length);
+    void this.runCorrelationAnalysis();
+  }
+
   async loadPredictions(): Promise<void> {
     try {
       const predictions = await fetchPredictions();
-      this.ctx.latestPredictions = predictions;
-      (this.ctx.panels['polymarket'] as PredictionPanel).renderPredictions(predictions);
-
-      this.ctx.statusPanel?.updateFeed('Polymarket', { status: 'ok', itemCount: predictions.length });
-      this.ctx.statusPanel?.updateApi('Polymarket', { status: 'ok' });
-      dataFreshness.recordUpdate('polymarket', predictions.length);
-      dataFreshness.recordUpdate('predictions', predictions.length);
-
-      void this.runCorrelationAnalysis();
+      this.renderPredictions(predictions);
     } catch (error) {
       this.ctx.statusPanel?.updateFeed('Polymarket', { status: 'error', errorMessage: String(error) });
       this.ctx.statusPanel?.updateApi('Polymarket', { status: 'error' });
@@ -1207,6 +1216,17 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  private renderCyberThreats(threats: import('@/types').CyberThreat[]): void {
+    this.ctx.cyberThreatsCache = threats;
+    this.ctx.map?.setCyberThreats(threats);
+    this.ctx.map?.setLayerReady('cyberThreats', threats.length > 0);
+    ingestCyberThreatsForCII(threats);
+    (this.ctx.panels['cii'] as CIIPanel)?.refresh();
+    this.ctx.statusPanel?.updateFeed('Cyber Threats', { status: 'ok', itemCount: threats.length });
+    this.ctx.statusPanel?.updateApi('Cyber Threats API', { status: 'ok' });
+    dataFreshness.recordUpdate('cyber_threats', threats.length);
+  }
+
   async loadCyberThreats(): Promise<void> {
     if (!CYBER_LAYER_ENABLED) {
       this.ctx.mapLayers.cyberThreats = false;
@@ -1215,24 +1235,13 @@ export class DataLoaderManager implements AppModule {
     }
 
     if (this.ctx.cyberThreatsCache) {
-      this.ctx.map?.setCyberThreats(this.ctx.cyberThreatsCache);
-      this.ctx.map?.setLayerReady('cyberThreats', this.ctx.cyberThreatsCache.length > 0);
-      ingestCyberThreatsForCII(this.ctx.cyberThreatsCache);
-      (this.ctx.panels['cii'] as CIIPanel)?.refresh();
-      this.ctx.statusPanel?.updateFeed('Cyber Threats', { status: 'ok', itemCount: this.ctx.cyberThreatsCache.length });
+      this.renderCyberThreats(this.ctx.cyberThreatsCache);
       return;
     }
 
     try {
       const threats = await fetchCyberThreats({ limit: 500, days: 14 });
-      this.ctx.cyberThreatsCache = threats;
-      this.ctx.map?.setCyberThreats(threats);
-      this.ctx.map?.setLayerReady('cyberThreats', threats.length > 0);
-      ingestCyberThreatsForCII(threats);
-      (this.ctx.panels['cii'] as CIIPanel)?.refresh();
-      this.ctx.statusPanel?.updateFeed('Cyber Threats', { status: 'ok', itemCount: threats.length });
-      this.ctx.statusPanel?.updateApi('Cyber Threats API', { status: 'ok' });
-      dataFreshness.recordUpdate('cyber_threats', threats.length);
+      this.renderCyberThreats(threats);
     } catch (error) {
       this.ctx.map?.setLayerReady('cyberThreats', false);
       this.ctx.statusPanel?.updateFeed('Cyber Threats', { status: 'error', errorMessage: String(error) });
@@ -1633,17 +1642,21 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
-  async loadGovernmentSpending(): Promise<void> {
+  private renderSpending(data: import('@/services/usa-spending').SpendingSummary): void {
     const economicPanel = this.ctx.panels['economic'] as EconomicPanel;
+    economicPanel?.updateSpending(data);
+    this.ctx.statusPanel?.updateApi('USASpending', { status: data.awards.length > 0 ? 'ok' : 'error' });
+    if (data.awards.length > 0) {
+      dataFreshness.recordUpdate('spending', data.awards.length);
+    } else {
+      dataFreshness.recordError('spending', 'No awards returned');
+    }
+  }
+
+  async loadGovernmentSpending(): Promise<void> {
     try {
       const data = await fetchRecentAwards({ daysBack: 7, limit: 15 });
-      economicPanel?.updateSpending(data);
-      this.ctx.statusPanel?.updateApi('USASpending', { status: data.awards.length > 0 ? 'ok' : 'error' });
-      if (data.awards.length > 0) {
-        dataFreshness.recordUpdate('spending', data.awards.length);
-      } else {
-        dataFreshness.recordError('spending', 'No awards returned');
-      }
+      this.renderSpending(data);
     } catch (e) {
       console.error('[App] Government spending failed:', e);
       this.ctx.statusPanel?.updateApi('USASpending', { status: 'error' });
@@ -1878,6 +1891,63 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  private renderNatural(data: ListFireDetectionsResponse): void {
+    const detections = data.fireDetections ?? [];
+    if (detections.length === 0) {
+      ingestSatelliteFiresForCII([]);
+      (this.ctx.panels['cii'] as CIIPanel)?.refresh();
+      (this.ctx.panels['satellite-fires'] as SatelliteFiresPanel)?.update([], 0);
+      this.ctx.statusPanel?.updateApi('FIRMS', { status: 'ok' });
+      return;
+    }
+    const regions: Record<string, import('@/services/wildfires').FireDetection[]> = {};
+    for (const d of detections) {
+      const r = d.region || 'Unknown';
+      (regions[r] ??= []).push(d);
+    }
+    const flat = flattenFires(regions);
+    const stats = computeRegionStats(regions);
+    const satelliteFires = flat.map(f => ({
+      lat: f.location?.latitude ?? 0,
+      lon: f.location?.longitude ?? 0,
+      brightness: f.brightness,
+      frp: f.frp,
+      region: f.region,
+      acq_date: new Date(f.detectedAt).toISOString().slice(0, 10),
+    }));
+    signalAggregator.ingestSatelliteFires(satelliteFires);
+    ingestSatelliteFiresForCII(satelliteFires);
+    (this.ctx.panels['cii'] as CIIPanel)?.refresh();
+    this.ctx.map?.setFires(toMapFires(flat));
+    (this.ctx.panels['satellite-fires'] as SatelliteFiresPanel)?.update(stats, flat.length);
+    dataFreshness.recordUpdate('firms', flat.length);
+    updateAndCheck([{ type: 'satellite_fires', region: 'global', count: flat.length }]).then(anomalies => {
+      if (anomalies.length > 0) {
+        signalAggregator.ingestTemporalAnomalies(anomalies);
+        ingestTemporalAnomaliesForCII(anomalies);
+        (this.ctx.panels['cii'] as CIIPanel)?.refresh();
+      }
+    }).catch(() => { });
+    this.ctx.statusPanel?.updateApi('FIRMS', { status: 'ok' });
+  }
+
+  private renderGiving(data: import('@/services/giving').GivingSummary): void {
+    (this.ctx.panels['giving'] as GivingPanel)?.setData(data);
+    dataFreshness.recordUpdate('giving', data.platforms.length);
+  }
+
+  async loadGiving(): Promise<void> {
+    try {
+      const result = await fetchGivingSummary();
+      if (result.ok && result.data) {
+        this.renderGiving(result.data);
+      }
+    } catch (error) {
+      console.error('[App] Giving summary fetch failed:', error);
+      dataFreshness.recordError('giving', String(error));
+    }
+  }
+
   private renderPizzInt(status: import('@/types').PizzIntStatus, tensions: import('@/types').GdeltTensionPair[]): void {
     if (status.locationsMonitored === 0) {
       this.ctx.pizzintIndicator?.hide();
@@ -2052,10 +2122,14 @@ export class DataLoaderManager implements AppModule {
   async loadTelegramIntel(): Promise<void> {
     try {
       const result = await fetchTelegramFeed();
-      (this.ctx.panels['telegram-intel'] as TelegramIntelPanel)?.setData(result);
+      this.renderTelegramIntel(result);
     } catch (error) {
       console.error('[App] Telegram intel fetch failed:', error);
     }
+  }
+
+  private renderTelegramIntel(result: import('@/services/telegram-intel').TelegramFeedResponse): void {
+    (this.ctx.panels['telegram-intel'] as TelegramIntelPanel)?.setData(result);
   }
 
   /**
@@ -2295,7 +2369,19 @@ applyMarkets(payload: unknown): void {
   if (!Array.isArray(dashboard.stocks)) return;
   this.renderMarketDashboard(dashboard);
 }
-  applyPredictions(_payload: unknown): void {}
+  applyPredictions(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const resp = payload as ListPredictionMarketsResponse;
+    if (!Array.isArray(resp.markets)) return;
+    const predictions = resp.markets.map(m => ({
+      title: m.title,
+      yesPrice: (m.yesPrice ?? 0.5) * 100,
+      volume: m.volume,
+      url: m.url,
+      endDate: m.closesAt ? new Date(m.closesAt).toISOString() : undefined,
+    }));
+    this.renderPredictions(predictions);
+  }
 
   applyFredData(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
@@ -2358,8 +2444,20 @@ applyMarkets(payload: unknown): void {
     if (!('chokepoints' in data)) return;
     this.renderSupplyChain(data);
   }
-  applyNatural(_payload: unknown): void {}
-  applyCyberThreats(_payload: unknown): void {}
+  applyNatural(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as ListFireDetectionsResponse;
+    if (!Array.isArray(data.fireDetections)) return;
+    this.renderNatural(data);
+  }
+
+  applyCyberThreats(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const resp = payload as ListCyberThreatsResponse;
+    if (!Array.isArray(resp.threats)) return;
+    const threats = adaptCyberThreatsResponse(resp);
+    this.renderCyberThreats(threats);
+  }
 
   applyAisSignals(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
@@ -2399,7 +2497,24 @@ applyMarkets(payload: unknown): void {
     });
     this.renderWeatherAlerts(alerts);
   }
-  applySpending(_payload: unknown): void {}
-  applyGiving(_payload: unknown): void {}
-  applyTelegramIntel(_payload: unknown): void {}
+  applySpending(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as import('@/services/usa-spending').SpendingSummary;
+    if (!Array.isArray(data.awards)) return;
+    this.renderSpending(data);
+  }
+
+  applyGiving(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = protoToGivingSummary(payload as GetGivingSummaryResponse);
+    if (!data || !Array.isArray(data.platforms)) return;
+    this.renderGiving(data);
+  }
+
+  applyTelegramIntel(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as import('@/services/telegram-intel').TelegramFeedResponse;
+    if (!('items' in data) || !Array.isArray(data.items)) return;
+    this.renderTelegramIntel(data);
+  }
 }

@@ -35,6 +35,7 @@ export * from './infrastructure-cascade';
 export * from './cross-module-integration';
 export * from './data-freshness';
 export * from './usa-spending';
+export { fetchGivingSummary, protoToGivingSummary } from './giving';
 export { generateSummary, translateText } from './summarization';
 export * from './cached-theater-posture';
 export * from './trade';

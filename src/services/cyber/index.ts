@@ -100,3 +100,8 @@ export async function fetchCyberThreats(options: { limit?: number; days?: number
 
   return resp.threats.map(toCyberThreat);
 }
+
+/** Convert proto ListCyberThreatsResponse to client CyberThreat[]. Used by relay applyCyberThreats. */
+export function adaptCyberThreatsResponse(resp: ListCyberThreatsResponse): CyberThreat[] {
+  return (resp.threats ?? []).map(toCyberThreat);
+}
