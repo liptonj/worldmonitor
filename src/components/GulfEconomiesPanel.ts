@@ -53,6 +53,10 @@ export class GulfEconomiesPanel extends Panel {
     }
   }
 
+  public setData(data: ListGulfQuotesResponse): void {
+    this.renderGulf(data);
+  }
+
   private renderGulf(data: ListGulfQuotesResponse): void {
     if (!data.quotes.length) {
       const msg = data.rateLimited ? t('common.rateLimitedMarket') : t('common.failedMarketData');

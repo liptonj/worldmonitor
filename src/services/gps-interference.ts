@@ -24,6 +24,55 @@ export interface GpsJamData {
   hexes: GpsJamHex[];
 }
 
+function isGpsJamRawPayload(v: unknown): v is {
+  date: string;
+  fetchedAt: string;
+  source: string;
+  stats: { totalHexes: number; highCount: number; mediumCount: number };
+  hexes: Array<{ h3: string; pct: number; good: number; bad: number; total: number; level: string }>;
+} {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.hexes)) return false;
+  for (const h of o.hexes) {
+    if (!h || typeof h !== 'object') return false;
+    const hex = h as Record<string, unknown>;
+    if (typeof hex.h3 !== 'string' || typeof hex.pct !== 'number') return false;
+  }
+  return true;
+}
+
+/** Parse relay-push or API payload into GpsJamData. No fetch. */
+export function parseGpsJamPayload(payload: unknown): GpsJamData | null {
+  if (!isGpsJamRawPayload(payload)) return null;
+  const raw = payload;
+  const hexes: GpsJamHex[] = [];
+  for (const h of raw.hexes) {
+    try {
+      const [lat, lon] = cellToLatLng(h.h3);
+      hexes.push({
+        h3: h.h3,
+        lat: Math.round(lat * 1e5) / 1e5,
+        lon: Math.round(lon * 1e5) / 1e5,
+        level: h.level as 'medium' | 'high',
+        pct: h.pct,
+        good: h.good,
+        bad: h.bad,
+        total: h.total,
+      });
+    } catch {
+      // skip invalid hex
+    }
+  }
+  return {
+    date: raw.date,
+    fetchedAt: raw.fetchedAt,
+    source: raw.source,
+    stats: raw.stats,
+    hexes,
+  };
+}
+
 let cachedData: GpsJamData | null = null;
 let cachedAt = 0;
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -39,42 +88,12 @@ export async function fetchGpsInterference(): Promise<GpsJamData | null> {
     });
     if (!resp.ok) return cachedData;
 
-    const raw = await resp.json() as {
-      date: string;
-      fetchedAt: string;
-      source: string;
-      stats: { totalHexes: number; highCount: number; mediumCount: number };
-      hexes: Array<{ h3: string; pct: number; good: number; bad: number; total: number; level: string }>;
-    };
-
-    // Convert H3 hex IDs to lat/lon
-    const hexes: GpsJamHex[] = [];
-    for (const h of raw.hexes) {
-      try {
-        const [lat, lon] = cellToLatLng(h.h3);
-        hexes.push({
-          h3: h.h3,
-          lat: Math.round(lat * 1e5) / 1e5,
-          lon: Math.round(lon * 1e5) / 1e5,
-          level: h.level as 'medium' | 'high',
-          pct: h.pct,
-          good: h.good,
-          bad: h.bad,
-          total: h.total,
-        });
-      } catch {
-        // skip invalid hex
-      }
+    const raw = await resp.json();
+    const parsed = parseGpsJamPayload(raw);
+    if (parsed) {
+      cachedData = parsed;
+      cachedAt = now;
     }
-
-    cachedData = {
-      date: raw.date,
-      fetchedAt: raw.fetchedAt,
-      source: raw.source,
-      stats: raw.stats,
-      hexes,
-    };
-    cachedAt = now;
     return cachedData;
   } catch {
     return cachedData;

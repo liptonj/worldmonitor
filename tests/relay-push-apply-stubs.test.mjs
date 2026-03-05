@@ -67,6 +67,16 @@ describe('apply* stubs are implemented', () => {
     });
   }
 
+  for (const name of ['applyOref', 'applyIranEvents', 'applyTechEvents', 'applyGpsInterference', 'applyGulfQuotes', 'applyEonet', 'applyGdacs']) {
+    it(`${name} is not empty`, () => {
+      const src = readFileSync('src/app/data-loader.ts', 'utf-8');
+      const helperName = name.replace('apply', 'render');
+      const hasHelper = src.includes(helperName);
+      const hasDirectImpl = src.includes(`${name}(payload`) && src.includes('this.');
+      assert.ok(hasHelper || hasDirectImpl, `${name} must not be empty`);
+    });
+  }
+
   it('StrategicRiskPanel has applyPush', () => {
     const src = readFileSync('src/components/StrategicRiskPanel.ts', 'utf-8');
     assert.ok(src.includes('applyPush'), 'StrategicRiskPanel must implement applyPush');

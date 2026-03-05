@@ -60,6 +60,10 @@ export interface IntelligenceCache {
   iranEvents?: IranEvent[];
   orefAlerts?: { alertCount: number; historyCount24h: number };
   advisories?: SecurityAdvisory[];
+  /** Cached EONET events for relay-push merge with GDACS */
+  eonetEvents?: import('@/types').NaturalEvent[];
+  /** Cached GDACS events (as NaturalEvent) for relay-push merge with EONET */
+  gdacsEvents?: import('@/types').NaturalEvent[];
 }
 
 export interface AppModule {

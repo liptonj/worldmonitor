@@ -64,7 +64,7 @@ import { fetchAllFires, flattenFires, computeRegionStats, toMapFires } from '@/s
 import { analyzeFlightsForSurge, surgeAlertToSignal, detectForeignMilitaryPresence, foreignPresenceToSignal, type TheaterPostureSummary } from '@/services/military-surge';
 import { fetchCachedTheaterPosture } from '@/services/cached-theater-posture';
 import { ingestProtestsForCII, ingestMilitaryForCII, ingestNewsForCII, ingestOutagesForCII, ingestConflictsForCII, ingestUcdpForCII, ingestHapiForCII, ingestDisplacementForCII, ingestClimateForCII, ingestStrikesForCII, ingestOrefForCII, ingestAviationForCII, ingestAdvisoriesForCII, ingestGpsJammingForCII, ingestAisDisruptionsForCII, ingestSatelliteFiresForCII, ingestCyberThreatsForCII, ingestTemporalAnomaliesForCII, isInLearningMode } from '@/services/country-instability';
-import { fetchGpsInterference } from '@/services/gps-interference';
+import { fetchGpsInterference, parseGpsJamPayload } from '@/services/gps-interference';
 import { dataFreshness, type DataSourceId } from '@/services/data-freshness';
 import { fetchConflictEvents, fetchUcdpClassifications, fetchAllHapiSummaries, fetchUcdpEvents, deduplicateAgainstAcled, fetchIranEvents } from '@/services/conflict';
 import { fetchUnhcrPopulation } from '@/services/displacement';
@@ -92,6 +92,7 @@ import type { ListFireDetectionsResponse } from '@/generated/client/worldmonitor
 import type { ListCyberThreatsResponse } from '@/generated/client/worldmonitor/cyber/v1/service_client';
 import type { ListPredictionMarketsResponse } from '@/generated/client/worldmonitor/prediction/v1/service_client';
 import type { GetGivingSummaryResponse } from '@/generated/client/worldmonitor/giving/v1/service_client';
+import type { ListGulfQuotesResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { fetchNewsDigest } from '@/services/news-digest';
 import { fetchTechEvents } from '@/services/research';
 import {
@@ -115,6 +116,7 @@ import {
   OrefSirensPanel,
   TelegramIntelPanel,
   GivingPanel,
+  GulfEconomiesPanel,
 } from '@/components';
 import type { GlobalDigestPanel } from '@/components/GlobalDigestPanel';
 import { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
@@ -2482,5 +2484,154 @@ applyMarkets(payload: unknown): void {
     const data = payload as import('@/services/telegram-intel').TelegramFeedResponse;
     if (!('items' in data) || !Array.isArray(data.items)) return;
     this.renderTelegramIntel(data);
+  }
+
+  private renderOrefAlerts(data: import('@/services/oref-alerts').OrefAlertsResponse): void {
+    (this.ctx.panels['oref-sirens'] as OrefSirensPanel)?.setData(data);
+    const alertCount = data.alerts?.length ?? 0;
+    const historyCount24h = data.historyCount24h ?? 0;
+    ingestOrefForCII(alertCount, historyCount24h);
+    this.ctx.intelligenceCache.orefAlerts = { alertCount, historyCount24h };
+    if (data.alerts?.length) dispatchOrefBreakingAlert(data.alerts);
+  }
+
+  applyOref(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as import('@/services/oref-alerts').OrefAlertsResponse;
+    if (!('configured' in data) && !('alerts' in data)) return;
+    this.renderOrefAlerts(data);
+  }
+
+  private renderIranEvents(events: import('@/generated/client/worldmonitor/conflict/v1/service_client').IranEvent[]): void {
+    this.ctx.intelligenceCache.iranEvents = events;
+    this.ctx.map?.setIranEvents(events);
+    this.ctx.map?.setLayerReady('iranAttacks', events.length > 0);
+    const coerced = events.map(e => ({ ...e, timestamp: Number(e.timestamp) || 0 }));
+    signalAggregator.ingestConflictEvents(coerced);
+    ingestStrikesForCII(coerced);
+    (this.ctx.panels['cii'] as CIIPanel)?.refresh();
+  }
+
+  applyIranEvents(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const resp = payload as { events?: import('@/generated/client/worldmonitor/conflict/v1/service_client').IranEvent[] };
+    if (!Array.isArray(resp.events)) return;
+    this.renderIranEvents(resp.events);
+  }
+
+  private renderTechEvents(data: import('@/generated/client/worldmonitor/research/v1/service_client').ListTechEventsResponse): void {
+    if (!data.success || !Array.isArray(data.events)) return;
+    const now = new Date();
+    const mapEvents = data.events.map((e: { id: string; title: string; location: string; coords?: { lat: number; lng: number; country: string }; startDate: string; endDate: string; url: string }) => ({
+      id: e.id,
+      title: e.title,
+      location: e.location,
+      lat: e.coords?.lat ?? 0,
+      lng: e.coords?.lng ?? 0,
+      country: e.coords?.country ?? '',
+      startDate: e.startDate,
+      endDate: e.endDate,
+      url: e.url,
+      daysUntil: Math.ceil((new Date(e.startDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+    }));
+    this.ctx.map?.setTechEvents(mapEvents);
+    this.ctx.map?.setLayerReady('techEvents', mapEvents.length > 0);
+    this.ctx.statusPanel?.updateFeed('Tech Events', { status: 'ok', itemCount: mapEvents.length });
+    if (SITE_VARIANT === 'tech' && this.ctx.searchModal) {
+      this.ctx.searchModal.registerSource('techevent', mapEvents.map((e: { id: string; title: string; location: string; startDate: string }) => ({
+        id: e.id,
+        title: e.title,
+        subtitle: `${e.location} • ${new Date(e.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+        data: e,
+      })));
+    }
+  }
+
+  applyTechEvents(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as import('@/generated/client/worldmonitor/research/v1/service_client').ListTechEventsResponse;
+    if (!('events' in data) || !Array.isArray(data.events)) return;
+    this.renderTechEvents(data);
+  }
+
+  private renderGpsInterference(data: import('@/services/gps-interference').GpsJamData): void {
+    ingestGpsJammingForCII(data.hexes);
+    if (this.ctx.mapLayers.gpsJamming) {
+      this.ctx.map?.setGpsJamming(data.hexes);
+      this.ctx.map?.setLayerReady('gpsJamming', data.hexes.length > 0);
+    }
+    this.ctx.statusPanel?.updateFeed('GPS Jam', { status: 'ok', itemCount: data.hexes.length });
+    dataFreshness.recordUpdate('gpsjam', data.hexes.length);
+  }
+
+  applyGpsInterference(payload: unknown): void {
+    const data = parseGpsJamPayload(payload);
+    if (!data) return;
+    this.renderGpsInterference(data);
+  }
+
+  applyGulfQuotes(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as ListGulfQuotesResponse;
+    if (!Array.isArray(data.quotes)) return;
+    (this.ctx.panels['gulf-economies'] as GulfEconomiesPanel)?.setData(data);
+  }
+
+  private mergeAndRenderNaturalEvents(): void {
+    const eonet = this.ctx.intelligenceCache.eonetEvents ?? [];
+    const gdacs = this.ctx.intelligenceCache.gdacsEvents ?? [];
+    const seen = new Set<string>();
+    const merged: import('@/types').NaturalEvent[] = [];
+    for (const e of [...gdacs, ...eonet]) {
+      const key = `${e.lat.toFixed(1)}-${e.lon.toFixed(1)}-${e.category}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(e);
+      }
+    }
+    this.ctx.map?.setNaturalEvents(merged);
+    this.ctx.statusPanel?.updateFeed('EONET', { status: 'ok', itemCount: merged.length });
+    this.ctx.statusPanel?.updateApi('NASA EONET', { status: 'ok' });
+    this.ctx.map?.setLayerReady('natural', merged.length > 0);
+  }
+
+  applyEonet(payload: unknown): void {
+    if (!payload || !Array.isArray(payload)) return;
+    const events = payload as import('@/types').NaturalEvent[];
+    const valid = events.filter((e): e is import('@/types').NaturalEvent =>
+      e && typeof e === 'object' && typeof e.lat === 'number' && typeof e.lon === 'number' && typeof e.id === 'string');
+    this.ctx.intelligenceCache.eonetEvents = valid;
+    this.mergeAndRenderNaturalEvents();
+  }
+
+  applyGdacs(payload: unknown): void {
+    if (!payload || !Array.isArray(payload)) return;
+    const raw = payload as unknown[];
+    const GDACS_TO_CATEGORY: Record<string, import('@/types').NaturalEventCategory> = {
+      EQ: 'earthquakes', FL: 'floods', TC: 'severeStorms', VO: 'volcanoes', WF: 'wildfires', DR: 'drought',
+    };
+    const events: import('@/types').NaturalEvent[] = [];
+    for (const item of raw) {
+      const g = item as Record<string, unknown>;
+      if (!g || typeof g !== 'object' || !g.id || !g.coordinates || !Array.isArray(g.coordinates)) continue;
+      const coords = g.coordinates as [number, number];
+      const eventType = String(g.eventType ?? '');
+      const category = GDACS_TO_CATEGORY[eventType] || 'manmade';
+      events.push({
+        id: String(g.id),
+        title: `${g.alertLevel === 'Red' ? '🔴 ' : g.alertLevel === 'Orange' ? '🟠 ' : ''}${String(g.name ?? '')}`,
+        description: `${String(g.description ?? '')}${g.severity ? ` - ${g.severity}` : ''}`,
+        category,
+        categoryTitle: String(g.description ?? ''),
+        lat: coords[1],
+        lon: coords[0],
+        date: g.fromDate ? new Date(g.fromDate as string) : new Date(),
+        sourceUrl: g.url ? String(g.url) : undefined,
+        sourceName: 'GDACS',
+        closed: false,
+      });
+    }
+    this.ctx.intelligenceCache.gdacsEvents = events;
+    this.mergeAndRenderNaturalEvents();
   }
 }

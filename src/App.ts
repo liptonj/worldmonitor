@@ -598,6 +598,13 @@ export class App {
       'spending',
       'giving',
       'telegram',
+      'oref',
+      'iran-events',
+      'tech-events',
+      'gulf-quotes',
+      'gps-interference',
+      'eonet',
+      'gdacs',
     ];
 
     initRelayPush(channels);
@@ -623,6 +630,13 @@ export class App {
     subscribeRelayPush('spending',       (p) => { void dl.applySpending(p); });
     subscribeRelayPush('giving',         (p) => { void dl.applyGiving(p); });
     subscribeRelayPush('telegram',       (p) => { void dl.applyTelegramIntel(p); });
+    subscribeRelayPush('oref',           (p) => { void dl.applyOref(p); });
+    subscribeRelayPush('iran-events',    (p) => { void dl.applyIranEvents(p); });
+    subscribeRelayPush('tech-events',    (p) => { void dl.applyTechEvents(p); });
+    subscribeRelayPush('gulf-quotes',    (p) => { void dl.applyGulfQuotes(p); });
+    subscribeRelayPush('gps-interference', (p) => { void dl.applyGpsInterference(p); });
+    subscribeRelayPush('eonet',          (p) => { void dl.applyEonet(p); });
+    subscribeRelayPush('gdacs',          (p) => { void dl.applyGdacs(p); });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const panel = (key: string) => (this.state.panels[key] as any)?.applyPush?.bind(this.state.panels[key]);
