@@ -17,6 +17,7 @@ const { readFileSync } = require('fs');
 const crypto = require('crypto');
 const v8 = require('v8');
 const { WebSocketServer, WebSocket } = require('ws');
+const cron = require('node-cron');
 
 // Log effective heap limit at startup (verifies NODE_OPTIONS=--max-old-space-size is active)
 const _heapStats = v8.getHeapStatistics();
@@ -270,6 +271,101 @@ function sendCachedPayloads(ws, channels) {
       ws.send(cached);
     }
   }
+}
+
+// ── Relay warm-and-broadcast helpers ─────────────────────────────────────────
+
+const VERCEL_APP_URL = process.env.VERCEL_APP_URL || 'https://worldmonitor.app';
+const RELAY_WARMER_API_KEY = process.env.RELAY_WARMER_API_KEY || process.env.RELAY_SHARED_SECRET || '';
+
+const ALLOWED_WARM_HOSTS = ['worldmonitor.app'];
+
+function isAllowedWarmHost(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && ALLOWED_WARM_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h));
+  } catch { return false; }
+}
+
+if (UPSTASH_ENABLED && !RELAY_WARMER_API_KEY) {
+  console.error('[relay] RELAY_WARMER_API_KEY or RELAY_SHARED_SECRET required for warm-and-broadcast');
+}
+
+/**
+ * Warm a Vercel API endpoint then broadcast the response to subscribed clients.
+ *
+ * For handlers with parameterized Redis keys, we use the warm response body
+ * directly rather than reading from Redis, since the Redis key is unpredictable.
+ *
+ * @param {string} channel  - WS channel to broadcast on
+ * @param {string} path     - Vercel API path, e.g. '/api/news/v1/list-feed-digest?variant=full&lang=en'
+ * @param {string} [redisKey] - Optional Upstash Redis key. If provided, reads from Redis after warming.
+ *                               If omitted, uses the warm response body directly.
+ */
+async function warmAndBroadcast(channel, path, redisKey) {
+  if (!UPSTASH_ENABLED) return;
+  if (!RELAY_WARMER_API_KEY) return;
+  try {
+    const warmUrl = `${VERCEL_APP_URL}${path}`;
+    if (!isAllowedWarmHost(warmUrl)) {
+      console.error(`[relay-cron] VERCEL_APP_URL points to disallowed host: ${VERCEL_APP_URL}`);
+      return;
+    }
+
+    const warmRes = await fetch(warmUrl, {
+      headers: {
+        'X-WorldMonitor-Key': RELAY_WARMER_API_KEY,
+        'User-Agent': 'worldmonitor-relay-warmer/1.0',
+      },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!warmRes.ok) {
+      console.warn(`[relay-cron] warm failed ${channel}: ${warmRes.status}`);
+      return;
+    }
+
+    let payload;
+
+    if (redisKey) {
+      const getRes = await fetch(
+        `${UPSTASH_REDIS_REST_URL}/get/${encodeURIComponent(redisKey)}`,
+        { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }, signal: AbortSignal.timeout(5_000) }
+      );
+      if (!getRes.ok) return;
+      const { result } = await getRes.json();
+      if (!result) return;
+      try { payload = JSON.parse(result); } catch {
+        console.warn(`[relay-cron] unparseable Redis value for ${channel}`);
+        return;
+      }
+    } else {
+      try { payload = await warmRes.json(); } catch {
+        console.warn(`[relay-cron] unparseable response body for ${channel}`);
+        return;
+      }
+    }
+
+    broadcastToChannel(channel, payload);
+    console.log(`[relay-cron] broadcast channel=${channel} subs=${channelSubscribers.get(channel)?.size ?? 0}`);
+  } catch (err) {
+    console.warn(`[relay-cron] warmAndBroadcast error (${channel}):`, err?.message ?? err);
+  }
+}
+
+/**
+ * Schedule a recurring warm-and-broadcast job.
+ * @param {string} cronExpr  - node-cron expression, e.g. '*/5 * * * *'
+ * @param {string} channel
+ * @param {string} path
+ * @param {string} [redisKey] - If omitted, uses warm response body directly
+ */
+function scheduleWarmAndBroadcast(cronExpr, channel, path, redisKey) {
+  cron.schedule(cronExpr, () => {
+    void warmAndBroadcast(channel, path, redisKey).catch(err =>
+      console.error(`[relay-cron] unhandled error (${channel}):`, err)
+    );
+  });
+  console.log(`[relay-cron] scheduled channel=${channel} (${cronExpr})`);
 }
 
 let messageCount = 0;
@@ -3709,6 +3805,75 @@ const wss = new WebSocketServer({
     }
     callback(true);
   },
+});
+
+// ── Register all warm-and-broadcast crons ───────────────────────────────────
+// Stagger crons to avoid thundering herd when many fire at once.
+//
+// Key: when redisKey is provided, relay reads from Redis after warming.
+//      When omitted (null), relay uses the warm response body directly —
+//      needed for handlers with parameterized Redis keys.
+
+// Every 5 min — market data (staggered: :00, :01, :02, :03)
+scheduleWarmAndBroadcast('*/5 * * * *',     'markets',        '/api/market/v1/get-market-dashboard',       'market:dashboard:v1');
+scheduleWarmAndBroadcast('1-59/5 * * * *',  'stablecoins',    '/api/market/v1/list-stablecoin-markets');
+scheduleWarmAndBroadcast('2-59/5 * * * *',  'etf-flows',      '/api/market/v1/list-etf-flows',            'market:etf-flows:v1');
+scheduleWarmAndBroadcast('3-59/5 * * * *',  'macro-signals',  '/api/economic/v1/get-macro-signals',       'economic:macro-signals:v1');
+scheduleWarmAndBroadcast('*/5 * * * *',     'strategic-risk', '/api/intelligence/v1/get-risk-scores');
+scheduleWarmAndBroadcast('1-59/5 * * * *',  'predictions',    '/api/prediction/v1/list-prediction-markets');
+
+// Every 5 min — news digest (all variants)
+scheduleWarmAndBroadcast('*/5 * * * *',     'news:full',    '/api/news/v1/list-feed-digest?variant=full&lang=en',    'news:digest:v1:full:en');
+scheduleWarmAndBroadcast('1-59/5 * * * *',  'news:tech',    '/api/news/v1/list-feed-digest?variant=tech&lang=en',    'news:digest:v1:tech:en');
+scheduleWarmAndBroadcast('2-59/5 * * * *',  'news:finance', '/api/news/v1/list-feed-digest?variant=finance&lang=en', 'news:digest:v1:finance:en');
+scheduleWarmAndBroadcast('3-59/5 * * * *',  'news:happy',   '/api/news/v1/list-feed-digest?variant=happy&lang=en',   'news:digest:v1:happy:en');
+
+// Every 10 min — intelligence / conflict / trade (staggered: :00, :01, :02, ...)
+scheduleWarmAndBroadcast('*/10 * * * *',    'intelligence',      '/api/intelligence/v1/get-global-intel-digest', 'digest:global:v1');
+scheduleWarmAndBroadcast('1-59/10 * * * *', 'trade',             '/api/trade/v1/get-trade-barriers');
+scheduleWarmAndBroadcast('2-59/10 * * * *', 'supply-chain',      '/api/supply-chain/v1/get-chokepoint-status',   'supply_chain:chokepoints:v1');
+scheduleWarmAndBroadcast('3-59/10 * * * *', 'strategic-posture', '/api/military/v1/get-theater-posture');
+scheduleWarmAndBroadcast('4-59/10 * * * *', 'pizzint',           '/api/intelligence/v1/get-pizzint-status');
+scheduleWarmAndBroadcast('5-59/10 * * * *', 'cyber',             '/api/cyber/v1/list-cyber-threats');
+
+// Every 5 min — service status (was 1 min polling, 5 min cron is acceptable)
+scheduleWarmAndBroadcast('*/5 * * * *', 'service-status', '/api/infrastructure/v1/list-service-statuses', 'infra:service-statuses:v1');
+
+// Every 15 min — cables
+scheduleWarmAndBroadcast('*/15 * * * *', 'cables', '/api/infrastructure/v1/get-cable-health', 'cable-health-v1');
+
+// Every 30 min — slower economic/energy data
+scheduleWarmAndBroadcast('*/30 * * * *',    'fred',    '/api/economic/v1/get-fred-series');
+scheduleWarmAndBroadcast('1-59/30 * * * *', 'oil',     '/api/economic/v1/get-energy-prices');
+scheduleWarmAndBroadcast('2-59/30 * * * *', 'natural', '/api/wildfire/v1/list-fire-detections', 'wildfire:fires:v1');
+
+// Every 60 min — BIS, flights, giving
+scheduleWarmAndBroadcast('0 * * * *',  'bis',     '/api/economic/v1/get-bis-policy-rates', 'economic:bis:policy:v1');
+scheduleWarmAndBroadcast('5 * * * *',  'flights', '/api/aviation/v1/list-airport-delays');
+scheduleWarmAndBroadcast('10 * * * *', 'giving',  '/api/giving/v1/get-giving-summary',     'giving:summary:v1');
+
+// Every 1 min — telegram intel
+scheduleWarmAndBroadcast('* * * * *', 'telegram', '/api/telegram-feed?limit=50');
+
+// Every 5 min — config channels
+scheduleWarmAndBroadcast('*/5 * * * *', 'config:news-sources',  '/api/config/news-sources?variant=full');
+scheduleWarmAndBroadcast('*/5 * * * *', 'config:feature-flags', '/api/config/feature-flags');
+
+// Every 5 min — additional channels
+scheduleWarmAndBroadcast('*/5 * * * *',  'oref',              '/api/oref-alerts');
+scheduleWarmAndBroadcast('*/10 * * * *', 'iran-events',       '/api/conflict/v1/list-iran-events');
+scheduleWarmAndBroadcast('*/5 * * * *',  'gps-interference',  '/api/gpsjam');
+scheduleWarmAndBroadcast('*/30 * * * *', 'eonet',             '/api/natural-events/v1/list-events');
+scheduleWarmAndBroadcast('*/30 * * * *', 'gdacs',             '/api/natural-events/v1/list-disasters');
+scheduleWarmAndBroadcast('*/15 * * * *', 'gulf-quotes',       '/api/market/v1/list-gulf-quotes');
+scheduleWarmAndBroadcast('*/15 * * * *', 'tech-events',       '/api/research/v1/list-tech-events');
+scheduleWarmAndBroadcast('*/30 * * * *', 'spending',          '/api/spending/v1/get-spending-summary');
+scheduleWarmAndBroadcast('*/10 * * * *', 'weather',           '/api/weather/v1/get-alerts');
+
+// ── AIS direct broadcast (relay already has this data) ──────────────────────
+cron.schedule('*/5 * * * *', () => {
+  buildSnapshot();
+  if (lastSnapshot) broadcastToChannel('ais', lastSnapshot);
 });
 
 server.listen(PORT, () => {
