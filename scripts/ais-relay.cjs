@@ -32,7 +32,7 @@ if (!API_KEY) {
   process.exit(1);
 }
 
-const MAX_WS_CLIENTS = 10; // Cap WS clients — app uses HTTP snapshots, not WS
+const MAX_WS_CLIENTS = 200; // Cap WS clients — push model replaces polling
 const UPSTREAM_QUEUE_HIGH_WATER = Math.max(500, Number(process.env.AIS_UPSTREAM_QUEUE_HIGH_WATER || 4000));
 const UPSTREAM_QUEUE_LOW_WATER = Math.max(
   100,
@@ -172,6 +172,101 @@ let upstreamQueue = [];
 let upstreamQueueReadIndex = 0;
 let upstreamDrainScheduled = false;
 let clients = new Set();
+
+// ── Channel subscription registry ─────────────────────────────────────────────
+const channelSubscribers = new Map(); // channel → Set<WebSocket>
+
+const ALLOWED_CHANNELS = new Set([
+  'markets', 'stablecoins', 'etf-flows', 'macro-signals', 'strategic-risk',
+  'predictions', 'news:full', 'news:tech', 'news:finance', 'news:happy',
+  'intelligence', 'trade', 'supply-chain', 'strategic-posture', 'pizzint',
+  'cyber', 'service-status', 'cables', 'cable-health', 'fred', 'oil',
+  'natural', 'bis', 'flights', 'ais', 'weather', 'spending', 'giving',
+  'telegram', 'gulf-quotes', 'tech-events', 'oref', 'iran-events',
+  'gps-interference', 'eonet', 'gdacs', 'config:news-sources',
+  'config:feature-flags',
+]);
+const CHANNEL_PATTERN = /^[a-z0-9:_-]{1,63}$/;
+const MAX_CHANNELS_PER_CLIENT = 50;
+const MAX_WS_MESSAGE_BYTES = 64 * 1024;
+
+// Per-client rate limiting for subscribe messages
+const SUB_RATE_LIMIT_WINDOW_MS = 5_000;
+const SUB_RATE_LIMIT_MAX = 20;
+const wsSubRateLimit = new Map(); // ws → { count, resetAt }
+
+function checkSubscribeRateLimit(ws) {
+  const now = Date.now();
+  let bucket = wsSubRateLimit.get(ws);
+  if (!bucket || now > bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + SUB_RATE_LIMIT_WINDOW_MS };
+    wsSubRateLimit.set(ws, bucket);
+  }
+  bucket.count++;
+  return bucket.count <= SUB_RATE_LIMIT_MAX;
+}
+
+const clientChannelCount = new Map(); // ws → number
+
+function subscribeClient(ws, channel) {
+  if (!ALLOWED_CHANNELS.has(channel)) return;
+  if (!CHANNEL_PATTERN.test(channel)) return;
+  const count = clientChannelCount.get(ws) || 0;
+  if (count >= MAX_CHANNELS_PER_CLIENT) return;
+  if (!channelSubscribers.has(channel)) {
+    channelSubscribers.set(channel, new Set());
+  }
+  channelSubscribers.get(channel).add(ws);
+  clientChannelCount.set(ws, count + 1);
+}
+
+function unsubscribeClient(ws) {
+  for (const subs of channelSubscribers.values()) {
+    subs.delete(ws);
+  }
+  clientChannelCount.delete(ws);
+  wsSubRateLimit.delete(ws);
+}
+
+// Cache the latest payload per channel so new subscribers get data immediately
+const latestPayloads = new Map(); // channel → { msg: string, ts: number }
+
+/**
+ * Broadcast a typed payload to all clients subscribed to a channel.
+ * Also caches the payload so new subscribers get it on connect.
+ * @param {string} channel
+ * @param {object} payload
+ */
+function broadcastToChannel(channel, payload) {
+  const msg = JSON.stringify({ type: 'wm-push', channel, payload, ts: Date.now() });
+  const msgBytes = Buffer.byteLength(msg);
+  if (msgBytes > 512 * 1024) {
+    console.warn(`[relay] payload too large for ${channel} (${msgBytes} bytes), skipping`);
+    return;
+  }
+  latestPayloads.set(channel, msg);
+  const subs = channelSubscribers.get(channel);
+  if (!subs || subs.size === 0) return;
+  for (const ws of subs) {
+    if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 1024 * 1024) {
+      ws.send(msg);
+    }
+  }
+}
+
+/**
+ * Send cached payloads for all requested channels to a newly subscribed client.
+ * Called after subscribe so the client gets data immediately without waiting for next cron.
+ */
+function sendCachedPayloads(ws, channels) {
+  for (const ch of channels) {
+    const cached = latestPayloads.get(ch);
+    if (cached && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 1024 * 1024) {
+      ws.send(cached);
+    }
+  }
+}
+
 let messageCount = 0;
 let droppedMessages = 0;
 const requestRateBuckets = new Map(); // key: route:ip -> { count, resetAt }
@@ -3600,7 +3695,16 @@ function connectUpstream() {
   });
 }
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+  server,
+  verifyClient: (info, callback) => {
+    const origin = info.req.headers.origin || '';
+    if (origin && !getCorsOrigin(info.req)) {
+      return callback(false, 403, 'Origin not allowed');
+    }
+    callback(true);
+  },
+});
 
 server.listen(PORT, () => {
   console.log(`[Relay] WebSocket relay on port ${PORT}`);
@@ -3630,8 +3734,44 @@ wss.on('connection', (ws, req) => {
   clients.add(ws);
   connectUpstream();
 
+  ws.on('message', (data) => {
+    if (data.length > MAX_WS_MESSAGE_BYTES) {
+      ws.close(1009, 'Message too large');
+      return;
+    }
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'wm-subscribe' && Array.isArray(msg.channels)) {
+        if (!checkSubscribeRateLimit(ws)) {
+          ws.close(1008, 'Subscribe rate limit exceeded');
+          return;
+        }
+        const accepted = [];
+        for (const ch of msg.channels) {
+          if (typeof ch === 'string' && ALLOWED_CHANNELS.has(ch)) {
+            subscribeClient(ws, ch);
+            accepted.push(ch);
+          }
+        }
+        ws.send(JSON.stringify({ type: 'wm-subscribed', channels: accepted }));
+        sendCachedPayloads(ws, accepted);
+        return;
+      }
+      if (msg.type === 'wm-unsubscribe' && Array.isArray(msg.channels)) {
+        for (const ch of msg.channels) {
+          const subs = channelSubscribers.get(ch);
+          if (subs) subs.delete(ws);
+        }
+        return;
+      }
+    } catch {
+      console.warn('[relay] received non-JSON message from client');
+    }
+  });
+
   ws.on('close', () => {
     clients.delete(ws);
+    unsubscribeClient(ws);
   });
 
   ws.on('error', (err) => {
