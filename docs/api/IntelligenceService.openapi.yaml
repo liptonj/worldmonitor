@@ -277,6 +277,38 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Error'
+    /api/intelligence/v1/summarize-view:
+        post:
+            tags:
+                - IntelligenceService
+            summary: SummarizeView
+            description: SummarizeView synthesizes visible dashboard panel data into an AI briefing.
+            operationId: SummarizeView
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SummarizeViewRequest'
+                required: true
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SummarizeViewResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidationError'
+                default:
+                    description: Error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Error'
 components:
     schemas:
         Error:
@@ -768,6 +800,22 @@ components:
             type: object
             properties:
                 digest:
+                    type: string
+                model:
+                    type: string
+                provider:
+                    type: string
+                generatedAt:
+                    type: string
+        SummarizeViewRequest:
+            type: object
+            properties:
+                panelSnapshots:
+                    type: string
+        SummarizeViewResponse:
+            type: object
+            properties:
+                summary:
                     type: string
                 model:
                     type: string

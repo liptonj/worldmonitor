@@ -1878,6 +1878,26 @@ export class DataLoaderManager implements AppModule {
 
   async loadBisData(): Promise<void> {
     const economicPanel = this.ctx.panels['economic'] as EconomicPanel;
+    const hPolicy = getHydratedData('bisPolicy') as { rates?: unknown[] } | undefined;
+    const hEer = getHydratedData('bisExchange') as { rates?: unknown[] } | undefined;
+    const hCredit = getHydratedData('bisCredit') as { entries?: unknown[] } | undefined;
+
+    if (hPolicy != null && hEer != null && hCredit != null) {
+      const data = {
+        policyRates: hPolicy.rates ?? [],
+        exchangeRates: hEer.rates ?? [],
+        creditToGdp: hCredit.entries ?? [],
+        fetchedAt: new Date(),
+      };
+      economicPanel?.updateBis(data);
+      const hasData = data.policyRates.length > 0;
+      this.ctx.statusPanel?.updateApi('BIS', { status: hasData ? 'ok' : 'error' });
+      if (hasData) {
+        dataFreshness.recordUpdate('bis', data.policyRates.length);
+      }
+      return;
+    }
+
     try {
       const dashboard = await fetchBisDashboard();
       const data = {
