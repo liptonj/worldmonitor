@@ -1,3 +1,4 @@
+import type { GetGlobalIntelDigestResponse } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { Panel } from './Panel';
 import { IntelligenceServiceClient } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { h, replaceChildren } from '@/utils/dom-utils';
@@ -63,6 +64,30 @@ export class GlobalDigestPanel extends Panel {
   getSummaryData(): string | null {
     if (!this.lastDigestText) return null;
     return `[Intelligence Digest]\n${this.lastDigestText}`;
+  }
+
+  /**
+   * Set digest from relay-push payload. Does not fetch.
+   */
+  setDigest(data: GetGlobalIntelDigestResponse): void {
+    if (!data?.digest) {
+      this.lastDigestText = null;
+      replaceChildren(this.contentEl, h('div', { className: 'digest-empty' }, 'No digest available.'));
+      return;
+    }
+    this.lastDigestText = data.digest;
+    void Promise.resolve(marked.parse(data.digest)).then((html) => {
+      const safe = DOMPurify.sanitize(String(html));
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'digest-body';
+      contentDiv.innerHTML = safe;
+      replaceChildren(this.contentEl, contentDiv);
+      if (data.generatedAt) {
+        const ts = new Date(data.generatedAt).toLocaleString();
+        const footerText = `Generated ${ts} · ${data.model || 'unknown'} via ${data.provider || 'unknown'}`;
+        replaceChildren(this.footerEl, h('span', { className: 'digest-meta' }, footerText));
+      }
+    }).catch(() => {});
   }
 
   private async fetch(forceRefresh: boolean): Promise<void> {

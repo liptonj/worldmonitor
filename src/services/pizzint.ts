@@ -97,6 +97,13 @@ function toTensionPair(proto: ProtoTensionPair): GdeltTensionPair {
   };
 }
 
+/** Parse relay-push payload for applyPizzInt. Does not fetch. */
+export function parsePizzintResponse(resp: GetPizzintStatusResponse): { status: PizzIntStatus; tensions: GdeltTensionPair[] } {
+  const status = resp.pizzint ? toStatus(resp.pizzint) : defaultStatus;
+  const tensions = (resp.tensionPairs ?? []).map(toTensionPair);
+  return { status, tensions };
+}
+
 // ---- Default / fallback values ----
 
 const defaultStatus: PizzIntStatus = {

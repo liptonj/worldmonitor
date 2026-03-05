@@ -35,4 +35,15 @@ describe('apply* stubs are implemented', () => {
       assert.ok(hasHelper || match, `${name} must not be empty`);
     });
   }
+
+  for (const name of ['applyIntelligence', 'applyPizzInt', 'applyTradePolicy', 'applySupplyChain']) {
+    it(`${name} is not empty`, () => {
+      const src = readFileSync('src/app/data-loader.ts', 'utf-8');
+      const helperName = name.replace('apply', 'render');
+      assert.ok(
+        src.includes(helperName),
+        `${name} must use a render helper (render${name.replace('apply', '')})`
+      );
+    });
+  }
 });

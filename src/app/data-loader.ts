@@ -49,6 +49,7 @@ import {
   fetchSupplyChainDashboard,
   fredResponseToClientSeries,
   energyPricesToOilAnalytics,
+  parsePizzintResponse,
 } from '@/services';
 import { checkBatchForBreakingAlerts, dispatchOrefBreakingAlert } from '@/services/breaking-news-alerts';
 import { mlWorker } from '@/services/ml-worker';
@@ -80,6 +81,9 @@ import { ingestHeadlines } from '@/services/trending-keywords';
 import type { ListFeedDigestResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
 import type { GetSectorSummaryResponse, GetMarketDashboardResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
 import type { GetBisPolicyRatesResponse, GetFredDashboardResponse, GetFredSeriesResponse, GetEnergyPricesResponse } from '@/generated/client/worldmonitor/economic/v1/service_client';
+import type { GetGlobalIntelDigestResponse } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
+import type { GetTradeBarriersResponse, GetTradeDashboardResponse } from '@/generated/client/worldmonitor/trade/v1/service_client';
+import type { GetChokepointStatusResponse, GetSupplyChainDashboardResponse } from '@/generated/client/worldmonitor/supply_chain/v1/service_client';
 import { fetchNewsDigest } from '@/services/news-digest';
 import { fetchTechEvents } from '@/services/research';
 import {
@@ -103,6 +107,7 @@ import {
   OrefSirensPanel,
   TelegramIntelPanel,
 } from '@/components';
+import type { GlobalDigestPanel } from '@/components/GlobalDigestPanel';
 import { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
 import { classifyNewsItem } from '@/services/positive-classifier';
 import { filterBySentiment } from '@/services/sentiment-gate';
@@ -1668,12 +1673,12 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
-  async loadTradePolicy(): Promise<void> {
+  private renderTradePolicy(data: GetTradeDashboardResponse | GetTradeBarriersResponse): void {
     const tradePanel = this.ctx.panels['trade-policy'] as TradePolicyPanel | undefined;
     if (!tradePanel) return;
 
-    try {
-      const dashboard = await fetchTradeDashboard();
+    if ('restrictions' in data || 'tariffs' in data || 'flows' in data) {
+      const dashboard = data as GetTradeDashboardResponse;
       const restrictions = dashboard.restrictions ?? { restrictions: [], fetchedAt: '', upstreamUnavailable: false };
       const tariffs = dashboard.tariffs ?? { datapoints: [], fetchedAt: '', upstreamUnavailable: false };
       const flows = dashboard.flows ?? { flows: [], fetchedAt: '', upstreamUnavailable: false };
@@ -1694,6 +1699,20 @@ export class DataLoaderManager implements AppModule {
       } else if (anyUnavailable) {
         dataFreshness.recordError('wto_trade', 'WTO upstream temporarily unavailable');
       }
+    } else {
+      tradePanel.updateBarriers(data as GetTradeBarriersResponse);
+      const barriers = data as GetTradeBarriersResponse;
+      const totalItems = barriers.barriers?.length ?? 0;
+      const anyUnavailable = barriers.upstreamUnavailable;
+      this.ctx.statusPanel?.updateApi('WTO', { status: anyUnavailable ? 'warning' : totalItems > 0 ? 'ok' : 'error' });
+      if (totalItems > 0) dataFreshness.recordUpdate('wto_trade', totalItems);
+    }
+  }
+
+  async loadTradePolicy(): Promise<void> {
+    try {
+      const dashboard = await fetchTradeDashboard();
+      this.renderTradePolicy(dashboard);
     } catch (e) {
       console.error('[App] Trade policy failed:', e);
       this.ctx.statusPanel?.updateApi('WTO', { status: 'error' });
@@ -1701,12 +1720,12 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
-  async loadSupplyChain(): Promise<void> {
+  private renderSupplyChain(data: GetSupplyChainDashboardResponse | GetChokepointStatusResponse): void {
     const scPanel = this.ctx.panels['supply-chain'] as SupplyChainPanel | undefined;
     if (!scPanel) return;
 
-    try {
-      const dashboard = await fetchSupplyChainDashboard();
+    if ('shipping' in data || 'minerals' in data) {
+      const dashboard = data as GetSupplyChainDashboardResponse;
       const shippingData = dashboard.shipping ?? null;
       const chokepointData = dashboard.chokepoints ?? null;
       const mineralsData = dashboard.minerals ?? null;
@@ -1725,6 +1744,20 @@ export class DataLoaderManager implements AppModule {
       } else if (anyUnavailable) {
         dataFreshness.recordError('supply_chain', 'Supply chain upstream temporarily unavailable');
       }
+    } else {
+      const chokepointData = data as GetChokepointStatusResponse;
+      scPanel.updateChokepointStatus(chokepointData);
+      const totalItems = chokepointData.chokepoints?.length ?? 0;
+      const anyUnavailable = chokepointData.upstreamUnavailable;
+      this.ctx.statusPanel?.updateApi('SupplyChain', { status: anyUnavailable ? 'warning' : totalItems > 0 ? 'ok' : 'error' });
+      if (totalItems > 0) dataFreshness.recordUpdate('supply_chain', totalItems);
+    }
+  }
+
+  async loadSupplyChain(): Promise<void> {
+    try {
+      const dashboard = await fetchSupplyChainDashboard();
+      this.renderSupplyChain(dashboard);
     } catch (e) {
       console.error('[App] Supply chain failed:', e);
       this.ctx.statusPanel?.updateApi('SupplyChain', { status: 'error' });
@@ -1827,25 +1860,28 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  private renderPizzInt(status: import('@/types').PizzIntStatus, tensions: import('@/types').GdeltTensionPair[]): void {
+    if (status.locationsMonitored === 0) {
+      this.ctx.pizzintIndicator?.hide();
+      this.ctx.statusPanel?.updateApi('PizzINT', { status: 'error' });
+      dataFreshness.recordError('pizzint', 'No monitored locations returned');
+      return;
+    }
+
+    this.ctx.pizzintIndicator?.show();
+    this.ctx.pizzintIndicator?.updateStatus(status);
+    this.ctx.pizzintIndicator?.updateTensions(tensions);
+    this.ctx.statusPanel?.updateApi('PizzINT', { status: 'ok' });
+    dataFreshness.recordUpdate('pizzint', Math.max(status.locationsMonitored, tensions.length));
+  }
+
   async loadPizzInt(): Promise<void> {
     try {
       const [status, tensions] = await Promise.all([
         fetchPizzIntStatus(),
         fetchGdeltTensions()
       ]);
-
-      if (status.locationsMonitored === 0) {
-        this.ctx.pizzintIndicator?.hide();
-        this.ctx.statusPanel?.updateApi('PizzINT', { status: 'error' });
-        dataFreshness.recordError('pizzint', 'No monitored locations returned');
-        return;
-      }
-
-      this.ctx.pizzintIndicator?.show();
-      this.ctx.pizzintIndicator?.updateStatus(status);
-      this.ctx.pizzintIndicator?.updateTensions(tensions);
-      this.ctx.statusPanel?.updateApi('PizzINT', { status: 'ok' });
-      dataFreshness.recordUpdate('pizzint', Math.max(status.locationsMonitored, tensions.length));
+      this.renderPizzInt(status, tensions);
     } catch (error) {
       console.error('[App] PizzINT load failed:', error);
       this.ctx.pizzintIndicator?.hide();
@@ -2271,10 +2307,39 @@ applyMarkets(payload: unknown): void {
     };
     this.renderBisData(data);
   }
-  applyIntelligence(_payload: unknown): void {}
-  applyPizzInt(_payload: unknown): void {}
-  applyTradePolicy(_payload: unknown): void {}
-  applySupplyChain(_payload: unknown): void {}
+
+  private renderIntelligence(data: GetGlobalIntelDigestResponse): void {
+    (this.ctx.panels['global-digest'] as GlobalDigestPanel | undefined)?.setDigest(data);
+  }
+
+  applyIntelligence(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as GetGlobalIntelDigestResponse;
+    if (!data.digest && !data.generatedAt) return;
+    this.renderIntelligence(data);
+  }
+
+  applyPizzInt(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const resp = payload as import('@/generated/client/worldmonitor/intelligence/v1/service_client').GetPizzintStatusResponse;
+    if (!resp.pizzint && !(Array.isArray(resp.tensionPairs) && resp.tensionPairs.length > 0)) return;
+    const { status, tensions } = parsePizzintResponse(resp);
+    this.renderPizzInt(status, tensions);
+  }
+
+  applyTradePolicy(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as GetTradeBarriersResponse;
+    if (!('barriers' in data)) return;
+    this.renderTradePolicy(data);
+  }
+
+  applySupplyChain(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as GetChokepointStatusResponse;
+    if (!('chokepoints' in data)) return;
+    this.renderSupplyChain(data);
+  }
   applyNatural(_payload: unknown): void {}
   applyCyberThreats(_payload: unknown): void {}
   applyCableHealth(_payload: unknown): void {}
