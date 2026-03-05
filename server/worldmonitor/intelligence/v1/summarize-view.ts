@@ -28,7 +28,7 @@ export async function summarizeView(
     model: '',
     provider: errorCode ? 'error' : 'skipped',
     generatedAt: now,
-    ...(errorCode ? { errorCode } : {}),
+    errorCode,
   });
 
   const snapshots = (req.panelSnapshots ?? '').trim();

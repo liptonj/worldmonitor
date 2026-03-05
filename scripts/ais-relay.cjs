@@ -239,9 +239,7 @@ const latestPayloads = new Map(); // channel → serialized JSON string (wm-push
 
 /**
  * Broadcast a typed payload to all clients subscribed to a channel.
- * Also caches the payload so new subscribers get it on connect.
- * @param {string} channel
- * @param {object} payload
+ * Also caches the payload so late-joining subscribers receive it immediately.
  */
 function broadcastToChannel(channel, payload) {
   const msg = JSON.stringify({ type: 'wm-push', channel, payload, ts: Date.now() });
@@ -352,13 +350,6 @@ async function warmAndBroadcast(channel, path, redisKey) {
   }
 }
 
-/**
- * Schedule a recurring warm-and-broadcast job.
- * @param {string} cronExpr  - node-cron expression, e.g. '*/5 * * * *'
- * @param {string} channel
- * @param {string} path
- * @param {string} [redisKey] - If omitted, uses warm response body directly
- */
 function scheduleWarmAndBroadcast(cronExpr, channel, path, redisKey) {
   cron.schedule(cronExpr, () => {
     void warmAndBroadcast(channel, path, redisKey).catch(err =>

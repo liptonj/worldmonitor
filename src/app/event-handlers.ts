@@ -556,15 +556,11 @@ export class EventHandlerManager implements AppModule {
       this.summarizeViewModal!.setLoading();
 
       try {
-        console.debug('[SummarizeView] request_started snapshotLength=%d', snapshotText.length);
-
         const resp = await fetch('/api/intelligence/v1/summarize-view', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ panelSnapshots: snapshotText }),
         });
-
-        console.debug('[SummarizeView] response_received status=%d', resp.status);
 
         if (!resp.ok) {
           console.error('[SummarizeView] non-OK HTTP status=%d', resp.status);
@@ -580,33 +576,19 @@ export class EventHandlerManager implements AppModule {
           provider?: string;
         };
 
-        if (data.errorCode === 'provider_missing') {
-          console.error('[SummarizeView] errorCode=provider_missing');
-          this.summarizeViewModal!.setError(t('modals.summarizeView.errorProviderMissing'));
-          return;
-        }
-
-        if (data.errorCode === 'prompt_missing') {
-          console.error('[SummarizeView] errorCode=prompt_missing');
-          this.summarizeViewModal!.setError(t('modals.summarizeView.errorPromptMissing'));
-          return;
-        }
-
-        if (data.errorCode === 'timeout') {
-          console.error('[SummarizeView] errorCode=timeout');
-          this.summarizeViewModal!.setError(t('modals.summarizeView.errorTimeout'));
-          return;
-        }
-
         if (data.errorCode) {
+          const msgKey = data.errorCode === 'provider_missing' ? 'errorProviderMissing'
+            : data.errorCode === 'prompt_missing' ? 'errorPromptMissing'
+            : data.errorCode === 'timeout' ? 'errorTimeout'
+            : 'errorRetry';
           console.error('[SummarizeView] errorCode=%s provider=%s model=%s', data.errorCode, data.provider ?? 'unknown', data.model ?? 'unknown');
-          this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
+          this.summarizeViewModal!.setError(t(`modals.summarizeView.${msgKey}`));
           return;
         }
 
         const summary = data.summary?.trim();
         if (!summary) {
-          console.warn('[SummarizeView] empty_summary errorCode=%s provider=%s model=%s', data.errorCode ?? 'none', data.provider ?? 'unknown', data.model ?? 'unknown');
+          console.warn('[SummarizeView] empty_summary provider=%s model=%s', data.provider ?? 'unknown', data.model ?? 'unknown');
           this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
           return;
         }

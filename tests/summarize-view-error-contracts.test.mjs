@@ -180,20 +180,6 @@ describe('summarize-view UI error message mapping', () => {
     );
   });
 
-  it('UI logs request_started', () => {
-    assert.ok(
-      uiSrc.includes('request_started'),
-      'event-handlers.ts must log request_started for diagnostics'
-    );
-  });
-
-  it('UI logs response_received', () => {
-    assert.ok(
-      uiSrc.includes('response_received'),
-      'event-handlers.ts must log response_received for diagnostics'
-    );
-  });
-
   it('UI logs errorCode for config errors', () => {
     assert.ok(
       uiSrc.includes('errorCode=provider_missing') || uiSrc.includes("errorCode='provider_missing'") || uiSrc.includes("errorCode=%s"),

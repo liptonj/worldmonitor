@@ -2111,23 +2111,23 @@ export class DataLoaderManager implements AppModule {
   }
 
   // ── apply* methods: receive relay-push payloads (stubs for now) ──
-  applyNewsDigest(_payload: unknown): void { /* relay push */ }
-  applyMarkets(_payload: unknown): void { /* relay push */ }
-  applyPredictions(_payload: unknown): void { /* relay push */ }
-  applyFredData(_payload: unknown): void { /* relay push */ }
-  applyOilData(_payload: unknown): void { /* relay push */ }
-  applyBisData(_payload: unknown): void { /* relay push */ }
-  applyIntelligence(_payload: unknown): void { /* relay push */ }
-  applyPizzInt(_payload: unknown): void { /* relay push */ }
-  applyTradePolicy(_payload: unknown): void { /* relay push */ }
-  applySupplyChain(_payload: unknown): void { /* relay push */ }
-  applyNatural(_payload: unknown): void { /* relay push */ }
-  applyCyberThreats(_payload: unknown): void { /* relay push */ }
-  applyCableHealth(_payload: unknown): void { /* relay push */ }
-  applyFlightDelays(_payload: unknown): void { /* relay push */ }
-  applyAisSignals(_payload: unknown): void { /* relay push */ }
-  applyWeatherAlerts(_payload: unknown): void { /* relay push */ }
-  applySpending(_payload: unknown): void { /* relay push */ }
-  applyGiving(_payload: unknown): void { /* relay push */ }
-  applyTelegramIntel(_payload: unknown): void { /* relay push */ }
+  applyNewsDigest(_payload: unknown): void {}
+  applyMarkets(_payload: unknown): void {}
+  applyPredictions(_payload: unknown): void {}
+  applyFredData(_payload: unknown): void {}
+  applyOilData(_payload: unknown): void {}
+  applyBisData(_payload: unknown): void {}
+  applyIntelligence(_payload: unknown): void {}
+  applyPizzInt(_payload: unknown): void {}
+  applyTradePolicy(_payload: unknown): void {}
+  applySupplyChain(_payload: unknown): void {}
+  applyNatural(_payload: unknown): void {}
+  applyCyberThreats(_payload: unknown): void {}
+  applyCableHealth(_payload: unknown): void {}
+  applyFlightDelays(_payload: unknown): void {}
+  applyAisSignals(_payload: unknown): void {}
+  applyWeatherAlerts(_payload: unknown): void {}
+  applySpending(_payload: unknown): void {}
+  applyGiving(_payload: unknown): void {}
+  applyTelegramIntel(_payload: unknown): void {}
 }

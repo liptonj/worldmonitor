@@ -300,8 +300,8 @@ export class App {
     this.eventHandlers = new EventHandlerManager(this.state, {
       updateSearchIndex: () => this.searchManager.updateSearchIndex(),
       loadAllData: () => this.dataLoader.loadAllData(),
-      flushStaleRefreshes: () => { /* relay push handles data */ },
-      setHiddenSince: () => { /* relay push handles data */ },
+      flushStaleRefreshes: () => {},
+      setHiddenSince: () => {},
       loadDataForLayer: (layer) => { void this.dataLoader.loadDataForLayer(layer as keyof MapLayers); },
       waitForAisData: () => this.dataLoader.waitForAisData(),
       syncDataFreshnessWithLayers: () => this.dataLoader.syncDataFreshnessWithLayers(),
@@ -463,8 +463,6 @@ export class App {
     performance.mark('wm:bootstrap-done');
     performance.measure('wm:bootstrap', 'wm:layout-done', 'wm:bootstrap-done');
 
-    // relay push handles data loading — data arrives via WebSocket on connect
-
     startLearning();
 
     // Hide unconfigured layers after first data load
@@ -478,7 +476,6 @@ export class App {
       this.state.map?.hideLayerToggle('cyberThreats');
     }
 
-    this.setupRefreshIntervals();
     this.setupRelayPush();
     this.eventHandlers.setupSnapshotSaving();
     cleanOldSnapshots().catch((e) => console.warn('[Storage] Snapshot cleanup failed:', e));
@@ -573,10 +570,6 @@ export class App {
     }
   }
 
-  private setupRefreshIntervals(): void {
-    // All data is now pushed by the relay. No browser-side polling.
-  }
-
   private setupRelayPush(): void {
     const variant = SITE_VARIANT || 'full';
     const channels = [
@@ -611,49 +604,33 @@ export class App {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dl = this.dataLoader as any;
-    subscribeRelayPush(`news:${variant}`, (payload) => { void dl.applyNewsDigest(payload); });
-    subscribeRelayPush('markets', (payload) => { void dl.applyMarkets(payload); });
-    subscribeRelayPush('predictions', (payload) => { void dl.applyPredictions(payload); });
-    subscribeRelayPush('fred', (payload) => { void dl.applyFredData(payload); });
-    subscribeRelayPush('oil', (payload) => { void dl.applyOilData(payload); });
-    subscribeRelayPush('bis', (payload) => { void dl.applyBisData(payload); });
-    subscribeRelayPush('intelligence', (payload) => { void dl.applyIntelligence(payload); });
-    subscribeRelayPush('pizzint', (payload) => { void dl.applyPizzInt(payload); });
-    subscribeRelayPush('trade', (payload) => { void dl.applyTradePolicy(payload); });
-    subscribeRelayPush('supply-chain', (payload) => { void dl.applySupplyChain(payload); });
-    subscribeRelayPush('natural', (payload) => { void dl.applyNatural(payload); });
-    subscribeRelayPush('cyber', (payload) => { void dl.applyCyberThreats(payload); });
-    subscribeRelayPush('cables', (payload) => { void dl.applyCableHealth(payload); });
-    subscribeRelayPush('flights', (payload) => { void dl.applyFlightDelays(payload); });
-    subscribeRelayPush('ais', (payload) => { void dl.applyAisSignals(payload); });
-    subscribeRelayPush('weather', (payload) => { void dl.applyWeatherAlerts(payload); });
-    subscribeRelayPush('spending', (payload) => { void dl.applySpending(payload); });
-    subscribeRelayPush('giving', (payload) => { void dl.applyGiving(payload); });
-    subscribeRelayPush('telegram', (payload) => { void dl.applyTelegramIntel(payload); });
+    subscribeRelayPush(`news:${variant}`, (p) => { void dl.applyNewsDigest(p); });
+    subscribeRelayPush('markets',        (p) => { void dl.applyMarkets(p); });
+    subscribeRelayPush('predictions',    (p) => { void dl.applyPredictions(p); });
+    subscribeRelayPush('fred',           (p) => { void dl.applyFredData(p); });
+    subscribeRelayPush('oil',            (p) => { void dl.applyOilData(p); });
+    subscribeRelayPush('bis',            (p) => { void dl.applyBisData(p); });
+    subscribeRelayPush('intelligence',   (p) => { void dl.applyIntelligence(p); });
+    subscribeRelayPush('pizzint',        (p) => { void dl.applyPizzInt(p); });
+    subscribeRelayPush('trade',          (p) => { void dl.applyTradePolicy(p); });
+    subscribeRelayPush('supply-chain',   (p) => { void dl.applySupplyChain(p); });
+    subscribeRelayPush('natural',        (p) => { void dl.applyNatural(p); });
+    subscribeRelayPush('cyber',          (p) => { void dl.applyCyberThreats(p); });
+    subscribeRelayPush('cables',         (p) => { void dl.applyCableHealth(p); });
+    subscribeRelayPush('flights',        (p) => { void dl.applyFlightDelays(p); });
+    subscribeRelayPush('ais',            (p) => { void dl.applyAisSignals(p); });
+    subscribeRelayPush('weather',        (p) => { void dl.applyWeatherAlerts(p); });
+    subscribeRelayPush('spending',       (p) => { void dl.applySpending(p); });
+    subscribeRelayPush('giving',         (p) => { void dl.applyGiving(p); });
+    subscribeRelayPush('telegram',       (p) => { void dl.applyTelegramIntel(p); });
 
-    subscribeRelayPush('strategic-posture', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state.panels['strategic-posture'] as any)?.applyPush?.(payload);
-    });
-    subscribeRelayPush('strategic-risk', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state.panels['strategic-risk'] as any)?.applyPush?.(payload);
-    });
-    subscribeRelayPush('stablecoins', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state.panels['stablecoins'] as any)?.applyPush?.(payload);
-    });
-    subscribeRelayPush('etf-flows', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state.panels['etf-flows'] as any)?.applyPush?.(payload);
-    });
-    subscribeRelayPush('macro-signals', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state.panels['macro-signals'] as any)?.applyPush?.(payload);
-    });
-    subscribeRelayPush('service-status', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state.panels['service-status'] as any)?.applyPush?.(payload);
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const panel = (key: string) => (this.state.panels[key] as any)?.applyPush?.bind(this.state.panels[key]);
+    subscribeRelayPush('strategic-posture', (p) => panel('strategic-posture')?.(p));
+    subscribeRelayPush('strategic-risk',    (p) => panel('strategic-risk')?.(p));
+    subscribeRelayPush('stablecoins',       (p) => panel('stablecoins')?.(p));
+    subscribeRelayPush('etf-flows',         (p) => panel('etf-flows')?.(p));
+    subscribeRelayPush('macro-signals',     (p) => panel('macro-signals')?.(p));
+    subscribeRelayPush('service-status',    (p) => panel('service-status')?.(p));
   }
 }
