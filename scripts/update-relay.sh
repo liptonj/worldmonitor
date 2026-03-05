@@ -271,11 +271,26 @@ git pull --ff-only || die "git pull failed — resolve conflicts manually and re
 log "Installing/updating dependencies..."
 npm install --omit=dev || warn "npm install failed — relay may be missing node-cron"
 
+# ── 2b. Sync systemd service file if present ─────────────────────────────────
+UNIT_SRC="${SCRIPT_DIR}/worldmonitor-relay.service"
+UNIT_DEST="/etc/systemd/system/${RELAY_SERVICE_NAME}.service"
+
+if [[ -f "${UNIT_SRC}" ]]; then
+  if ! cmp -s "${UNIT_SRC}" "${UNIT_DEST}" 2>/dev/null; then
+    log "Updating systemd unit file..."
+    sudo cp "${UNIT_SRC}" "${UNIT_DEST}"
+    sudo systemctl daemon-reload
+    log "systemd unit file synced and daemon reloaded."
+  else
+    log "systemd unit file unchanged — skipping."
+  fi
+fi
+
 # ── 3. Detect process manager and restart ────────────────────────────────────
 restart_pm2() {
   log "Restarting via pm2 (process: ${RELAY_PROCESS_NAME})..."
   if pm2 describe "${RELAY_PROCESS_NAME}" > /dev/null 2>&1; then
-    if pm2 restart "${RELAY_PROCESS_NAME}" --update-env; then
+    if pm2 restart "${RELAY_PROCESS_NAME}" --update-env --kill-timeout 8000; then
       pm2 save
       log "pm2 restart done."
       return
@@ -287,7 +302,8 @@ restart_pm2() {
       --name "${RELAY_PROCESS_NAME}" \
       --interpreter node \
       --restart-delay 3000 \
-      --max-restarts 10
+      --max-restarts 10 \
+      --kill-timeout 8000
     pm2 save
     log "pm2 process re-created."
   else
@@ -296,7 +312,8 @@ restart_pm2() {
       --name "${RELAY_PROCESS_NAME}" \
       --interpreter node \
       --restart-delay 3000 \
-      --max-restarts 10
+      --max-restarts 10 \
+      --kill-timeout 8000
     pm2 save
     log "pm2 process started."
   fi
@@ -304,8 +321,39 @@ restart_pm2() {
 
 restart_systemd() {
   log "Restarting via systemd (service: ${RELAY_SERVICE_NAME})..."
+
+  local relay_port
+  relay_port="$(env_get PORT)"
+  relay_port="${relay_port:-3004}"
+
+  local stale_pid
+  stale_pid="$(sudo lsof -ti ":${relay_port}" 2>/dev/null || true)"
+  local service_pid
+  service_pid="$(systemctl show -p MainPID --value "${RELAY_SERVICE_NAME}" 2>/dev/null || echo "")"
+
+  if [[ -n "${stale_pid}" && "${stale_pid}" != "${service_pid}" ]]; then
+    warn "Port ${relay_port} held by PID ${stale_pid} (not the systemd service) — killing it."
+    sudo kill "${stale_pid}" 2>/dev/null || true
+    sleep 2
+    if sudo lsof -ti ":${relay_port}" > /dev/null 2>&1; then
+      warn "PID ${stale_pid} did not exit — sending SIGKILL."
+      sudo kill -9 "${stale_pid}" 2>/dev/null || true
+      sleep 1
+    fi
+  fi
+
   sudo systemctl restart "${RELAY_SERVICE_NAME}"
-  sudo systemctl status "${RELAY_SERVICE_NAME}" --no-pager -l || true
+  sleep 2
+
+  if systemctl is-active --quiet "${RELAY_SERVICE_NAME}"; then
+    log "Service is active."
+    sudo systemctl status "${RELAY_SERVICE_NAME}" --no-pager -l || true
+  else
+    warn "Service did not start — check logs with: journalctl -u ${RELAY_SERVICE_NAME} -n 40 --no-pager"
+    sudo systemctl status "${RELAY_SERVICE_NAME}" --no-pager -l || true
+    return 1
+  fi
+
   log "systemd restart done."
 }
 
@@ -316,18 +364,30 @@ restart_none() {
 
 MANAGER="${RELAY_MANAGER:-}"
 if [[ -z "${MANAGER}" ]]; then
-  if command -v pm2 > /dev/null 2>&1; then
-    MANAGER="pm2"
-  elif command -v systemctl > /dev/null 2>&1 && systemctl list-units --type=service 2>/dev/null | awk -v svc="${RELAY_SERVICE_NAME}" '$0 ~ svc {found=1} END{exit !found}'; then
+  if command -v systemctl > /dev/null 2>&1 && systemctl list-units --type=service 2>/dev/null | awk -v svc="${RELAY_SERVICE_NAME}" '$0 ~ svc {found=1} END{exit !found}'; then
     MANAGER="systemd"
+  elif command -v pm2 > /dev/null 2>&1; then
+    MANAGER="pm2"
   else
     MANAGER="none"
   fi
 fi
 
+log "Process manager: ${MANAGER}"
+
 case "${MANAGER}" in
   pm2)     restart_pm2 ;;
-  systemd) restart_systemd ;;
+  systemd)
+    local svc_env_file
+    svc_env_file="$(systemctl show -p EnvironmentFile --value "${RELAY_SERVICE_NAME}" 2>/dev/null || echo "")"
+    if [[ -n "${svc_env_file}" ]]; then
+      log "systemd EnvironmentFile: ${svc_env_file}"
+    else
+      warn "systemd service has no EnvironmentFile — .env changes won't be picked up."
+      warn "Add 'EnvironmentFile=${ENV_FILE}' to the [Service] section of the unit file."
+    fi
+    restart_systemd
+    ;;
   none)    restart_none ;;
   *)       die "Unknown RELAY_MANAGER value: '${MANAGER}'. Use pm2, systemd, or none." ;;
 esac

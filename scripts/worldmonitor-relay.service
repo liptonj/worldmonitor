@@ -1,0 +1,14 @@
+[Unit]
+Description=WorldMonitor Relay
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/worldmonitor
+ExecStart=/usr/bin/node scripts/ais-relay.cjs
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/worldmonitor/.env
+
+[Install]
+WantedBy=multi-user.target

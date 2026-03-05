@@ -3888,6 +3888,17 @@ cron.schedule('*/5 * * * *', () => {
   if (lastSnapshot) broadcastToChannel('ais', lastSnapshot);
 });
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    const retryDelay = 3000;
+    console.warn(`[Relay] Port ${PORT} in use — retrying in ${retryDelay}ms`);
+    setTimeout(() => server.listen(PORT), retryDelay);
+  } else {
+    console.error('[Relay] Server error:', err);
+    process.exit(1);
+  }
+});
+
 server.listen(PORT, () => {
   console.log(`[Relay] WebSocket relay on port ${PORT}`);
   startTelegramPollLoop();
@@ -4003,7 +4014,12 @@ async function gracefulShutdown(signal) {
   if (upstreamSocket) {
     try { upstreamSocket.close(); } catch {}
   }
+  for (const ws of clients) {
+    try { ws.terminate(); } catch {}
+  }
+  clients.clear();
   server.close(() => process.exit(0));
+  server.closeAllConnections();
   setTimeout(() => process.exit(0), 5000);
 }
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
