@@ -556,27 +556,65 @@ export class EventHandlerManager implements AppModule {
       this.summarizeViewModal!.setLoading();
 
       try {
+        console.debug('[SummarizeView] request_started snapshotLength=%d', snapshotText.length);
+
         const resp = await fetch('/api/intelligence/v1/summarize-view', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ panelSnapshots: snapshotText }),
         });
 
+        console.debug('[SummarizeView] response_received status=%d', resp.status);
+
         if (!resp.ok) {
-          this.summarizeViewModal!.setError(t('modals.summarizeView.error'));
+          console.error('[SummarizeView] non-OK HTTP status=%d', resp.status);
+          this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
           return;
         }
 
-        const data = (await resp.json()) as { summary?: string; model?: string; generatedAt?: string };
+        const data = (await resp.json()) as {
+          summary?: string;
+          model?: string;
+          generatedAt?: string;
+          errorCode?: string;
+          provider?: string;
+        };
+
+        if (data.errorCode === 'provider_missing') {
+          console.error('[SummarizeView] errorCode=provider_missing');
+          this.summarizeViewModal!.setError(t('modals.summarizeView.errorProviderMissing'));
+          return;
+        }
+
+        if (data.errorCode === 'prompt_missing') {
+          console.error('[SummarizeView] errorCode=prompt_missing');
+          this.summarizeViewModal!.setError(t('modals.summarizeView.errorPromptMissing'));
+          return;
+        }
+
+        if (data.errorCode === 'timeout') {
+          console.error('[SummarizeView] errorCode=timeout');
+          this.summarizeViewModal!.setError(t('modals.summarizeView.errorTimeout'));
+          return;
+        }
+
+        if (data.errorCode) {
+          console.error('[SummarizeView] errorCode=%s provider=%s model=%s', data.errorCode, data.provider ?? 'unknown', data.model ?? 'unknown');
+          this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
+          return;
+        }
+
         const summary = data.summary?.trim();
         if (!summary) {
-          this.summarizeViewModal!.setError(t('modals.summarizeView.error'));
+          console.warn('[SummarizeView] empty_summary errorCode=%s provider=%s model=%s', data.errorCode ?? 'none', data.provider ?? 'unknown', data.model ?? 'unknown');
+          this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
           return;
         }
 
         await this.summarizeViewModal!.setContent(summary, data.model, data.generatedAt);
-      } catch {
-        this.summarizeViewModal!.setError(t('modals.summarizeView.error'));
+      } catch (err) {
+        console.error('[SummarizeView] request_failed', err);
+        this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
       }
     });
   }

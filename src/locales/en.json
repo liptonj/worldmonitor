@@ -347,7 +347,11 @@
       "close": "Close",
       "analyzing": "Analyzing your dashboard...",
       "openPanelsFirst": "Open some panels first",
-      "error": "Could not generate summary. Please try again."
+      "error": "Could not generate summary. Please try again.",
+      "errorProviderMissing": "AI summarization is not configured. Please contact support.",
+      "errorPromptMissing": "AI summary template is missing. Please contact support.",
+      "errorTimeout": "AI summarization timed out. Please try again.",
+      "errorRetry": "Could not generate summary. Please try again."
     },
     "signal": {
       "title": "INTELLIGENCE FINDING",
