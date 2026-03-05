@@ -248,20 +248,24 @@ async function directFetchAndBroadcast(channel, redisKey, ttlSec, fetcher) {
 }
 
 async function auditStaleTTLs() {
-  let cursor = '0';
-  let fixed = 0;
-  do {
-    const [next, keys] = await redis.scan(cursor, 'COUNT', 100);
-    cursor = next;
-    for (const key of keys) {
-      const ttl = await redis.ttl(key);
-      if (ttl === -1) {
-        await redis.expire(key, MAX_TTL_SEC);
-        fixed++;
+  try {
+    let cursor = '0';
+    let fixed = 0;
+    do {
+      const [next, keys] = await redis.scan(cursor, 'COUNT', 100);
+      cursor = next;
+      for (const key of keys) {
+        const ttl = await redis.ttl(key);
+        if (ttl === -1) {
+          await redis.expire(key, MAX_TTL_SEC);
+          fixed++;
+        }
       }
-    }
-  } while (cursor !== '0');
-  if (fixed > 0) console.log(`[redis-audit] Set TTL on ${fixed} immortal keys`);
+    } while (cursor !== '0');
+    if (fixed > 0) console.log(`[redis-audit] Set TTL on ${fixed} immortal keys`);
+  } catch (err) {
+    console.warn('[redis-audit] skipped — Redis unavailable:', err?.message ?? err);
+  }
 }
 
 cron.schedule('0 * * * *', async () => {
@@ -3298,6 +3302,17 @@ const PHASE4_CHANNEL_KEYS = {
   'config:news-sources': 'relay:config:news-sources',
   'config:feature-flags': 'relay:config:feature-flags',
 };
+
+// Map relay channel keys to frontend hydration keys (bootstrap.ts, getHydratedData, etc.)
+const CHANNEL_TO_HYDRATION_KEY = {
+  'config:news-sources': 'newsSources',
+  'config:feature-flags': 'featureFlags',
+  'etf-flows': 'etfFlows',
+  'macro-signals': 'macroSignals',
+  'service-status': 'serviceStatuses',
+  'supply-chain': 'chokepoints',
+  'giving': 'giving',
+};
 const PHASE4_MAP_KEYS = {
   'supply-chain': 'supply_chain:chokepoints:v1',
   gdacs: 'relay:gdacs:v1',
@@ -3817,6 +3832,8 @@ const server = http.createServer(async (req, res) => {
   } else if (pathname === '/notam') {
     handleNotamProxyRequest(req, res);
   } else if (pathname === '/bootstrap') {
+    // Note: ?variant is accepted but ignored — bootstrap returns all channel caches
+    // regardless of variant. The frontend filters variant-specific data client-side.
     try {
       const entries = await Promise.all(
         Object.entries(PHASE4_CHANNEL_KEYS).map(async ([channel, key]) => {
@@ -3825,7 +3842,10 @@ const server = http.createServer(async (req, res) => {
         })
       );
       const result = Object.fromEntries(entries.filter(([, v]) => v !== null));
-      sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(result));
+      const remappedResult = Object.fromEntries(
+        Object.entries(result).map(([ch, v]) => [CHANNEL_TO_HYDRATION_KEY[ch] ?? ch, v])
+      );
+      sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(remappedResult));
     } catch (err) {
       console.error('[bootstrap] error:', err?.message ?? err);
       safeEnd(res, 500, { 'Content-Type': 'application/json' },
@@ -6584,6 +6604,7 @@ async function gracefulShutdown(signal) {
     try { ws.terminate(); } catch {}
   }
   clients.clear();
+  redis.quit().catch(() => {});
   server.close(() => process.exit(0));
   server.closeAllConnections();
   setTimeout(() => process.exit(0), 5000);

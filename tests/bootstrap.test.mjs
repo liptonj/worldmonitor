@@ -170,8 +170,8 @@ describe('Frontend hydration (src/services/bootstrap.ts)', () => {
     assert.ok(ms <= 5000, `Timeout ${ms}ms too high — should be ≤5000ms to avoid regressing startup`);
   });
 
-  it('fetches from /api/bootstrap', () => {
-    assert.ok(src.includes('/api/bootstrap'), 'Missing /api/bootstrap fetch URL');
+  it('fetches from relay /bootstrap (Phase 5)', () => {
+    assert.ok(src.includes('/bootstrap'), 'Missing /bootstrap fetch URL — Phase 5 uses relay, not /api/bootstrap');
   });
 
   it('handles fetch failure silently', () => {
