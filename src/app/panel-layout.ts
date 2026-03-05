@@ -79,6 +79,7 @@ export class PanelLayoutManager implements AppModule {
   private panelDragCleanupHandlers: Array<() => void> = [];
   private criticalBannerEl: HTMLElement | null = null;
   private bottomGridToggleCleanup: (() => void) | null = null;
+  private mobileNavCleanup: (() => void) | null = null;
   private readonly applyTimeRangeFilterDebounced: () => void;
 
   constructor(ctx: AppContext, callbacks: PanelLayoutCallbacks) {
@@ -113,6 +114,8 @@ export class PanelLayoutManager implements AppModule {
 
     this.bottomGridToggleCleanup?.();
     this.bottomGridToggleCleanup = null;
+    this.mobileNavCleanup?.();
+    this.mobileNavCleanup = null;
     window.removeEventListener('resize', this.ensureCorrectZones);
   }
 
@@ -268,7 +271,7 @@ export class PanelLayoutManager implements AppModule {
 
   private setupMobileNav(): void {
     const header = document.getElementById('mainHeader');
-    const hamburgerBtn = document.getElementById('hamburgerBtn');
+    const hamburgerBtn = document.getElementById('hamburgerBtn') as HTMLButtonElement | null;
     const backdrop = document.getElementById('mobileNavBackdrop');
     if (!header || !hamburgerBtn || !backdrop) return;
 
@@ -277,37 +280,44 @@ export class PanelLayoutManager implements AppModule {
       backdrop.classList.add('active');
       hamburgerBtn.setAttribute('aria-expanded', 'true');
     };
-
     const closeMenu = () => {
       header.classList.remove('mobile-nav-open');
       backdrop.classList.remove('active');
       hamburgerBtn.setAttribute('aria-expanded', 'false');
     };
 
-    hamburgerBtn.addEventListener('click', () => {
-      if (header.classList.contains('mobile-nav-open')) {
-        closeMenu();
-      } else {
-        openMenu();
-      }
-    });
+    const toggleHandler = () => {
+      if (header.classList.contains('mobile-nav-open')) closeMenu();
+      else openMenu();
+    };
+    const keydownHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && header.classList.contains('mobile-nav-open')) closeMenu();
+    };
 
+    hamburgerBtn.addEventListener('click', toggleHandler);
     backdrop.addEventListener('click', closeMenu);
+    document.addEventListener('keydown', keydownHandler);
 
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && header.classList.contains('mobile-nav-open')) {
-        closeMenu();
-      }
-    });
-
+    const cleanupFns: Array<() => void> = [];
     const closeOnClick = (selector: string) => {
-      document.querySelector(selector)?.addEventListener('click', closeMenu);
+      const el = document.querySelector(selector);
+      if (el) {
+        el.addEventListener('click', closeMenu);
+        cleanupFns.push(() => el.removeEventListener('click', closeMenu));
+      }
     };
     closeOnClick('#searchBtn');
     closeOnClick('#headerThemeToggle');
     closeOnClick('#unifiedSettingsMount');
     closeOnClick('#fullscreenBtn');
     closeOnClick('#tvModeBtn');
+
+    this.mobileNavCleanup = () => {
+      hamburgerBtn.removeEventListener('click', toggleHandler);
+      backdrop.removeEventListener('click', closeMenu);
+      document.removeEventListener('keydown', keydownHandler);
+      cleanupFns.forEach((fn) => fn());
+    };
   }
 
   renderCriticalBanner(postures: TheaterPostureSummary[]): void {
