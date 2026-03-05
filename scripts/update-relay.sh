@@ -248,6 +248,13 @@ if [[ -z "$(env_get VITE_WS_RELAY_URL)" ]]; then
   warn "VITE_WS_RELAY_URL not set in local .env (ensure it is set in Vercel build env)."
 fi
 
+# REDIS_URL: local Redis for relay direct-fetch cache (Phase 0+).
+# Defaults to redis://localhost:6379 when not set.
+if [[ -z "$(env_get REDIS_URL)" ]]; then
+  warn "REDIS_URL not set — using default redis://localhost:6379."
+  env_set "REDIS_URL" "redis://localhost:6379"
+fi
+
 if [[ "${VALIDATION_ERRORS}" -gt 0 ]]; then
   die "Environment validation failed with ${VALIDATION_ERRORS} error(s)."
 fi
@@ -286,7 +293,31 @@ if [[ -f "${UNIT_SRC}" ]]; then
   fi
 fi
 
-# ── 3. Detect process manager and restart ────────────────────────────────────
+# ── 3. Configure local Redis (persistence, memory, eviction) ───────────────────
+configure_redis() {
+  log "Checking local Redis..."
+  if ! redis-cli ping 2>/dev/null | grep -q PONG; then
+    die "Redis is not running on localhost:6379 -- install/start Redis first."
+  fi
+
+  log "Setting Redis persistence (RDB + AOF)..."
+  redis-cli CONFIG SET save "900 1 300 10 60 10000"
+  redis-cli CONFIG SET appendonly yes
+  redis-cli CONFIG SET appendfsync everysec
+
+  log "Setting Redis memory cap and eviction policy..."
+  redis-cli CONFIG SET maxmemory 1gb
+  redis-cli CONFIG SET maxmemory-policy allkeys-lru
+
+  log "Persisting Redis config to disk..."
+  redis-cli CONFIG REWRITE
+
+  log "Redis persistence: $(redis-cli INFO persistence | grep -E 'aof_enabled|rdb_last_save')"
+  log "Redis maxmemory: $(redis-cli CONFIG GET maxmemory | tail -1)"
+  log "Redis configure done."
+}
+
+# ── 4. Detect process manager and restart ──────────────────────────────────────
 restart_pm2() {
   log "Restarting via pm2 (process: ${RELAY_PROCESS_NAME})..."
   if pm2 describe "${RELAY_PROCESS_NAME}" > /dev/null 2>&1; then
@@ -374,6 +405,8 @@ if [[ -z "${MANAGER}" ]]; then
 fi
 
 log "Process manager: ${MANAGER}"
+
+configure_redis
 
 case "${MANAGER}" in
   pm2)     restart_pm2 ;;
