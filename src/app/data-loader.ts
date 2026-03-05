@@ -76,7 +76,7 @@ import { canQueueAiClassification, AI_CLASSIFY_MAX_PER_FEED } from '@/services/a
 import { classifyWithAI } from '@/services/threat-classifier';
 import { ingestHeadlines } from '@/services/trending-keywords';
 import type { ListFeedDigestResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
-import type { GetSectorSummaryResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
+import type { GetSectorSummaryResponse, GetMarketDashboardResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { fetchNewsDigest } from '@/services/news-digest';
 import { fetchTechEvents } from '@/services/research';
 import {
@@ -744,66 +744,15 @@ export class DataLoaderManager implements AppModule {
 
     try {
       const dashboard = await fetchMarketDashboard();
+      this.renderMarketDashboard(dashboard);
 
-      // Stocks panel
-      const stockData = dashboard.stocks.map((q) => ({
-        symbol: q.symbol,
-        name: q.name,
-        display: q.display || q.symbol,
-        price: q.price != null ? q.price : null,
-        change: q.change ?? null,
-        sparkline: q.sparkline.length > 0 ? q.sparkline : undefined,
-      }));
-      this.ctx.latestMarkets = stockData;
-      (this.ctx.panels['markets'] as MarketPanel).renderMarkets(
-        stockData,
-        dashboard.rateLimited,
-      );
-
-      if (dashboard.finnhubSkipped) {
-        this.ctx.statusPanel?.updateApi('Finnhub', { status: 'error' });
-      } else {
-        this.ctx.statusPanel?.updateApi('Finnhub', { status: stockData.length > 0 ? 'ok' : 'error' });
-      }
-
-      // Sector heatmap
+      // Prefer hydrated sectors from bootstrap when available (startup optimization)
       const hydratedSectors = getHydratedData('sectors') as GetSectorSummaryResponse | undefined;
       if (hydratedSectors?.sectors?.length) {
         (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(
           hydratedSectors.sectors.map((s) => ({ name: s.name, change: s.change })),
         );
-      } else if (dashboard.sectors.length > 0) {
-        (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(
-          dashboard.sectors.map((s) => ({ name: s.name, change: s.change })),
-        );
       }
-
-      // Commodities panel — overwrite hydrated data with fresh dashboard data
-      const commodityData = dashboard.commodities.map((q) => ({
-        display: q.display || q.symbol,
-        price: q.price != null ? q.price : null,
-        change: q.change ?? null,
-        sparkline: (q.sparkline?.length ?? 0) > 0 ? (q.sparkline ?? []) : undefined,
-      }));
-      if (commodityData.length > 0 && commodityData.some((d) => d.price !== null)) {
-        this.lastCommodityData = commodityData;
-        commoditiesPanel.renderCommodities(commodityData);
-      } else if (this.lastCommodityData.length > 0) {
-        commoditiesPanel.renderCommodities(this.lastCommodityData, true);
-      } else {
-        commoditiesPanel.renderCommodities([]);
-      }
-
-      // Crypto panel — from same dashboard response
-      const cryptoData = dashboard.crypto.map((q) => ({
-        name: q.name,
-        symbol: q.symbol,
-        price: q.price,
-        change: q.change,
-        sparkline: q.sparkline.length > 0 ? q.sparkline : undefined,
-      }));
-      (this.ctx.panels['crypto'] as CryptoPanel).renderCrypto(cryptoData);
-      this.ctx.statusPanel?.updateApi('CoinGecko', { status: cryptoData.length > 0 ? 'ok' : 'error' });
     } catch {
       this.ctx.statusPanel?.updateApi('Finnhub', { status: 'error' });
       this.ctx.statusPanel?.updateApi('CoinGecko', { status: 'error' });
@@ -2214,13 +2163,80 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  /**
+   * Render market dashboard to UI panels. Shared by loadMarkets (after fetch)
+   * and applyMarkets (when relay pushes payload). Does not fetch — data is already loaded.
+   */
+  private renderMarketDashboard(dashboard: GetMarketDashboardResponse): void {
+    const commoditiesPanel = this.ctx.panels['commodities'] as CommoditiesPanel;
+
+    // Stocks panel
+    const stockData = dashboard.stocks.map((q) => ({
+      symbol: q.symbol,
+      name: q.name,
+      display: q.display || q.symbol,
+      price: q.price != null ? q.price : null,
+      change: q.change ?? null,
+      sparkline: q.sparkline.length > 0 ? q.sparkline : undefined,
+    }));
+    this.ctx.latestMarkets = stockData;
+    (this.ctx.panels['markets'] as MarketPanel).renderMarkets(
+      stockData,
+      dashboard.rateLimited,
+    );
+
+    if (dashboard.finnhubSkipped) {
+      this.ctx.statusPanel?.updateApi('Finnhub', { status: 'error' });
+    } else {
+      this.ctx.statusPanel?.updateApi('Finnhub', { status: stockData.length > 0 ? 'ok' : 'error' });
+    }
+
+    // Sector heatmap
+    if (dashboard.sectors.length > 0) {
+      (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(
+        dashboard.sectors.map((s) => ({ name: s.name, change: s.change })),
+      );
+    }
+
+    // Commodities panel
+    const commodityData = dashboard.commodities.map((q) => ({
+      display: q.display || q.symbol,
+      price: q.price != null ? q.price : null,
+      change: q.change ?? null,
+      sparkline: (q.sparkline?.length ?? 0) > 0 ? (q.sparkline ?? []) : undefined,
+    }));
+    if (commodityData.length > 0 && commodityData.some((d) => d.price !== null)) {
+      this.lastCommodityData = commodityData;
+      commoditiesPanel.renderCommodities(commodityData);
+    } else if (this.lastCommodityData.length > 0) {
+      commoditiesPanel.renderCommodities(this.lastCommodityData, true);
+    } else {
+      commoditiesPanel.renderCommodities([]);
+    }
+
+    // Crypto panel
+    const cryptoData = dashboard.crypto.map((q) => ({
+      name: q.name,
+      symbol: q.symbol,
+      price: q.price,
+      change: q.change,
+      sparkline: q.sparkline.length > 0 ? q.sparkline : undefined,
+    }));
+    (this.ctx.panels['crypto'] as CryptoPanel).renderCrypto(cryptoData);
+    this.ctx.statusPanel?.updateApi('CoinGecko', { status: cryptoData.length > 0 ? 'ok' : 'error' });
+  }
+
   // ── apply* methods: receive relay-push payloads (stubs for now) ──
   applyNewsDigest(payload: unknown): void {
     const data = payload as ListFeedDigestResponse;
     if (!data?.categories || typeof data.categories !== 'object') return;
     this.processDigestData(data);
   }
-  applyMarkets(_payload: unknown): void {}
+  applyMarkets(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const dashboard = payload as GetMarketDashboardResponse;
+    this.renderMarketDashboard(dashboard);
+  }
   applyPredictions(_payload: unknown): void {}
   applyFredData(_payload: unknown): void {}
   applyOilData(_payload: unknown): void {}

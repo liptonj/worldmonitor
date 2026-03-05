@@ -17,4 +17,12 @@ describe('apply* stubs are implemented', () => {
     const hasDirectImpl = src.match(/applyNewsDigest[\s\S]{0,500}setNews|setData|newsByCategory/);
     assert.ok(hasHelper || hasDirectImpl, 'applyNewsDigest must call rendering code');
   });
+
+  it('applyMarkets is not empty', () => {
+    const src = readFileSync('src/app/data-loader.ts', 'utf-8');
+    assert.ok(
+      src.includes('renderMarketDashboard') || src.match(/applyMarkets\([^)]*\)\s*\{[\s\S]{20,}/),
+      'applyMarkets must not be empty'
+    );
+  });
 });
