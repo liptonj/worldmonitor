@@ -4404,6 +4404,1029 @@ async function fetchTechEvents() {
   return { success: true, count: events.length, conferenceCount: conferences.length, mappableCount, lastUpdated: new Date().toISOString(), events, error: '' };
 }
 
+// --- Phase 3B: Medium Channels ---
+const FRED_API_BASE = 'https://api.stlouisfed.org/fred';
+const FRED_DASHBOARD_SERIES = [
+  { id: 'WALCL', limit: 120 },
+  { id: 'FEDFUNDS', limit: 120 },
+  { id: 'T10Y2Y', limit: 120 },
+  { id: 'UNRATE', limit: 120 },
+  { id: 'CPIAUCSL', limit: 120 },
+  { id: 'DGS10', limit: 120 },
+  { id: 'VIXCLS', limit: 120 },
+];
+
+async function fetchFredSeries(seriesId, limit, apiKey) {
+  const obsParams = new URLSearchParams({
+    series_id: seriesId,
+    api_key: apiKey,
+    file_type: 'json',
+    sort_order: 'desc',
+    limit: String(limit),
+  });
+  const metaParams = new URLSearchParams({
+    series_id: seriesId,
+    api_key: apiKey,
+    file_type: 'json',
+  });
+  const [obsRes, metaRes] = await Promise.all([
+    fetch(`${FRED_API_BASE}/series/observations?${obsParams}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    }),
+    fetch(`${FRED_API_BASE}/series?${metaParams}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    }),
+  ]);
+  if (!obsRes.ok) return null;
+  const obsData = await obsRes.json();
+  const observations = (obsData.observations || [])
+    .map((obs) => {
+      const value = parseFloat(obs.value);
+      if (isNaN(value) || obs.value === '.') return null;
+      return { date: obs.date, value };
+    })
+    .filter((o) => o !== null)
+    .reverse();
+  let title = seriesId;
+  let units = '';
+  let frequency = '';
+  if (metaRes.ok) {
+    const metaData = await metaRes.json();
+    const meta = metaData.seriess?.[0];
+    if (meta) {
+      title = meta.title || seriesId;
+      units = meta.units || '';
+      frequency = meta.frequency || '';
+    }
+  }
+  return { seriesId, title, units, frequency, observations };
+}
+
+async function fetchFred() {
+  const apiKey = process.env.FRED_API_KEY;
+  if (!apiKey) {
+    console.warn('[relay] FRED_API_KEY not set — fred channel disabled');
+    return null;
+  }
+  const results = await Promise.allSettled(
+    FRED_DASHBOARD_SERIES.map(({ id, limit }) => fetchFredSeries(id, limit, apiKey))
+  );
+  const series = results
+    .map((r) => (r.status === 'fulfilled' ? r.value : null))
+    .filter((s) => s !== null);
+  return series.length > 0 ? { series } : null;
+}
+
+const EIA_SERIES = [
+  { commodity: 'wti', name: 'WTI Crude Oil', unit: '$/barrel', apiPath: '/v2/petroleum/pri/spt/data/', seriesFacet: 'RWTC' },
+  { commodity: 'brent', name: 'Brent Crude Oil', unit: '$/barrel', apiPath: '/v2/petroleum/pri/spt/data/', seriesFacet: 'RBRTE' },
+];
+
+async function fetchEiaSeries(config, apiKey) {
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    'data[]': 'value',
+    frequency: 'weekly',
+    'facets[series][]': config.seriesFacet,
+    'sort[0][column]': 'period',
+    'sort[0][direction]': 'desc',
+    length: '2',
+  });
+  const resp = await fetch(`https://api.eia.gov${config.apiPath}?${params}`, {
+    headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  const rows = data.response?.data;
+  if (!rows || rows.length === 0) return null;
+  const current = rows[0];
+  const previous = rows[1];
+  const price = current.value ?? 0;
+  const prevPrice = previous?.value ?? price;
+  const change = prevPrice !== 0 ? ((price - prevPrice) / prevPrice) * 100 : 0;
+  const priceAt = current.period ? new Date(current.period).getTime() : Date.now();
+  return {
+    commodity: config.commodity,
+    name: config.name,
+    price,
+    unit: config.unit,
+    change: Math.round(change * 10) / 10,
+    priceAt: Number.isFinite(priceAt) ? priceAt : Date.now(),
+  };
+}
+
+async function fetchOil() {
+  const apiKey = process.env.EIA_API_KEY;
+  if (!apiKey) {
+    console.warn('[relay] EIA_API_KEY not set — oil channel disabled');
+    return null;
+  }
+  const results = await Promise.all(EIA_SERIES.map((s) => fetchEiaSeries(s, apiKey)));
+  const prices = results.filter((p) => p !== null);
+  return prices.length > 0 ? { prices } : null;
+}
+
+const BIS_BASE = 'https://stats.bis.org/api/v1/data';
+const BIS_COUNTRIES = {
+  US: { name: 'United States', centralBank: 'Federal Reserve' },
+  GB: { name: 'United Kingdom', centralBank: 'Bank of England' },
+  JP: { name: 'Japan', centralBank: 'Bank of Japan' },
+  XM: { name: 'Euro Area', centralBank: 'ECB' },
+  CH: { name: 'Switzerland', centralBank: 'Swiss National Bank' },
+  SG: { name: 'Singapore', centralBank: 'MAS' },
+  IN: { name: 'India', centralBank: 'Reserve Bank of India' },
+  AU: { name: 'Australia', centralBank: 'RBA' },
+  CN: { name: 'China', centralBank: "People's Bank of China" },
+  CA: { name: 'Canada', centralBank: 'Bank of Canada' },
+  KR: { name: 'South Korea', centralBank: 'Bank of Korea' },
+  BR: { name: 'Brazil', centralBank: 'Banco Central do Brasil' },
+};
+const BIS_COUNTRY_KEYS = Object.keys(BIS_COUNTRIES).join('+');
+
+function parseBisCsv(csv) {
+  const lines = csv.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map((h) => h.trim());
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = lines[i].split(',').map((v) => v.trim());
+    if (vals.length < headers.length) continue;
+    const row = {};
+    headers.forEach((h, idx) => { row[h] = vals[idx]; });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function parseBisNumber(val) {
+  if (!val || val === '.' || val.trim() === '') return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function fetchBis() {
+  const threeMonthsAgo = new Date();
+  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+  const startPeriod = `${threeMonthsAgo.getFullYear()}-${String(threeMonthsAgo.getMonth() + 1).padStart(2, '0')}`;
+  const url = `${BIS_BASE}/WS_CBPOL/M.${BIS_COUNTRY_KEYS}?startPeriod=${startPeriod}&detail=dataonly&format=csv`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': CHROME_UA, Accept: 'text/csv' },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) throw new Error(`BIS HTTP ${res.status}`);
+  const csv = await res.text();
+  const rows = parseBisCsv(csv);
+  const byCountry = new Map();
+  for (const row of rows) {
+    const cc = row['REF_AREA'] || row['Reference area'] || '';
+    const date = row['TIME_PERIOD'] || row['Time period'] || '';
+    const val = parseBisNumber(row['OBS_VALUE'] || row['Observation value']);
+    if (!cc || !date || val === null) continue;
+    if (!byCountry.has(cc)) byCountry.set(cc, []);
+    byCountry.get(cc).push({ date, value: val });
+  }
+  const rates = [];
+  for (const [cc, obs] of byCountry) {
+    const info = BIS_COUNTRIES[cc];
+    if (!info) continue;
+    obs.sort((a, b) => a.date.localeCompare(b.date));
+    const latest = obs[obs.length - 1];
+    const previous = obs.length >= 2 ? obs[obs.length - 2] : undefined;
+    if (latest) {
+      rates.push({
+        countryCode: cc,
+        countryName: info.name,
+        rate: latest.value,
+        previousRate: previous?.value ?? latest.value,
+        date: latest.date,
+        centralBank: info.centralBank,
+      });
+    }
+  }
+  return rates.length > 0 ? { rates } : null;
+}
+
+// Flights: FAA + AviationStack + NOTAM (simplified — no NOTAM ICAO API in relay)
+const FAA_URL = 'https://nasstatus.faa.gov/api/airport-status-information';
+const FAA_AIRPORTS = ['JFK', 'LAX', 'ORD', 'ATL', 'DFW', 'DEN', 'SFO', 'SEA', 'MIA', 'BOS', 'EWR', 'IAH', 'PHX', 'LAS'];
+const MONITORED_AIRPORTS_PHASE3B = [
+  { iata: 'JFK', icao: 'KJFK', name: 'John F. Kennedy International', city: 'New York', country: 'USA', lat: 40.6413, lon: -73.7781, region: 'americas' },
+  { iata: 'LAX', icao: 'KLAX', name: 'Los Angeles International', city: 'Los Angeles', country: 'USA', lat: 33.9416, lon: -118.4085, region: 'americas' },
+  { iata: 'ORD', icao: 'KORD', name: "O'Hare International", city: 'Chicago', country: 'USA', lat: 41.9742, lon: -87.9073, region: 'americas' },
+  { iata: 'ATL', icao: 'KATL', name: 'Hartsfield-Jackson Atlanta', city: 'Atlanta', country: 'USA', lat: 33.6407, lon: -84.4277, region: 'americas' },
+  { iata: 'DFW', icao: 'KDFW', name: 'Dallas/Fort Worth International', city: 'Dallas', country: 'USA', lat: 32.8998, lon: -97.0403, region: 'americas' },
+  { iata: 'DEN', icao: 'KDEN', name: 'Denver International', city: 'Denver', country: 'USA', lat: 39.8561, lon: -104.6737, region: 'americas' },
+  { iata: 'SFO', icao: 'KSFO', name: 'San Francisco International', city: 'San Francisco', country: 'USA', lat: 37.6213, lon: -122.379, region: 'americas' },
+  { iata: 'SEA', icao: 'KSEA', name: 'Seattle-Tacoma International', city: 'Seattle', country: 'USA', lat: 47.4502, lon: -122.3088, region: 'americas' },
+  { iata: 'MIA', icao: 'KMIA', name: 'Miami International', city: 'Miami', country: 'USA', lat: 25.7959, lon: -80.287, region: 'americas' },
+  { iata: 'BOS', icao: 'KBOS', name: 'Boston Logan International', city: 'Boston', country: 'USA', lat: 42.3656, lon: -71.0096, region: 'americas' },
+  { iata: 'EWR', icao: 'KEWR', name: 'Newark Liberty International', city: 'Newark', country: 'USA', lat: 40.6895, lon: -74.1745, region: 'americas' },
+  { iata: 'IAH', icao: 'KIAH', name: 'George Bush Intercontinental', city: 'Houston', country: 'USA', lat: 29.9902, lon: -95.3368, region: 'americas' },
+  { iata: 'PHX', icao: 'KPHX', name: 'Phoenix Sky Harbor', city: 'Phoenix', country: 'USA', lat: 33.4373, lon: -112.0078, region: 'americas' },
+  { iata: 'LAS', icao: 'KLAS', name: 'Harry Reid International', city: 'Las Vegas', country: 'USA', lat: 36.084, lon: -115.1537, region: 'americas' },
+  { iata: 'LHR', icao: 'EGLL', name: 'London Heathrow', city: 'London', country: 'UK', lat: 51.47, lon: -0.4543, region: 'europe' },
+  { iata: 'CDG', icao: 'LFPG', name: 'Paris Charles de Gaulle', city: 'Paris', country: 'France', lat: 49.0097, lon: 2.5479, region: 'europe' },
+  { iata: 'FRA', icao: 'EDDF', name: 'Frankfurt Airport', city: 'Frankfurt', country: 'Germany', lat: 50.0379, lon: 8.5622, region: 'europe' },
+  { iata: 'DXB', icao: 'OMDB', name: 'Dubai International', city: 'Dubai', country: 'UAE', lat: 25.2532, lon: 55.3657, region: 'mena' },
+  { iata: 'HND', icao: 'RJTT', name: 'Tokyo Haneda', city: 'Tokyo', country: 'Japan', lat: 35.5494, lon: 139.7798, region: 'apac' },
+  { iata: 'SIN', icao: 'WSSS', name: 'Singapore Changi', city: 'Singapore', country: 'Singapore', lat: 1.3644, lon: 103.9915, region: 'apac' },
+];
+
+function toProtoRegion(r) {
+  const map = { americas: 'AIRPORT_REGION_AMERICAS', europe: 'AIRPORT_REGION_EUROPE', apac: 'AIRPORT_REGION_APAC', mena: 'AIRPORT_REGION_MENA', africa: 'AIRPORT_REGION_AFRICA' };
+  return map[r] || 'AIRPORT_REGION_UNSPECIFIED';
+}
+function toProtoDelayType(t) {
+  const map = { ground_stop: 'FLIGHT_DELAY_TYPE_GROUND_STOP', ground_delay: 'FLIGHT_DELAY_TYPE_GROUND_DELAY', departure_delay: 'FLIGHT_DELAY_TYPE_DEPARTURE_DELAY', arrival_delay: 'FLIGHT_DELAY_TYPE_ARRIVAL_DELAY', general: 'FLIGHT_DELAY_TYPE_GENERAL', closure: 'FLIGHT_DELAY_TYPE_CLOSURE' };
+  return map[t] || 'FLIGHT_DELAY_TYPE_GENERAL';
+}
+function toProtoSeverity(s) {
+  const map = { normal: 'FLIGHT_DELAY_SEVERITY_NORMAL', minor: 'FLIGHT_DELAY_SEVERITY_MINOR', moderate: 'FLIGHT_DELAY_SEVERITY_MODERATE', major: 'FLIGHT_DELAY_SEVERITY_MAJOR', severe: 'FLIGHT_DELAY_SEVERITY_SEVERE' };
+  return map[s] || 'FLIGHT_DELAY_SEVERITY_NORMAL';
+}
+function determineSeverity(avgDelay) {
+  if (avgDelay >= 60) return 'severe';
+  if (avgDelay >= 45) return 'major';
+  if (avgDelay >= 30) return 'moderate';
+  if (avgDelay >= 15) return 'minor';
+  return 'normal';
+}
+function parseFaaXml(xml) {
+  const delays = new Map();
+  let root;
+  try {
+    const m = xml.match(/<AIRPORT_STATUS_INFORMATION[^>]*>([\s\S]*?)<\/AIRPORT_STATUS_INFORMATION>/);
+    if (!m) return delays;
+    root = m[1];
+  } catch { return delays; }
+  const groundDelayRe = /<Ground_Delay>[\s\S]*?<ARPT>([A-Z]{3})<\/ARPT>[\s\S]*?<Reason>([^<]*)<\/Reason>[\s\S]*?<Avg>(\d*)<\/Avg>/g;
+  let gd;
+  while ((gd = groundDelayRe.exec(root)) !== null) {
+    delays.set(gd[1], { airport: gd[1], reason: gd[2] || 'Ground delay', avgDelay: parseInt(gd[3], 10) || 30, type: 'ground_delay' });
+  }
+  const groundStopRe = /<Ground_Stop>[\s\S]*?<ARPT>([A-Z]{3})<\/ARPT>[\s\S]*?<Reason>([^<]*)<\/Reason>/g;
+  let gs;
+  while ((gs = groundStopRe.exec(root)) !== null) {
+    delays.set(gs[1], { airport: gs[1], reason: gs[2] || 'Ground stop', avgDelay: 60, type: 'ground_stop' });
+  }
+  const delayRe = /<Delay>[\s\S]*?<ARPT>([A-Z]{3})<\/ARPT>[\s\S]*?<Reason>([^<]*)<\/Reason>[\s\S]*?<Arrival_Delay>[\s\S]*?<Min>(\d*)<\/Min>[\s\S]*?<Max>(\d*)<\/Max>/g;
+  let d;
+  while ((d = delayRe.exec(root)) !== null) {
+    const min = parseInt(d[3], 10) || 15;
+    const max = parseInt(d[4], 10) || 30;
+    if (!delays.has(d[1])) delays.set(d[1], { airport: d[1], reason: d[2] || 'Delays', avgDelay: Math.round((min + max) / 2), type: 'general' });
+  }
+  return delays;
+}
+
+async function fetchFlights() {
+  const faaAlerts = [];
+  try {
+    const faaResp = await fetch(FAA_URL, {
+      headers: { Accept: 'application/xml', 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(15000),
+    });
+    let faaDelays = new Map();
+    if (faaResp.ok) faaDelays = parseFaaXml(await faaResp.text());
+    for (const iata of FAA_AIRPORTS) {
+      const airport = MONITORED_AIRPORTS_PHASE3B.find((a) => a.iata === iata);
+      if (!airport) continue;
+      const d = faaDelays.get(iata);
+      if (d) {
+        faaAlerts.push({
+          id: `faa-${iata}`,
+          iata,
+          icao: airport.icao,
+          name: airport.name,
+          city: airport.city,
+          country: airport.country,
+          location: { latitude: airport.lat, longitude: airport.lon },
+          region: toProtoRegion(airport.region),
+          delayType: toProtoDelayType(d.type),
+          severity: toProtoSeverity(determineSeverity(d.avgDelay)),
+          avgDelayMinutes: d.avgDelay,
+          delayedFlightsPct: 0,
+          cancelledFlights: 0,
+          totalFlights: 0,
+          reason: d.reason,
+          source: 'FLIGHT_DELAY_SOURCE_FAA',
+          updatedAt: Date.now(),
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[relay] flights FAA fetch failed:', err?.message ?? err);
+  }
+  const apiKey = process.env.AVIATIONSTACK_API_KEY || process.env.AVIATIONSTACK_API;
+  let intlAlerts = [];
+  if (apiKey) {
+    try {
+      const nonUs = MONITORED_AIRPORTS_PHASE3B.filter((a) => a.country !== 'USA');
+      for (const airport of nonUs.slice(0, 10)) {
+        const url = `https://api.aviationstack.com/v1/flights?access_key=${apiKey}&dep_iata=${airport.iata}&limit=50`;
+        const resp = await fetch(url, { headers: { 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(5000) });
+        if (!resp.ok) continue;
+        const json = await resp.json();
+        if (json.error) continue;
+        const flights = json?.data ?? [];
+        let delayed = 0, cancelled = 0, totalDelay = 0;
+        for (const f of flights) {
+          if (f.flight_status === 'cancelled') cancelled++;
+          if (f.departure?.delay && f.departure.delay > 0) { delayed++; totalDelay += f.departure.delay; }
+        }
+        const total = flights.length;
+        if (total < 5) continue;
+        const cancelledPct = (cancelled / total) * 100;
+        const avgDelay = delayed > 0 ? Math.round(totalDelay / delayed) : 0;
+        let severity = 'normal', reason = 'Normal operations';
+        if (cancelledPct >= 50 && total >= 10) { severity = 'major'; reason = `${Math.round(cancelledPct)}% flights cancelled`; }
+        else if (cancelledPct >= 20 && total >= 10) { severity = 'moderate'; reason = `${Math.round(cancelledPct)}% flights cancelled`; }
+        else if (avgDelay > 0) { severity = determineSeverity(avgDelay); reason = `Avg ${avgDelay}min delay`; }
+        if (severity === 'normal') continue;
+        intlAlerts.push({
+          id: `avstack-${airport.iata}`,
+          iata: airport.iata,
+          icao: airport.icao,
+          name: airport.name,
+          city: airport.city,
+          country: airport.country,
+          location: { latitude: airport.lat, longitude: airport.lon },
+          region: toProtoRegion(airport.region),
+          delayType: toProtoDelayType(avgDelay >= 60 ? 'ground_delay' : 'general'),
+          severity: toProtoSeverity(severity),
+          avgDelayMinutes: avgDelay,
+          delayedFlightsPct: Math.round((delayed / total) * 100),
+          cancelledFlights: cancelled,
+          totalFlights: total,
+          reason,
+          source: 'FLIGHT_DELAY_SOURCE_COMPUTED',
+          updatedAt: Date.now(),
+        });
+      }
+    } catch (err) {
+      console.warn('[relay] flights intl fetch failed:', err?.message ?? err);
+    }
+  }
+  const allAlerts = [...faaAlerts, ...intlAlerts];
+  const alertedIatas = new Set(allAlerts.map((a) => a.iata));
+  for (const airport of MONITORED_AIRPORTS_PHASE3B) {
+    if (!alertedIatas.has(airport.iata)) {
+      allAlerts.push({
+        id: `status-${airport.iata}`,
+        iata: airport.iata,
+        icao: airport.icao,
+        name: airport.name,
+        city: airport.city,
+        country: airport.country,
+        location: { latitude: airport.lat, longitude: airport.lon },
+        region: toProtoRegion(airport.region),
+        delayType: 'FLIGHT_DELAY_TYPE_GENERAL',
+        severity: 'FLIGHT_DELAY_SEVERITY_NORMAL',
+        avgDelayMinutes: 0,
+        delayedFlightsPct: 0,
+        cancelledFlights: 0,
+        totalFlights: 0,
+        reason: 'Normal operations',
+        source: 'FLIGHT_DELAY_SOURCE_COMPUTED',
+        updatedAt: Date.now(),
+      });
+    }
+  }
+  return { alerts: allAlerts };
+}
+
+// Aviation pre-cache: FAA, intl, NOTAM (for list-airport-delays cache)
+const AVIATION_CACHE_TTL = 14400;
+async function runAviationPreCache() {
+  const faaAlerts = [];
+  try {
+    const faaResp = await fetch(FAA_URL, {
+      headers: { Accept: 'application/xml', 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(15000),
+    });
+    let faaDelays = new Map();
+    if (faaResp.ok) faaDelays = parseFaaXml(await faaResp.text());
+    for (const iata of FAA_AIRPORTS) {
+      const airport = MONITORED_AIRPORTS_PHASE3B.find((a) => a.iata === iata);
+      if (!airport) continue;
+      const d = faaDelays.get(iata);
+      if (d) {
+        faaAlerts.push({
+          id: `faa-${iata}`,
+          iata,
+          icao: airport.icao,
+          name: airport.name,
+          city: airport.city,
+          country: airport.country,
+          location: { latitude: airport.lat, longitude: airport.lon },
+          region: toProtoRegion(airport.region),
+          delayType: toProtoDelayType(d.type),
+          severity: toProtoSeverity(determineSeverity(d.avgDelay)),
+          avgDelayMinutes: d.avgDelay,
+          delayedFlightsPct: 0,
+          cancelledFlights: 0,
+          totalFlights: 0,
+          reason: d.reason,
+          source: 'FLIGHT_DELAY_SOURCE_FAA',
+          updatedAt: Date.now(),
+        });
+      }
+    }
+    await redisSetex('aviation:delays:faa:v1', AVIATION_CACHE_TTL, { alerts: faaAlerts });
+    console.log(`[relay] aviation pre-cache FAA: ${faaAlerts.length} alerts`);
+  } catch (err) {
+    console.warn('[relay] aviation pre-cache FAA failed:', err?.message ?? err);
+  }
+  const apiKey = process.env.AVIATIONSTACK_API_KEY || process.env.AVIATIONSTACK_API;
+  if (apiKey) {
+    try {
+      const nonUs = MONITORED_AIRPORTS_PHASE3B.filter((a) => a.country !== 'USA');
+      const intlAlerts = [];
+      for (const airport of nonUs.slice(0, 15)) {
+        const url = `https://api.aviationstack.com/v1/flights?access_key=${apiKey}&dep_iata=${airport.iata}&limit=50`;
+        const resp = await fetch(url, { headers: { 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(5000) });
+        if (!resp.ok) continue;
+        const json = await resp.json();
+        if (json.error) continue;
+        const flights = json?.data ?? [];
+        let delayed = 0, cancelled = 0, totalDelay = 0;
+        for (const f of flights) {
+          if (f.flight_status === 'cancelled') cancelled++;
+          if (f.departure?.delay && f.departure.delay > 0) { delayed++; totalDelay += f.departure.delay; }
+        }
+        const total = flights.length;
+        if (total < 5) continue;
+        const cancelledPct = (cancelled / total) * 100;
+        const avgDelay = delayed > 0 ? Math.round(totalDelay / delayed) : 0;
+        let severity = 'normal', reason = 'Normal operations';
+        if (cancelledPct >= 50 && total >= 10) { severity = 'major'; reason = `${Math.round(cancelledPct)}% flights cancelled`; }
+        else if (cancelledPct >= 20 && total >= 10) { severity = 'moderate'; reason = `${Math.round(cancelledPct)}% flights cancelled`; }
+        else if (avgDelay > 0) { severity = determineSeverity(avgDelay); reason = `Avg ${avgDelay}min delay`; }
+        if (severity === 'normal') continue;
+        intlAlerts.push({
+          id: `avstack-${airport.iata}`,
+          iata: airport.iata,
+          icao: airport.icao,
+          name: airport.name,
+          city: airport.city,
+          country: airport.country,
+          location: { latitude: airport.lat, longitude: airport.lon },
+          region: toProtoRegion(airport.region),
+          delayType: toProtoDelayType(avgDelay >= 60 ? 'ground_delay' : 'general'),
+          severity: toProtoSeverity(severity),
+          avgDelayMinutes: avgDelay,
+          delayedFlightsPct: Math.round((delayed / total) * 100),
+          cancelledFlights: cancelled,
+          totalFlights: total,
+          reason,
+          source: 'FLIGHT_DELAY_SOURCE_COMPUTED',
+          updatedAt: Date.now(),
+        });
+      }
+      await redisSetex('aviation:delays:intl:v3', AVIATION_CACHE_TTL, { alerts: intlAlerts });
+      console.log(`[relay] aviation pre-cache intl: ${intlAlerts.length} alerts`);
+    } catch (err) {
+      console.warn('[relay] aviation pre-cache intl failed:', err?.message ?? err);
+    }
+  }
+  await redisSetex('aviation:notam:closures:v1', AVIATION_CACHE_TTL, { closedIcaos: [], reasons: {} });
+}
+
+const FIRMS_SOURCE = 'VIIRS_SNPP_NRT';
+const MONITORED_REGIONS = {
+  'Ukraine': '22,44,40,53',
+  'Russia': '20,50,180,82',
+  'Iran': '44,25,63,40',
+  'Israel/Gaza': '34,29,36,34',
+  'Syria': '35,32,42,37',
+  'Taiwan': '119,21,123,26',
+  'North Korea': '124,37,131,43',
+  'Saudi Arabia': '34,16,56,32',
+  'Turkey': '26,36,45,42',
+};
+
+function mapFireConfidence(c) {
+  const v = (c || '').toLowerCase();
+  if (v === 'h') return 'FIRE_CONFIDENCE_HIGH';
+  if (v === 'n') return 'FIRE_CONFIDENCE_NOMINAL';
+  if (v === 'l') return 'FIRE_CONFIDENCE_LOW';
+  return 'FIRE_CONFIDENCE_UNSPECIFIED';
+}
+
+function parseFirmsCsv(csv) {
+  const lines = csv.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map((h) => h.trim());
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = lines[i].split(',').map((v) => v.trim());
+    if (vals.length < headers.length) continue;
+    const row = {};
+    headers.forEach((h, idx) => { row[h] = vals[idx]; });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function parseDetectedAt(acqDate, acqTime) {
+  const padded = String(acqTime || '').padStart(4, '0');
+  return new Date(`${acqDate || '1970-01-01'}T${padded.slice(0, 2)}:${padded.slice(2)}:00Z`).getTime();
+}
+
+async function fetchNatural() {
+  const apiKey = process.env.NASA_FIRMS_API_KEY || process.env.FIRMS_API_KEY;
+  if (!apiKey) {
+    console.warn('[relay] NASA_FIRMS_API_KEY not set — natural channel disabled');
+    return null;
+  }
+  const entries = Object.entries(MONITORED_REGIONS);
+  const results = await Promise.allSettled(
+    entries.map(async ([regionName, bbox]) => {
+      const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${apiKey}/${FIRMS_SOURCE}/${bbox}/1`;
+      const res = await fetch(url, {
+        headers: { Accept: 'text/csv', 'User-Agent': CHROME_UA },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) throw new Error(`FIRMS ${res.status}`);
+      const csv = await res.text();
+      const rows = parseFirmsCsv(csv);
+      return { regionName, rows };
+    })
+  );
+  const fireDetections = [];
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      const { regionName, rows } = r.value;
+      for (const row of rows) {
+        fireDetections.push({
+          id: `${row.latitude ?? ''}-${row.longitude ?? ''}-${row.acq_date ?? ''}-${row.acq_time ?? ''}`,
+          location: { latitude: parseFloat(row.latitude ?? '0') || 0, longitude: parseFloat(row.longitude ?? '0') || 0 },
+          brightness: parseFloat(row.bright_ti4 ?? '0') || 0,
+          frp: parseFloat(row.frp ?? '0') || 0,
+          confidence: mapFireConfidence(row.confidence),
+          satellite: row.satellite || '',
+          detectedAt: parseDetectedAt(row.acq_date, row.acq_time),
+          region: regionName,
+          dayNight: row.daynight || '',
+        });
+      }
+    }
+  }
+  return fireDetections.length > 0 ? { fireDetections, pagination: undefined } : null;
+}
+
+async function fetchWeather() {
+  const res = await fetch('https://api.weather.gov/alerts/active', {
+    headers: { 'User-Agent': 'WorldMonitor/1.0' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const features = data.features || [];
+  const alerts = features
+    .filter((a) => a.properties?.severity !== 'Unknown')
+    .slice(0, 50)
+    .map((a) => {
+      const p = a.properties || {};
+      let coords = [];
+      if (a.geometry?.type === 'Polygon' && a.geometry.coordinates?.[0]) {
+        coords = a.geometry.coordinates[0].map((c) => [c[0], c[1]]);
+      } else if (a.geometry?.type === 'MultiPolygon' && a.geometry.coordinates?.[0]?.[0]) {
+        coords = a.geometry.coordinates[0][0].map((c) => [c[0], c[1]]);
+      }
+      const centroid = coords.length > 0
+        ? [coords.reduce((s, c) => s + c[0], 0) / coords.length, coords.reduce((s, c) => s + c[1], 0) / coords.length]
+        : undefined;
+      return {
+        id: a.id,
+        event: p.event || '',
+        severity: p.severity || 'Unknown',
+        headline: p.headline || '',
+        description: (p.description || '').slice(0, 500),
+        areaDesc: p.areaDesc || '',
+        onset: p.onset ? new Date(p.onset).toISOString() : new Date().toISOString(),
+        expires: p.expires ? new Date(p.expires).toISOString() : new Date().toISOString(),
+        coordinates: coords,
+        centroid,
+      };
+    });
+  return alerts;
+}
+
+async function fetchEonet() {
+  const res = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=30', {
+    headers: { 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const events = [];
+  const now = Date.now();
+  const WILDFIRE_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+  for (const event of data.events || []) {
+    const category = event.categories?.[0];
+    if (!category || category.id === 'earthquakes') continue;
+    const latestGeo = event.geometry?.[event.geometry.length - 1];
+    if (!latestGeo || latestGeo.type !== 'Point') continue;
+    const eventDate = new Date(latestGeo.date).getTime();
+    if (category.id === 'wildfires' && now - eventDate > WILDFIRE_MAX_AGE_MS) continue;
+    const [lon, lat] = latestGeo.coordinates || [0, 0];
+    const source = event.sources?.[0];
+    events.push({
+      id: event.id,
+      title: event.title,
+      description: event.description || undefined,
+      category: category.id,
+      categoryTitle: category.title,
+      lat,
+      lon,
+      date: new Date(latestGeo.date),
+      magnitude: latestGeo.magnitudeValue,
+      magnitudeUnit: latestGeo.magnitudeUnit,
+      sourceUrl: source?.url,
+      sourceName: source?.id,
+      closed: event.closed !== null,
+    });
+  }
+  return events;
+}
+
+async function fetchGdacs() {
+  const res = await fetch('https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP', {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const features = data.features || [];
+  const seen = new Set();
+  const EVENT_TYPE_NAMES = { EQ: 'Earthquake', FL: 'Flood', TC: 'Tropical Cyclone', VO: 'Volcano', WF: 'Wildfire', DR: 'Drought' };
+  const events = features
+    .filter((f) => f.geometry?.type === 'Point')
+    .filter((f) => {
+      const key = `${f.properties?.eventtype}-${f.properties?.eventid}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return f.properties?.alertlevel !== 'Green';
+    })
+    .slice(0, 100)
+    .map((f) => ({
+      id: `gdacs-${f.properties.eventtype}-${f.properties.eventid}`,
+      eventType: f.properties.eventtype,
+      name: f.properties.name,
+      description: f.properties.description || EVENT_TYPE_NAMES[f.properties.eventtype] || f.properties.eventtype,
+      alertLevel: f.properties.alertlevel,
+      country: f.properties.country,
+      coordinates: f.geometry.coordinates,
+      fromDate: f.properties.fromdate,
+      severity: f.properties.severitydata?.severitytext || '',
+      url: f.properties.url?.report || '',
+    }));
+  return events;
+}
+
+async function fetchGpsInterference() {
+  const manifestResp = await fetch('https://gpsjam.org/data/manifest.csv', {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WorldMonitor/1.0)' },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!manifestResp.ok) throw new Error(`Manifest HTTP ${manifestResp.status}`);
+  const manifest = await manifestResp.text();
+  const lines = manifest.trim().split('\n');
+  const latestDate = lines[lines.length - 1]?.split(',')[0];
+  if (!latestDate) throw new Error('No manifest date');
+  const hexResp = await fetch(`https://gpsjam.org/data/${latestDate}-h3_4.csv`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WorldMonitor/1.0)' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!hexResp.ok) throw new Error(`Hex data HTTP ${hexResp.status}`);
+  const csv = await hexResp.text();
+  const rows = csv.trim().split('\n');
+  const hexes = [];
+  const MIN_AIRCRAFT = 3;
+  for (let i = 1; i < rows.length; i++) {
+    const parts = rows[i].split(',');
+    if (parts.length < 3) continue;
+    const hex = parts[0];
+    const good = parseInt(parts[1], 10);
+    const bad = parseInt(parts[2], 10);
+    const total = good + bad;
+    if (total < MIN_AIRCRAFT) continue;
+    const pct = (bad / total) * 100;
+    let level;
+    if (pct > 10) level = 'high';
+    else if (pct >= 2) level = 'medium';
+    else continue;
+    hexes.push({ h3: hex, pct: Math.round(pct * 10) / 10, good, bad, total, level });
+  }
+  hexes.sort((a, b) => {
+    if (a.level !== b.level) return a.level === 'high' ? -1 : 1;
+    return b.pct - a.pct;
+  });
+  return {
+    date: latestDate,
+    fetchedAt: new Date().toISOString(),
+    source: 'gpsjam.org',
+    stats: { totalHexes: rows.length - 1, highCount: hexes.filter((h) => h.level === 'high').length, mediumCount: hexes.filter((h) => h.level === 'medium').length },
+    hexes,
+  };
+}
+
+const CABLE_KEYWORDS = ['CABLE', 'CABLESHIP', 'CABLE SHIP', 'CABLE LAYING', 'CABLE OPERATIONS', 'SUBMARINE CABLE', 'UNDERSEA CABLE', 'FIBER OPTIC', 'TELECOMMUNICATIONS CABLE'];
+const FAULT_KEYWORDS = /FAULT|BREAK|CUT|DAMAGE|SEVERED|RUPTURE|OUTAGE|FAILURE/i;
+const CABLE_NAME_MAP = { 'MAREA': 'marea', 'GRACE HOPPER': 'grace_hopper', 'HAVFRUE': 'havfrue', 'FASTER': 'faster', 'SOUTHERN CROSS': 'southern_cross', 'CURIE': 'curie', 'SEA-ME-WE': 'seamewe6', 'SEAMEWE': 'seamewe6', 'SMW6': 'seamewe6', 'FLAG': 'flag', '2AFRICA': '2africa', 'WACS': 'wacs', 'EASSY': 'eassy', 'SAM-1': 'sam1', 'SAM1': 'sam1', 'ELLALINK': 'ellalink', 'APG': 'apg', 'INDIGO': 'indigo', 'SJC': 'sjc', 'FARICE': 'farice', 'FALCON': 'falcon' };
+const CABLE_LANDINGS = {
+  marea: [[36.85, -75.98], [43.26, -2.93]],
+  grace_hopper: [[40.57, -73.97], [50.83, -4.55], [43.26, -2.93]],
+  havfrue: [[40.22, -74.01], [58.15, 8.0], [55.56, 8.13]],
+  faster: [[43.37, -124.22], [34.95, 139.95], [34.32, 136.85]],
+  southern_cross: [[-33.87, 151.21], [-36.85, 174.76], [33.74, -118.27]],
+  curie: [[33.74, -118.27], [-33.05, -71.62]],
+  seamewe6: [[1.35, 103.82], [19.08, 72.88], [25.13, 56.34], [21.49, 39.19], [29.97, 32.55], [43.3, 5.37]],
+  flag: [[50.04, -5.66], [31.2, 29.92], [25.2, 55.27], [19.08, 72.88], [1.35, 103.82], [35.69, 139.69]],
+  '2africa': [[50.83, -4.55], [38.72, -9.14], [14.69, -17.44], [6.52, 3.38], [-33.93, 18.42], [-4.04, 39.67], [21.49, 39.19], [31.26, 32.3]],
+  wacs: [[-33.93, 18.42], [6.52, 3.38], [14.69, -17.44], [38.72, -9.14], [51.51, -0.13]],
+  eassy: [[-29.85, 31.02], [-25.97, 32.58], [-6.8, 39.28], [-4.04, 39.67], [11.59, 43.15]],
+  sam1: [[-22.91, -43.17], [-34.6, -58.38], [26.36, -80.08]],
+  ellalink: [[38.72, -9.14], [-3.72, -38.52]],
+  apg: [[35.69, 139.69], [25.15, 121.44], [22.29, 114.17], [1.35, 103.82]],
+  indigo: [[-31.95, 115.86], [1.35, 103.82], [-6.21, 106.85]],
+  sjc: [[35.69, 139.69], [36.07, 120.32], [1.35, 103.82], [22.29, 114.17]],
+  farice: [[64.13, -21.9], [62.01, -6.77], [55.95, -3.19]],
+  falcon: [[25.13, 56.34], [23.59, 58.38], [26.23, 50.59], [29.38, 47.98]],
+};
+
+function isCableRelated(text) {
+  return CABLE_KEYWORDS.some((kw) => (text || '').toUpperCase().includes(kw));
+}
+
+function parseCoordinates(text) {
+  const coords = [];
+  const dms = /(\d{1,3})-(\d{1,2}(?:\.\d+)?)\s*([NS])\s+(\d{1,3})-(\d{1,2}(?:\.\d+)?)\s*([EW])/gi;
+  let m;
+  while ((m = dms.exec(text)) !== null) {
+    let lat = parseInt(m[1], 10) + parseFloat(m[2]) / 60;
+    let lon = parseInt(m[4], 10) + parseFloat(m[5]) / 60;
+    if (m[3].toUpperCase() === 'S') lat = -lat;
+    if (m[6].toUpperCase() === 'W') lon = -lon;
+    if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) coords.push([lat, lon]);
+  }
+  return coords;
+}
+
+function matchCableByName(text) {
+  const upper = (text || '').toUpperCase();
+  for (const [name, id] of Object.entries(CABLE_NAME_MAP)) {
+    if (upper.includes(name)) return id;
+  }
+  return null;
+}
+
+function findNearestCable(lat, lon) {
+  let bestId = null;
+  let bestDist = Infinity;
+  const MAX_DIST_KM = 555;
+  const cosLat = Math.cos(lat * Math.PI / 180);
+  for (const [cableId, landings] of Object.entries(CABLE_LANDINGS)) {
+    for (const [lLat, lLon] of landings) {
+      const dLat = (lat - lLat) * 111;
+      const dLon = (lon - lLon) * 111 * cosLat;
+      const distKm = Math.sqrt(dLat ** 2 + dLon ** 2);
+      if (distKm < bestDist && distKm < MAX_DIST_KM) {
+        bestDist = distKm;
+        bestId = cableId;
+      }
+    }
+  }
+  return bestId ? { cableId: bestId, distanceKm: bestDist } : null;
+}
+
+const MONTH_MAP = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
+
+function parseIssueDate(dateStr) {
+  const m = (dateStr || '').match(/(\d{2})(\d{4})Z\s+([A-Z]{3})\s+(\d{4})/i);
+  if (!m) return 0;
+  const d = new Date(Date.UTC(parseInt(m[4], 10), MONTH_MAP[m[3].toUpperCase()] ?? 0, parseInt(m[1], 10), parseInt(m[2].slice(0, 2), 10), parseInt(m[2].slice(2, 4), 10)));
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function processNgaSignals(warnings) {
+  const signals = [];
+  const cableWarnings = (warnings || []).filter((w) => isCableRelated(w.text || ''));
+  for (const warning of cableWarnings) {
+    const text = warning.text || '';
+    const ts = parseIssueDate(warning.issueDate);
+    const coords = parseCoordinates(text);
+    let cableId = matchCableByName(text);
+    let joinMethod = 'name';
+    let distanceKm = 0;
+    if (!cableId && coords.length > 0) {
+      const centLat = coords.reduce((s, c) => s + c[0], 0) / coords.length;
+      const centLon = coords.reduce((s, c) => s + c[1], 0) / coords.length;
+      const nearest = findNearestCable(centLat, centLon);
+      if (nearest) { cableId = nearest.cableId; joinMethod = 'geometry'; distanceKm = Math.round(nearest.distanceKm); }
+    }
+    if (!cableId) continue;
+    const isFault = FAULT_KEYWORDS.test(text);
+    const summaryText = text.slice(0, 150) + (text.length > 150 ? '...' : '');
+    if (isFault) {
+      signals.push({ cableId, ts, severity: 1.0, confidence: joinMethod === 'name' ? 0.9 : Math.max(0.4, 0.8 - distanceKm / 500), ttlSeconds: 5 * 86400, kind: 'operator_fault', evidence: [{ source: 'NGA', summary: `Fault/damage: ${summaryText}`, ts }] });
+    } else {
+      signals.push({ cableId, ts, severity: 0.6, confidence: joinMethod === 'name' ? 0.8 : Math.max(0.3, 0.7 - distanceKm / 500), ttlSeconds: 3 * 86400, kind: 'cable_advisory', evidence: [{ source: 'NGA', summary: `Advisory: ${summaryText}`, ts }] });
+    }
+  }
+  return signals;
+}
+
+function computeHealthMap(signals) {
+  const now = Date.now();
+  const byCable = {};
+  for (const sig of signals) {
+    if (!byCable[sig.cableId]) byCable[sig.cableId] = [];
+    byCable[sig.cableId].push(sig);
+  }
+  const healthMap = {};
+  for (const [cableId, cableSignals] of Object.entries(byCable)) {
+    const effectiveSignals = [];
+    for (const sig of cableSignals) {
+      const ageMs = now - sig.ts;
+      const recencyWeight = Math.max(0, Math.min(1, 1 - (ageMs / 1000) / sig.ttlSeconds));
+      if (recencyWeight <= 0) continue;
+      const effective = sig.severity * sig.confidence * recencyWeight;
+      effectiveSignals.push({ ...sig, effective, recencyWeight });
+    }
+    if (effectiveSignals.length === 0) continue;
+    effectiveSignals.sort((a, b) => b.effective - a.effective);
+    const top = effectiveSignals[0];
+    const hasOperatorFault = effectiveSignals.some((s) => s.kind === 'operator_fault' && s.effective >= 0.5);
+    const hasRepairActivity = effectiveSignals.some((s) => s.kind === 'repair_activity' && s.effective >= 0.4);
+    let status;
+    if (top.effective >= 0.8 && hasOperatorFault) status = 'CABLE_HEALTH_STATUS_FAULT';
+    else if (top.effective >= 0.8 && hasRepairActivity) status = 'CABLE_HEALTH_STATUS_DEGRADED';
+    else if (top.effective >= 0.5) status = 'CABLE_HEALTH_STATUS_DEGRADED';
+    else status = 'CABLE_HEALTH_STATUS_OK';
+    healthMap[cableId] = {
+      status,
+      score: Math.round(top.effective * 100) / 100,
+      confidence: Math.round(top.confidence * top.recencyWeight * 100) / 100,
+      lastUpdated: top.ts,
+      evidence: effectiveSignals.slice(0, 3).flatMap((s) => s.evidence).slice(0, 3),
+    };
+  }
+  return healthMap;
+}
+
+async function fetchCables() {
+  const res = await fetch('https://msi.nga.mil/api/publications/broadcast-warn?output=json&status=A', {
+    headers: { 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) return { generatedAt: Date.now(), cables: {} };
+  const data = await res.json();
+  const warnings = Array.isArray(data) ? data : data?.warnings ?? [];
+  const signals = processNgaSignals(warnings);
+  const cables = computeHealthMap(signals);
+  return { generatedAt: Date.now(), cables };
+}
+
+// Cyber: simplified — Feodo + URLhaus only (no GeoIP in relay)
+const FEODO_URL = 'https://feodotracker.abuse.ch/downloads/ipblocklist.json';
+const URLHAUS_RECENT_URL = (limit) => `https://urlhaus-api.abuse.ch/v1/urls/recent/limit/${limit}/`;
+
+async function fetchFeodoThreats(limit, cutoffMs) {
+  try {
+    const res = await fetch(FEODO_URL, { headers: { 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const list = data || [];
+    return list
+      .filter((t) => t.ip_address && t.first_seen_utc)
+      .slice(0, limit)
+      .map((t) => {
+        const firstSeen = new Date(t.first_seen_utc).getTime();
+        if (firstSeen < cutoffMs) return null;
+        return {
+          id: `feodo:${t.ip_address}`,
+          type: 'c2_server',
+          source: 'feodo',
+          indicator: t.ip_address,
+          indicatorType: 'ip',
+          lat: null,
+          lon: null,
+          country: (t.country || '').toUpperCase().slice(0, 2),
+          severity: 'high',
+          firstSeen,
+          lastSeen: new Date(t.last_seen_utc || t.first_seen_utc).getTime(),
+        };
+      })
+      .filter((t) => t !== null);
+  } catch { return []; }
+}
+
+async function fetchUrlhausThreats(limit, cutoffMs) {
+  try {
+    const res = await fetch(URLHAUS_RECENT_URL(limit), { headers: { 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const urls = data?.urls || [];
+    return urls
+      .filter((u) => u.url && u.date_added)
+      .slice(0, limit)
+      .map((u) => {
+        const firstSeen = new Date(u.date_added).getTime();
+        if (firstSeen < cutoffMs) return null;
+        return {
+          id: `urlhaus:${u.id || u.url}`,
+          type: 'malicious_url',
+          source: 'urlhaus',
+          indicator: u.url,
+          indicatorType: 'url',
+          lat: null,
+          lon: null,
+          country: '',
+          severity: 'medium',
+          firstSeen,
+          lastSeen: firstSeen,
+        };
+      })
+      .filter((t) => t !== null);
+  } catch { return []; }
+}
+
+function toProtoCyberThreat(t) {
+  return {
+    id: t.id,
+    indicator: t.indicator,
+    indicatorType: t.indicatorType === 'ip' ? 'CYBER_THREAT_INDICATOR_TYPE_IP' : t.indicatorType === 'domain' ? 'CYBER_THREAT_INDICATOR_TYPE_DOMAIN' : 'CYBER_THREAT_INDICATOR_TYPE_URL',
+    country: t.country || '',
+    firstSeenAt: t.firstSeen,
+    lastSeenAt: t.lastSeen,
+    type: t.type === 'c2_server' ? 'CYBER_THREAT_TYPE_C2_SERVER' : t.type === 'malware_host' ? 'CYBER_THREAT_TYPE_MALWARE_HOST' : t.type === 'phishing' ? 'CYBER_THREAT_TYPE_PHISHING' : 'CYBER_THREAT_TYPE_MALICIOUS_URL',
+    source: t.source === 'feodo' ? 'CYBER_THREAT_SOURCE_FEODO' : t.source === 'urlhaus' ? 'CYBER_THREAT_SOURCE_URLHAUS' : 'CYBER_THREAT_SOURCE_C2INTEL',
+    severity: t.severity === 'critical' ? 'CRITICALITY_LEVEL_CRITICAL' : t.severity === 'high' ? 'CRITICALITY_LEVEL_HIGH' : t.severity === 'medium' ? 'CRITICALITY_LEVEL_MEDIUM' : 'CRITICALITY_LEVEL_LOW',
+  };
+}
+
+async function fetchCyber() {
+  const now = Date.now();
+  const cutoffMs = now - 14 * 24 * 60 * 60 * 1000;
+  const [feodo, urlhaus] = await Promise.all([
+    fetchFeodoThreats(500, cutoffMs),
+    fetchUrlhausThreats(500, cutoffMs),
+  ]);
+  const combined = [...feodo, ...urlhaus];
+  const threats = combined.slice(0, 500).map(toProtoCyberThreat);
+  return threats.length > 0 ? { threats } : null;
+}
+
+// Service status: simplified — fetch statuspage JSON for key services
+const SERVICE_STATUS_PAGES = [
+  { id: 'aws', name: 'AWS', url: 'https://health.aws.amazon.com/health/status' },
+  { id: 'cloudflare', name: 'Cloudflare', url: 'https://www.cloudflarestatus.com/api/v2/status.json' },
+  { id: 'vercel', name: 'Vercel', url: 'https://www.vercel-status.com/api/v2/status.json' },
+  { id: 'github', name: 'GitHub', url: 'https://www.githubstatus.com/api/v2/status.json' },
+  { id: 'npm', name: 'npm', url: 'https://status.npmjs.org/api/v2/status.json' },
+  { id: 'openai', name: 'OpenAI', url: 'https://status.openai.com/api/v2/status.json' },
+  { id: 'supabase', name: 'Supabase', url: 'https://status.supabase.com/api/v2/status.json' },
+];
+
+function normalizeStatus(indicator) {
+  const v = (indicator || '').toLowerCase();
+  if (v === 'none' || v === 'operational' || v.includes('all systems')) return 'SERVICE_OPERATIONAL_STATUS_OPERATIONAL';
+  if (v === 'minor' || v.includes('degraded')) return 'SERVICE_OPERATIONAL_STATUS_DEGRADED';
+  if (v === 'partial_outage') return 'SERVICE_OPERATIONAL_STATUS_PARTIAL_OUTAGE';
+  if (v === 'major' || v === 'critical' || v.includes('outage')) return 'SERVICE_OPERATIONAL_STATUS_MAJOR_OUTAGE';
+  if (v.includes('maintenance')) return 'SERVICE_OPERATIONAL_STATUS_MAINTENANCE';
+  return 'SERVICE_OPERATIONAL_STATUS_UNSPECIFIED';
+}
+
+async function fetchServiceStatus() {
+  const results = await Promise.all(
+    SERVICE_STATUS_PAGES.map(async (svc) => {
+      const now = Date.now();
+      try {
+        const start = Date.now();
+        const res = await fetch(svc.url, {
+          headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+          signal: AbortSignal.timeout(10000),
+        });
+        const latencyMs = Date.now() - start;
+        if (!res.ok) return { id: svc.id, name: svc.name, url: svc.url, status: 'SERVICE_OPERATIONAL_STATUS_UNSPECIFIED', description: `HTTP ${res.status}`, checkedAt: now, latencyMs };
+        const data = await res.json();
+        const indicator = data.status?.indicator || data.status?.status || '';
+        const desc = data.status?.description || '';
+        return { id: svc.id, name: svc.name, url: svc.url, status: normalizeStatus(indicator), description: desc, checkedAt: now, latencyMs };
+      } catch {
+        return { id: svc.id, name: svc.name, url: svc.url, status: 'SERVICE_OPERATIONAL_STATUS_UNSPECIFIED', description: 'Request failed', checkedAt: now, latencyMs: 0 };
+      }
+    })
+  );
+  return { statuses: results };
+}
+
 // Phase 3A cron schedules
 cron.schedule('1-59/5 * * * *', async () => {
   try {
@@ -4467,22 +5490,48 @@ scheduleWarmAndBroadcast('*/10 * * * *',    'intelligence',      '/api/intellige
 scheduleWarmAndBroadcast('2-59/10 * * * *', 'supply-chain',      '/api/supply-chain/v1/get-chokepoint-status',   'supply_chain:chokepoints:v1');
 scheduleWarmAndBroadcast('3-59/10 * * * *', 'strategic-posture', '/api/military/v1/get-theater-posture');
 scheduleWarmAndBroadcast('4-59/10 * * * *', 'pizzint',           '/api/intelligence/v1/get-pizzint-status');
-scheduleWarmAndBroadcast('5-59/10 * * * *', 'cyber',             '/api/cyber/v1/list-cyber-threats');
+// cyber — now direct fetch (Phase 3B)
 
-// Every 5 min — service status (was 1 min polling, 5 min cron is acceptable)
-scheduleWarmAndBroadcast('*/5 * * * *', 'service-status', '/api/infrastructure/v1/list-service-statuses', 'infra:service-statuses:v1');
-
-// Every 15 min — cables
-scheduleWarmAndBroadcast('*/15 * * * *', 'cables', '/api/infrastructure/v1/get-cable-health', 'cable-health-v1');
-
-// Every 30 min — slower economic/energy data
-scheduleWarmAndBroadcast('*/30 * * * *',    'fred',    '/api/economic/v1/get-fred-series');
-scheduleWarmAndBroadcast('1-59/30 * * * *', 'oil',     '/api/economic/v1/get-energy-prices');
-scheduleWarmAndBroadcast('2-59/30 * * * *', 'natural', '/api/wildfire/v1/list-fire-detections', 'wildfire:fires:v1');
-
-// Every 60 min — BIS, flights
-scheduleWarmAndBroadcast('0 * * * *',  'bis',     '/api/economic/v1/get-bis-policy-rates', 'economic:bis:policy:v1');
-scheduleWarmAndBroadcast('5 * * * *',  'flights', '/api/aviation/v1/list-airport-delays');
+// Phase 3B: fred, oil, bis, flights, weather, natural, eonet, gdacs, gps-interference, cables, cyber, service-status — now direct fetch
+cron.schedule('*/30 * * * *', async () => {
+  try { await directFetchAndBroadcast('fred', 'relay:fred:v1', 1800, fetchFred); } catch (err) { console.error('[relay] fred cron error:', err?.message ?? err); }
+});
+cron.schedule('1-59/30 * * * *', async () => {
+  try { await directFetchAndBroadcast('oil', 'relay:oil:v1', 3600, fetchOil); } catch (err) { console.error('[relay] oil cron error:', err?.message ?? err); }
+});
+cron.schedule('0 * * * *', async () => {
+  try { await directFetchAndBroadcast('bis', 'relay:bis:v1', 21600, fetchBis); } catch (err) { console.error('[relay] bis cron error:', err?.message ?? err); }
+});
+cron.schedule('5 * * * *', async () => {
+  try { await directFetchAndBroadcast('flights', 'relay:flights:v1', 7200, fetchFlights); } catch (err) { console.error('[relay] flights cron error:', err?.message ?? err); }
+});
+cron.schedule('0 0 * * *', async () => {
+  try { await runAviationPreCache(); } catch (err) { console.error('[relay] aviation pre-cache error:', err?.message ?? err); }
+});
+cron.schedule('*/10 * * * *', async () => {
+  try { await directFetchAndBroadcast('weather', 'relay:weather:v1', 600, () => fetchWeather().then((a) => a || null)); } catch (err) { console.error('[relay] weather cron error:', err?.message ?? err); }
+});
+cron.schedule('2-59/30 * * * *', async () => {
+  try { await directFetchAndBroadcast('natural', 'relay:natural:v1', 3600, fetchNatural); } catch (err) { console.error('[relay] natural cron error:', err?.message ?? err); }
+});
+cron.schedule('*/30 * * * *', async () => {
+  try { await directFetchAndBroadcast('eonet', 'relay:eonet:v1', 1800, () => fetchEonet().then((e) => e || null)); } catch (err) { console.error('[relay] eonet cron error:', err?.message ?? err); }
+});
+cron.schedule('*/30 * * * *', async () => {
+  try { await directFetchAndBroadcast('gdacs', 'relay:gdacs:v1', 1800, () => fetchGdacs().then((g) => g || null)); } catch (err) { console.error('[relay] gdacs cron error:', err?.message ?? err); }
+});
+cron.schedule('*/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('gps-interference', 'relay:gps-interference:v1', 3600, fetchGpsInterference); } catch (err) { console.error('[relay] gps-interference cron error:', err?.message ?? err); }
+});
+cron.schedule('*/15 * * * *', async () => {
+  try { await directFetchAndBroadcast('cables', 'relay:cables:v1', 600, fetchCables); } catch (err) { console.error('[relay] cables cron error:', err?.message ?? err); }
+});
+cron.schedule('5-59/10 * * * *', async () => {
+  try { await directFetchAndBroadcast('cyber', 'relay:cyber:v1', 7200, fetchCyber); } catch (err) { console.error('[relay] cyber cron error:', err?.message ?? err); }
+});
+cron.schedule('*/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('service-status', 'relay:service-status:v1', 1800, () => fetchServiceStatus().then((s) => s || null)); } catch (err) { console.error('[relay] service-status cron error:', err?.message ?? err); }
+});
 
 // Giving — static data from published annual reports (24h TTL, no Vercel round-trip)
 function fetchGivingSummary() {
@@ -4587,11 +5636,7 @@ cron.schedule('*/5 * * * *', () => {
   });
 });
 scheduleWarmAndBroadcast('*/10 * * * *', 'iran-events',       '/api/conflict/v1/list-iran-events');
-scheduleWarmAndBroadcast('*/5 * * * *',  'gps-interference',  '/api/gpsjam');
-scheduleWarmAndBroadcast('*/30 * * * *', 'eonet',             '/api/natural-events/v1/list-events');
-scheduleWarmAndBroadcast('*/30 * * * *', 'gdacs',             '/api/natural-events/v1/list-disasters');
-// gulf-quotes, tech-events, spending — now direct fetch (Phase 3A)
-scheduleWarmAndBroadcast('*/10 * * * *', 'weather',           '/api/weather/v1/get-alerts');
+// gps-interference, eonet, gdacs, weather — now direct fetch (Phase 3B)
 
 // ── AIS direct broadcast (relay already has this data) ──────────────────────
 cron.schedule('*/5 * * * *', () => {
