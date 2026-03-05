@@ -3,6 +3,7 @@ import {
   type GetShippingRatesResponse,
   type GetChokepointStatusResponse,
   type GetCriticalMineralsResponse,
+  type GetSupplyChainDashboardResponse,
   type ShippingIndex,
   type ChokepointInfo,
   type CriticalMineral,
@@ -28,10 +29,33 @@ const client = new SupplyChainServiceClient('', { fetch: (...args) => globalThis
 const shippingBreaker = createCircuitBreaker<GetShippingRatesResponse>({ name: 'Shipping Rates', cacheTtlMs: 15 * 60 * 1000, persistCache: true });
 const chokepointBreaker = createCircuitBreaker<GetChokepointStatusResponse>({ name: 'Chokepoint Status', cacheTtlMs: 20 * 60 * 1000, persistCache: true });
 const mineralsBreaker = createCircuitBreaker<GetCriticalMineralsResponse>({ name: 'Critical Minerals', cacheTtlMs: 60 * 60 * 1000, persistCache: true });
+const supplyChainDashboardBreaker = createCircuitBreaker<GetSupplyChainDashboardResponse>({
+  name: 'Supply Chain Dashboard',
+  cacheTtlMs: 30 * 60 * 1000,
+  persistCache: true,
+});
 
 const emptyShipping: GetShippingRatesResponse = { indices: [], fetchedAt: '', upstreamUnavailable: false };
 const emptyChokepoints: GetChokepointStatusResponse = { chokepoints: [], fetchedAt: '', upstreamUnavailable: false };
 const emptyMinerals: GetCriticalMineralsResponse = { minerals: [], fetchedAt: '', upstreamUnavailable: false };
+const emptySupplyChainDashboard: GetSupplyChainDashboardResponse = { shipping: undefined, chokepoints: undefined, minerals: undefined };
+
+export async function fetchSupplyChainDashboard(): Promise<GetSupplyChainDashboardResponse> {
+  const hShipping = getHydratedData('shippingRates') as GetShippingRatesResponse | undefined;
+  const hChokepoints = getHydratedData('chokepoints') as GetChokepointStatusResponse | undefined;
+  const hMinerals = getHydratedData('minerals') as GetCriticalMineralsResponse | undefined;
+  if (hShipping != null && hChokepoints != null && hMinerals != null) {
+    return { shipping: hShipping, chokepoints: hChokepoints, minerals: hMinerals };
+  }
+
+  try {
+    return await supplyChainDashboardBreaker.execute(async () => {
+      return client.getSupplyChainDashboard({});
+    }, emptySupplyChainDashboard);
+  } catch {
+    return emptySupplyChainDashboard;
+  }
+}
 
 export async function fetchShippingRates(): Promise<GetShippingRatesResponse> {
   const hydrated = getHydratedData('shippingRates') as GetShippingRatesResponse | undefined;

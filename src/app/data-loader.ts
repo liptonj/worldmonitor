@@ -48,9 +48,7 @@ import {
   fetchCyberThreats,
   drainTrendingSignals,
   fetchTradeDashboard,
-  fetchShippingRates,
-  fetchChokepointStatus,
-  fetchCriticalMinerals,
+  fetchSupplyChainDashboard,
 } from '@/services';
 import { checkBatchForBreakingAlerts, dispatchOrefBreakingAlert } from '@/services/breaking-news-alerts';
 import { mlWorker } from '@/services/ml-worker';
@@ -1955,15 +1953,10 @@ export class DataLoaderManager implements AppModule {
     if (!scPanel) return;
 
     try {
-      const [shipping, chokepoints, minerals] = await Promise.allSettled([
-        fetchShippingRates(),
-        fetchChokepointStatus(),
-        fetchCriticalMinerals(),
-      ]);
-
-      const shippingData = shipping.status === 'fulfilled' ? shipping.value : null;
-      const chokepointData = chokepoints.status === 'fulfilled' ? chokepoints.value : null;
-      const mineralsData = minerals.status === 'fulfilled' ? minerals.value : null;
+      const dashboard = await fetchSupplyChainDashboard();
+      const shippingData = dashboard.shipping ?? null;
+      const chokepointData = dashboard.chokepoints ?? null;
+      const mineralsData = dashboard.minerals ?? null;
 
       if (shippingData) scPanel.updateShippingRates(shippingData);
       if (chokepointData) scPanel.updateChokepointStatus(chokepointData);

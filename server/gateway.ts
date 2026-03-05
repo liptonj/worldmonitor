@@ -82,6 +82,7 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/economic/v1/list-world-bank-indicators': 'static',
   '/api/economic/v1/get-energy-capacity': 'static',
   '/api/supply-chain/v1/get-critical-minerals': 'static',
+  '/api/supply-chain/v1/get-supply-chain-dashboard': 'medium',
   '/api/military/v1/get-aircraft-details': 'static',
   '/api/military/v1/get-wingbits-status': 'static',
 
