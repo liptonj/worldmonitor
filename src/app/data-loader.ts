@@ -2232,11 +2232,12 @@ export class DataLoaderManager implements AppModule {
     if (!data?.categories || typeof data.categories !== 'object') return;
     this.processDigestData(data);
   }
-  applyMarkets(payload: unknown): void {
-    if (!payload || typeof payload !== 'object') return;
-    const dashboard = payload as GetMarketDashboardResponse;
-    this.renderMarketDashboard(dashboard);
-  }
+applyMarkets(payload: unknown): void {
+  if (!payload || typeof payload !== 'object') return;
+  const dashboard = payload as GetMarketDashboardResponse;
+  if (!Array.isArray(dashboard.stocks)) return;
+  this.renderMarketDashboard(dashboard);
+}
   applyPredictions(_payload: unknown): void {}
   applyFredData(_payload: unknown): void {}
   applyOilData(_payload: unknown): void {}
