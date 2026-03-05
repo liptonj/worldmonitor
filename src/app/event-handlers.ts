@@ -71,7 +71,7 @@ export class EventHandlerManager implements AppModule {
   private boundDesktopExternalLinkHandler: ((e: MouseEvent) => void) | null = null;
   private boundIdleResetHandler: (() => void) | null = null;
   private idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private panelCloseHandler: EventListener | null = null;
+  private panelCloseHandler: ((e: Event) => void) | null = null;
   private summarizeViewModal: SummarizeViewModal | null = null;
   private updateSummarizeButtonState: (() => void) | null = null;
   private snapshotIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -287,7 +287,7 @@ export class EventHandlerManager implements AppModule {
       this.updateHeaderThemeIcon();
     });
 
-    this.panelCloseHandler = ((e: Event) => {
+    this.panelCloseHandler = (e: Event) => {
       const detail = (e as CustomEvent<{ panelId: string }>).detail;
       const panelId = detail?.panelId;
       if (!panelId) return;
@@ -298,7 +298,7 @@ export class EventHandlerManager implements AppModule {
         saveToStorage(STORAGE_KEYS.panels, this.ctx.panelSettings);
         this.applyPanelSettings();
       }
-    }) as EventListener;
+    };
     document.addEventListener('panel-close-request', this.panelCloseHandler);
 
     this.displayPrefsHandler = () => {

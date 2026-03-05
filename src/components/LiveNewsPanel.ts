@@ -667,7 +667,6 @@ export class LiveNewsPanel extends Panel {
     closeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.destroyPlayer();
-      // Reset state so panel can re-initialize when re-enabled from settings
       this.deferredInit = false;
       this.playerContainer = null;
       if (this.lazyObserver) {

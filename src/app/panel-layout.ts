@@ -314,14 +314,12 @@ export class PanelLayoutManager implements AppModule {
     closeOnClick('#summarizeViewBtn');
     closeOnClick('.variant-switcher a');
 
-    // Close menu when region changes
     const regionSelect = document.getElementById('regionSelect');
     if (regionSelect) {
       regionSelect.addEventListener('change', closeMenu);
       cleanupFns.push(() => regionSelect.removeEventListener('change', closeMenu));
     }
 
-    // Close menu when viewport exceeds mobile breakpoint (e.g. browser resize)
     const resizeHandler = () => {
       if (window.innerWidth > 768) closeMenu();
     };
