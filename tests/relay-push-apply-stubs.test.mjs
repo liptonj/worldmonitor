@@ -25,4 +25,14 @@ describe('apply* stubs are implemented', () => {
       'applyMarkets must not be empty'
     );
   });
+
+  for (const name of ['applyBisData', 'applyFredData', 'applyOilData']) {
+    it(`${name} is not empty`, () => {
+      const src = readFileSync('src/app/data-loader.ts', 'utf-8');
+      const helperName = name.replace('apply', 'render');
+      const hasHelper = src.includes(helperName);
+      const match = src.match(new RegExp(`${name}\\s*\\([^)]*\\)\\s*\\{[\\s\\S]{20,}?^\\s{2}\\}`, 'm'));
+      assert.ok(hasHelper || match, `${name} must not be empty`);
+    });
+  }
 });

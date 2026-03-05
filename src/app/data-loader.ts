@@ -47,6 +47,8 @@ import {
   drainTrendingSignals,
   fetchTradeDashboard,
   fetchSupplyChainDashboard,
+  fredResponseToClientSeries,
+  energyPricesToOilAnalytics,
 } from '@/services';
 import { checkBatchForBreakingAlerts, dispatchOrefBreakingAlert } from '@/services/breaking-news-alerts';
 import { mlWorker } from '@/services/ml-worker';
@@ -77,6 +79,7 @@ import { classifyWithAI } from '@/services/threat-classifier';
 import { ingestHeadlines } from '@/services/trending-keywords';
 import type { ListFeedDigestResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
 import type { GetSectorSummaryResponse, GetMarketDashboardResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
+import type { GetBisPolicyRatesResponse, GetFredDashboardResponse, GetFredSeriesResponse, GetEnergyPricesResponse } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import { fetchNewsDigest } from '@/services/news-digest';
 import { fetchTechEvents } from '@/services/research';
 import {
@@ -1519,6 +1522,14 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  private renderFredData(data: import('@/services/economic').FredSeries[]): void {
+    const economicPanel = this.ctx.panels['economic'] as EconomicPanel;
+    economicPanel?.setErrorState(false);
+    economicPanel?.update(data);
+    this.ctx.statusPanel?.updateApi('FRED', { status: data.length > 0 ? 'ok' : 'error' });
+    if (data.length > 0) dataFreshness.recordUpdate('economic', data.length);
+  }
+
   async loadFredData(): Promise<void> {
     const economicPanel = this.ctx.panels['economic'] as EconomicPanel;
     const cbInfo = getCircuitBreakerCooldownInfo('FRED Dashboard');
@@ -1552,17 +1563,11 @@ export class DataLoaderManager implements AppModule {
           this.ctx.statusPanel?.updateApi('FRED', { status: 'error' });
           return;
         }
-        economicPanel?.setErrorState(false);
-        economicPanel?.update(retryData);
-        this.ctx.statusPanel?.updateApi('FRED', { status: 'ok' });
-        dataFreshness.recordUpdate('economic', retryData.length);
+        this.renderFredData(retryData);
         return;
       }
 
-      economicPanel?.setErrorState(false);
-      economicPanel?.update(data);
-      this.ctx.statusPanel?.updateApi('FRED', { status: 'ok' });
-      dataFreshness.recordUpdate('economic', data.length);
+      this.renderFredData(data);
     } catch {
       if (isFeatureAvailable('economicFred')) {
         economicPanel?.showRetrying();
@@ -1570,10 +1575,7 @@ export class DataLoaderManager implements AppModule {
           await new Promise(r => setTimeout(r, 20_000));
           const retryData = await fetchFredDashboard();
           if (retryData.length > 0) {
-            economicPanel?.setErrorState(false);
-            economicPanel?.update(retryData);
-            this.ctx.statusPanel?.updateApi('FRED', { status: 'ok' });
-            dataFreshness.recordUpdate('economic', retryData.length);
+            this.renderFredData(retryData);
             return;
           }
         } catch { /* fall through */ }
@@ -1584,19 +1586,23 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
-  async loadOilAnalytics(): Promise<void> {
+  private renderOilData(data: import('@/services/economic').OilAnalytics): void {
     const economicPanel = this.ctx.panels['economic'] as EconomicPanel;
+    economicPanel?.updateOil(data);
+    const hasData = !!(data.wtiPrice || data.brentPrice || data.usProduction || data.usInventory);
+    this.ctx.statusPanel?.updateApi('EIA', { status: hasData ? 'ok' : 'error' });
+    if (hasData) {
+      const metricCount = [data.wtiPrice, data.brentPrice, data.usProduction, data.usInventory].filter(Boolean).length;
+      dataFreshness.recordUpdate('oil', metricCount || 1);
+    } else {
+      dataFreshness.recordError('oil', 'Oil analytics returned no values');
+    }
+  }
+
+  async loadOilAnalytics(): Promise<void> {
     try {
       const data = await fetchOilAnalytics();
-      economicPanel?.updateOil(data);
-      const hasData = !!(data.wtiPrice || data.brentPrice || data.usProduction || data.usInventory);
-      this.ctx.statusPanel?.updateApi('EIA', { status: hasData ? 'ok' : 'error' });
-      if (hasData) {
-        const metricCount = [data.wtiPrice, data.brentPrice, data.usProduction, data.usInventory].filter(Boolean).length;
-        dataFreshness.recordUpdate('oil', metricCount || 1);
-      } else {
-        dataFreshness.recordError('oil', 'Oil analytics returned no values');
-      }
+      this.renderOilData(data);
     } catch (e) {
       console.error('[App] Oil analytics failed:', e);
       this.ctx.statusPanel?.updateApi('EIA', { status: 'error' });
@@ -1622,8 +1628,15 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
-  async loadBisData(): Promise<void> {
+  private renderBisData(data: BisData): void {
     const economicPanel = this.ctx.panels['economic'] as EconomicPanel;
+    economicPanel?.updateBis(data);
+    const hasData = data.policyRates.length > 0;
+    this.ctx.statusPanel?.updateApi('BIS', { status: hasData ? 'ok' : 'error' });
+    if (hasData) dataFreshness.recordUpdate('bis', data.policyRates.length);
+  }
+
+  async loadBisData(): Promise<void> {
     const hPolicy = getHydratedData('bisPolicy') as { rates?: unknown[] } | undefined;
     const hEer = getHydratedData('bisExchange') as { rates?: unknown[] } | undefined;
     const hCredit = getHydratedData('bisCredit') as { entries?: unknown[] } | undefined;
@@ -1635,29 +1648,19 @@ export class DataLoaderManager implements AppModule {
         creditToGdp: (hCredit.entries ?? []) as BisData['creditToGdp'],
         fetchedAt: new Date(),
       };
-      economicPanel?.updateBis(data);
-      const hasData = data.policyRates.length > 0;
-      this.ctx.statusPanel?.updateApi('BIS', { status: hasData ? 'ok' : 'error' });
-      if (hasData) {
-        dataFreshness.recordUpdate('bis', data.policyRates.length);
-      }
+      this.renderBisData(data);
       return;
     }
 
     try {
       const dashboard = await fetchBisDashboard();
-      const data = {
+      const data: BisData = {
         policyRates: dashboard.policyRates,
         exchangeRates: dashboard.exchangeRates,
         creditToGdp: dashboard.creditGdp,
         fetchedAt: new Date(),
       };
-      economicPanel?.updateBis(data);
-      const hasData = data.policyRates.length > 0;
-      this.ctx.statusPanel?.updateApi('BIS', { status: hasData ? 'ok' : 'error' });
-      if (hasData) {
-        dataFreshness.recordUpdate('bis', data.policyRates.length);
-      }
+      this.renderBisData(data);
     } catch (e) {
       console.error('[App] BIS data failed:', e);
       this.ctx.statusPanel?.updateApi('BIS', { status: 'error' });
@@ -2239,9 +2242,35 @@ applyMarkets(payload: unknown): void {
   this.renderMarketDashboard(dashboard);
 }
   applyPredictions(_payload: unknown): void {}
-  applyFredData(_payload: unknown): void {}
-  applyOilData(_payload: unknown): void {}
-  applyBisData(_payload: unknown): void {}
+
+  applyFredData(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const resp = payload as GetFredDashboardResponse | GetFredSeriesResponse;
+    if (!('series' in resp)) return;
+    const data = fredResponseToClientSeries(resp);
+    this.renderFredData(data);
+  }
+
+  applyOilData(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const resp = payload as GetEnergyPricesResponse;
+    if (!Array.isArray(resp.prices)) return;
+    const data = energyPricesToOilAnalytics(resp);
+    this.renderOilData(data);
+  }
+
+  applyBisData(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const resp = payload as GetBisPolicyRatesResponse;
+    if (!Array.isArray(resp.rates)) return;
+    const data: BisData = {
+      policyRates: resp.rates,
+      exchangeRates: [],
+      creditToGdp: [],
+      fetchedAt: new Date(),
+    };
+    this.renderBisData(data);
+  }
   applyIntelligence(_payload: unknown): void {}
   applyPizzInt(_payload: unknown): void {}
   applyTradePolicy(_payload: unknown): void {}

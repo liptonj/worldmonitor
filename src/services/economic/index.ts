@@ -23,6 +23,7 @@ import {
   type BisPolicyRate,
   type BisExchangeRate,
   type BisCreditToGdp,
+  type GetMacroSignalsResponse,
 } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import { createCircuitBreaker } from '@/utils';
 import { getCSSColor } from '@/utils';
@@ -74,6 +75,14 @@ const bisDashboardBreaker = createCircuitBreaker<GetBisDashboardResponse>({
 });
 
 const emptyBisDashboard: GetBisDashboardResponse = { policyRates: [], exchangeRates: [], creditGdp: [] };
+
+export async function fetchMacroSignals(): Promise<GetMacroSignalsResponse | null> {
+  try {
+    return await client.getMacroSignals({});
+  } catch {
+    return null;
+  }
+}
 
 export async function fetchBisDashboard(): Promise<GetBisDashboardResponse> {
   try {
@@ -178,18 +187,33 @@ export async function fetchFredDashboard(): Promise<FredSeries[]> {
     const resp = await fredDashboardBreaker.execute(async () => {
       return client.getFredDashboard({});
     }, emptyFredDashboard);
-    const configById = new Map(FRED_SERIES.map((c) => [c.id, c]));
-    const result: FredSeries[] = [];
-    for (const proto of resp.series) {
-      const config = configById.get(proto.seriesId);
-      if (!config) continue;
-      const clientSeries = protoSeriesToClient(proto, config);
-      if (clientSeries) result.push(clientSeries);
-    }
-    return result;
+    return fredResponseToClientSeries(resp);
   } catch {
     return [];
   }
+}
+
+/**
+ * Convert FRED API response (dashboard or single series) to client FredSeries[].
+ * Used by loadFredData and applyFredData (relay push).
+ */
+export function fredResponseToClientSeries(
+  resp: GetFredDashboardResponse | GetFredSeriesResponse,
+): FredSeries[] {
+  const seriesArr = Array.isArray(resp.series)
+    ? resp.series
+    : resp.series
+      ? [resp.series]
+      : [];
+  const configById = new Map(FRED_SERIES.map((c) => [c.id, c]));
+  const result: FredSeries[] = [];
+  for (const proto of seriesArr) {
+    const config = configById.get(proto.seriesId);
+    if (!config) continue;
+    const clientSeries = protoSeriesToClient(proto, config);
+    if (clientSeries) result.push(clientSeries);
+  }
+  return result;
 }
 
 export async function fetchFredData(): Promise<FredSeries[]> {
@@ -277,6 +301,21 @@ export async function checkEiaStatus(): Promise<boolean> {
   }
 }
 
+/**
+ * Convert GetEnergyPricesResponse to OilAnalytics. Used by loadOilAnalytics and applyOilData (relay push).
+ */
+export function energyPricesToOilAnalytics(resp: GetEnergyPricesResponse): OilAnalytics {
+  const byId = new Map<string, ProtoEnergyPrice>();
+  for (const p of resp.prices ?? []) byId.set(p.commodity, p);
+  return {
+    wtiPrice: byId.has('wti') ? protoEnergyToOilMetric(byId.get('wti')!) : null,
+    brentPrice: byId.has('brent') ? protoEnergyToOilMetric(byId.get('brent')!) : null,
+    usProduction: byId.has('production') ? protoEnergyToOilMetric(byId.get('production')!) : null,
+    usInventory: byId.has('inventory') ? protoEnergyToOilMetric(byId.get('inventory')!) : null,
+    fetchedAt: new Date(),
+  };
+}
+
 export async function fetchOilAnalytics(): Promise<OilAnalytics> {
   const empty: OilAnalytics = {
     wtiPrice: null, brentPrice: null, usProduction: null, usInventory: null, fetchedAt: new Date(),
@@ -289,16 +328,7 @@ export async function fetchOilAnalytics(): Promise<OilAnalytics> {
       return client.getEnergyPrices({ commodities: [] }); // all commodities
     }, emptyEiaFallback);
 
-    const byId = new Map<string, ProtoEnergyPrice>();
-    for (const p of resp.prices) byId.set(p.commodity, p);
-
-    const result: OilAnalytics = {
-      wtiPrice: byId.has('wti') ? protoEnergyToOilMetric(byId.get('wti')!) : null,
-      brentPrice: byId.has('brent') ? protoEnergyToOilMetric(byId.get('brent')!) : null,
-      usProduction: byId.has('production') ? protoEnergyToOilMetric(byId.get('production')!) : null,
-      usInventory: byId.has('inventory') ? protoEnergyToOilMetric(byId.get('inventory')!) : null,
-      fetchedAt: new Date(),
-    };
+    const result = energyPricesToOilAnalytics(resp);
 
     const metricCount = [result.wtiPrice, result.brentPrice, result.usProduction, result.usInventory]
       .filter(Boolean).length;
