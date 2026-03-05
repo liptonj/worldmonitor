@@ -882,17 +882,21 @@ export class DataLoaderManager implements AppModule {
 
     this.updateMonitorResults();
 
-    try {
-      this.ctx.latestClusters = mlWorker.isAvailable
-        ? await clusterNewsHybrid(this.ctx.allNews)
-        : await analysisWorker.clusterNews(this.ctx.allNews);
+    // Fire clustering asynchronously — do NOT await here so loadNews() returns immediately
+    // for first paint. The insights panel and map locations update when clustering finishes.
+    void (mlWorker.isAvailable
+      ? clusterNewsHybrid(this.ctx.allNews)
+      : analysisWorker.clusterNews(this.ctx.allNews)
+    ).then(clusters => {
+      if (this.ctx.isDestroyed) return;
+      this.ctx.latestClusters = clusters;
 
-      if (this.ctx.latestClusters.length > 0) {
+      if (clusters.length > 0) {
         const insightsPanel = this.ctx.panels['insights'] as InsightsPanel | undefined;
-        insightsPanel?.updateInsights(this.ctx.latestClusters);
+        insightsPanel?.updateInsights(clusters);
       }
 
-      const geoLocated = this.ctx.latestClusters
+      const geoLocated = clusters
         .filter((c): c is typeof c & { lat: number; lon: number } => c.lat != null && c.lon != null)
         .map(c => ({
           lat: c.lat,
@@ -904,9 +908,9 @@ export class DataLoaderManager implements AppModule {
       if (geoLocated.length > 0) {
         this.ctx.map?.setNewsLocations(geoLocated);
       }
-    } catch (error) {
+    }).catch(error => {
       console.error('[App] Clustering failed, clusters unchanged:', error);
-    }
+    });
 
     // Happy variant: run multi-stage positive news pipeline + map layers
     if (SITE_VARIANT === 'happy') {
