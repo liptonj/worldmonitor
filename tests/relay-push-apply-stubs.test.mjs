@@ -66,4 +66,14 @@ describe('apply* stubs are implemented', () => {
       );
     });
   }
+
+  it('StrategicRiskPanel has applyPush', () => {
+    const src = readFileSync('src/components/StrategicRiskPanel.ts', 'utf-8');
+    assert.ok(src.includes('applyPush'), 'StrategicRiskPanel must implement applyPush');
+  });
+
+  it('StrategicPosturePanel has applyPush', () => {
+    const src = readFileSync('src/components/StrategicPosturePanel.ts', 'utf-8');
+    assert.ok(src.includes('applyPush'), 'StrategicPosturePanel must implement applyPush');
+  });
 });

@@ -19,7 +19,7 @@ import {
   type DataFreshnessSummary,
 } from '@/services/data-freshness';
 import { getLearningProgress } from '@/services/country-instability';
-import { fetchCachedRiskScores } from '@/services/cached-risk-scores';
+import { fetchCachedRiskScores, ingestRiskScoresPayload } from '@/services/cached-risk-scores';
 import { getCachedPosture } from '@/services/cached-theater-posture';
 
 export class StrategicRiskPanel extends Panel {
@@ -544,6 +544,12 @@ export class StrategicRiskPanel extends Panel {
       this.unsubscribeFreshness();
     }
     super.destroy();
+  }
+
+  applyPush(payload: unknown): void {
+    if (ingestRiskScoresPayload(payload)) {
+      void this.refresh();
+    }
   }
 
   public getOverview(): StrategicRiskOverview | null {

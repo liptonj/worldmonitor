@@ -220,3 +220,22 @@ export function getCachedPosture(): CachedTheaterPosture | null {
 export function hasCachedPosture(): boolean {
   return cachedPosture !== null;
 }
+
+/**
+ * Adapt relay push payload (GetTheaterPostureResponse) to CachedTheaterPosture.
+ * Updates in-memory and localStorage cache. Used by StrategicPosturePanel.applyPush.
+ */
+export function adaptPosturePayload(payload: unknown): CachedTheaterPosture | null {
+  if (!payload || typeof payload !== 'object' || !('theaters' in payload)) return null;
+  const p = payload as GetTheaterPostureResponse;
+  if (!Array.isArray(p.theaters)) return null;
+  try {
+    const data = toPostureData(p);
+    cachedPosture = data;
+    lastFetchTime = Date.now();
+    saveToStorage(data);
+    return data;
+  } catch {
+    return null;
+  }
+}

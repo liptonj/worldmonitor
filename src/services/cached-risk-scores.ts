@@ -207,6 +207,26 @@ export function getCachedScores(): CachedRiskScores | null {
   return cachedScores;
 }
 
+/**
+ * Ingest relay push payload (GetRiskScoresResponse) into cache.
+ * Used by StrategicRiskPanel.applyPush when relay broadcasts get-risk-scores.
+ */
+export function ingestRiskScoresPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object' || !('ciiScores' in payload) || !('strategicRisks' in payload)) {
+    return false;
+  }
+  try {
+    const data = toRiskScores(payload as GetRiskScoresResponse);
+    cachedScores = data;
+    lastFetchTime = Date.now();
+    setHasCachedScores(true);
+    void setPersistentCache(RISK_CACHE_KEY, data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function hasCachedScores(): boolean {
   return cachedScores !== null;
 }

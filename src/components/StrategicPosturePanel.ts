@@ -1,6 +1,6 @@
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
-import { fetchCachedTheaterPosture, type CachedTheaterPosture } from '@/services/cached-theater-posture';
+import { adaptPosturePayload, fetchCachedTheaterPosture, type CachedTheaterPosture } from '@/services/cached-theater-posture';
 import { fetchMilitaryVessels } from '@/services/military-vessels';
 import { recalcPostureWithVessels, type TheaterPostureSummary } from '@/services/military-surge';
 import { isDesktopRuntime } from '@/services/runtime';
@@ -252,6 +252,13 @@ export class StrategicPosturePanel extends Panel {
         }
       }
     } catch { /* parse error */ }
+  }
+
+  applyPush(payload: unknown): void {
+    const data = adaptPosturePayload(payload);
+    if (data) {
+      this.updatePostures(data);
+    }
   }
 
   public updatePostures(data: CachedTheaterPosture): void {
