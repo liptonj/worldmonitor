@@ -3,8 +3,6 @@
  * Resolves: localStorage (user override) > admin defaults (Supabase) > hardcoded fallback.
  */
 
-import { createClient } from '@supabase/supabase-js';
-
 export type TimeFormat = '24h' | '12h';
 export type TimezoneMode = 'utc' | 'local';
 export type TempUnit = 'celsius' | 'fahrenheit';
@@ -33,6 +31,9 @@ export async function initDisplayPrefs(): Promise<void> {
   }
 
   try {
+    // Dynamic import — keeps @supabase/supabase-js out of the critical path bundle.
+    // This function is only called after first paint, so the async load is fine.
+    const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(url, anonKey, { auth: { persistSession: false } });
     const { data, error } = await supabase.rpc('get_display_settings');
 
@@ -51,6 +52,9 @@ export async function initDisplayPrefs(): Promise<void> {
         timezone_mode: tz === 'local' ? 'local' : 'utc',
         temp_unit: tu === 'fahrenheit' ? 'fahrenheit' : 'celsius',
       };
+
+      // Notify any components that are displaying time/temp to re-render
+      window.dispatchEvent(new CustomEvent('display-prefs-changed'));
     }
   } catch (err) {
     console.warn('[display-prefs] Error fetching admin defaults:', err);
