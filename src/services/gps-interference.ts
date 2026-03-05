@@ -1,5 +1,6 @@
 import { cellToLatLng } from 'h3-js';
 import { getApiBaseUrl } from '@/services/runtime';
+import { fetchRelayPanel } from '@/services/relay-http';
 
 export interface GpsJamHex {
   h3: string;
@@ -83,12 +84,21 @@ export async function fetchGpsInterference(): Promise<GpsJamData | null> {
 
   try {
     const base = getApiBaseUrl();
-    const resp = await fetch(`${base}/api/gpsjam`, {
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!resp.ok) return cachedData;
+    let raw: unknown;
 
-    const raw = await resp.json();
+    if (base) {
+      // Desktop: use local API
+      const resp = await fetch(`${base}/api/gpsjam`, {
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!resp.ok) return cachedData;
+      raw = await resp.json();
+    } else {
+      // Web: fetch from relay /panel/gps-interference (Phase 5)
+      raw = await fetchRelayPanel('gps-interference');
+      if (!raw) return cachedData;
+    }
+
     const parsed = parseGpsJamPayload(raw);
     if (parsed) {
       cachedData = parsed;

@@ -11,6 +11,7 @@ import type {
   CyberThreatIndicatorType,
 } from '@/types';
 import { createCircuitBreaker } from '@/utils';
+import { fetchRelayPanel } from '@/services/relay-http';
 
 // ---- Client + Circuit Breaker ----
 
@@ -85,6 +86,12 @@ export async function fetchCyberThreats(options: { limit?: number; days?: number
   const limit = clampInt(options.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
   const days = clampInt(options.days, DEFAULT_DAYS, 1, MAX_DAYS);
   const now = Date.now();
+
+  // Phase 5: try relay /panel/cyber first
+  const relayData = await fetchRelayPanel<ListCyberThreatsResponse>('cyber');
+  if (relayData?.threats?.length) {
+    return adaptCyberThreatsResponse(relayData);
+  }
 
   const resp = await breaker.execute(async () => {
     return client.listCyberThreats({

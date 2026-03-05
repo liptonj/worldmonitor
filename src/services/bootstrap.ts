@@ -1,5 +1,6 @@
 import type { NewsSourceRow } from '@/services/feed-client';
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
+import { RELAY_HTTP_BASE, getRelayFetchHeaders } from '@/services/relay-http';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -29,13 +30,17 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
     /* IndexedDB unavailable */
   }
 
-  // Phase 2: Fetch fresh data from server (overwrites stale hydration)
+  // Phase 2: Fetch fresh data from relay (Phase 5 — bootstrap at relay.5ls.us)
   try {
-    const resp = await fetch(`/api/bootstrap?variant=${encodeURIComponent(variant)}`, {
+    const url = `${RELAY_HTTP_BASE}/bootstrap?variant=${encodeURIComponent(variant)}`;
+    const resp = await fetch(url, {
       signal: AbortSignal.timeout(3_000),
+      headers: getRelayFetchHeaders(),
     });
     if (!resp.ok) return;
-    const { data } = (await resp.json()) as { data: Record<string, unknown> };
+    const json = (await resp.json()) as Record<string, unknown>;
+    // Relay returns { channel: data }; Vercel returns { data: Record }. Support both.
+    const data = (json.data as Record<string, unknown>) ?? json;
     for (const [k, v] of Object.entries(data)) {
       if (v !== null && v !== undefined) {
         hydrationCache.set(k, v);

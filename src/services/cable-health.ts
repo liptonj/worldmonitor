@@ -5,6 +5,7 @@ import {
 } from '@/generated/client/worldmonitor/infrastructure/v1/service_client';
 import type { CableHealthRecord, CableHealthResponse, CableHealthStatus } from '@/types';
 import { createCircuitBreaker } from '@/utils';
+import { fetchRelayPanel } from '@/services/relay-http';
 
 const client = new InfrastructureServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 const breaker = createCircuitBreaker<GetCableHealthResponse>({ name: 'Cable Health', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
@@ -44,6 +45,15 @@ const LOCAL_CACHE_MS = 60_000;
 export async function fetchCableHealth(): Promise<CableHealthResponse> {
   const now = Date.now();
   if (cachedResponse && now < cacheExpiry) return cachedResponse;
+
+  // Phase 5: try relay /panel/cables first (web)
+  const relayData = await fetchRelayPanel<unknown>('cables');
+  const fromRelay = relayData ? parseCableHealthPayload(relayData) : null;
+  if (fromRelay) {
+    cachedResponse = fromRelay;
+    cacheExpiry = now + LOCAL_CACHE_MS;
+    return fromRelay;
+  }
 
   const resp = await breaker.execute(async () => {
     return client.getCableHealth({});

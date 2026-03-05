@@ -9,6 +9,7 @@ declare const __URL_HAPPY__: string;
 interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN?: string;
   readonly VITE_WS_API_URL?: string;
+  readonly VITE_RELAY_HTTP_URL?: string;
 }
 
 interface ImportMeta {
