@@ -12,6 +12,7 @@ import "worldmonitor/economic/v1/get_energy_capacity.proto";
 import "worldmonitor/economic/v1/get_bis_policy_rates.proto";
 import "worldmonitor/economic/v1/get_bis_exchange_rates.proto";
 import "worldmonitor/economic/v1/get_bis_credit.proto";
+import "worldmonitor/economic/v1/get_bis_dashboard.proto";
 
 // EconomicService provides APIs for macroeconomic data from FRED, World Bank, and EIA.
 service EconomicService {
@@ -60,5 +61,10 @@ service EconomicService {
   // GetBisCredit retrieves credit-to-GDP ratio data from BIS.
   rpc GetBisCredit(GetBisCreditRequest) returns (GetBisCreditResponse) {
     option (sebuf.http.config) = {path: "/get-bis-credit", method: HTTP_METHOD_GET};
+  }
+
+  // GetBisDashboard retrieves all BIS dashboard data (policy rates, exchange rates, credit) in one call.
+  rpc GetBisDashboard(GetBisDashboardRequest) returns (GetBisDashboardResponse) {
+    option (sebuf.http.config) = {path: "/get-bis-dashboard", method: HTTP_METHOD_GET};
   }
 }

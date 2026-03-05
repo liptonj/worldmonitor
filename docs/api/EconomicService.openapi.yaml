@@ -43,6 +43,32 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Error'
+    /api/economic/v1/get-fred-dashboard:
+        get:
+            tags:
+                - EconomicService
+            summary: GetFredDashboard
+            description: GetFredDashboard retrieves all FRED dashboard series in a single batch call.
+            operationId: GetFredDashboard
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetFredDashboardResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidationError'
+                default:
+                    description: Error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Error'
     /api/economic/v1/list-world-bank-indicators:
         get:
             tags:
@@ -281,6 +307,32 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Error'
+    /api/economic/v1/get-bis-dashboard:
+        get:
+            tags:
+                - EconomicService
+            summary: GetBisDashboard
+            description: GetBisDashboard retrieves all BIS dashboard data (policy rates, exchange rates, credit) in one call.
+            operationId: GetBisDashboard
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetBisDashboardResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidationError'
+                default:
+                    description: Error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Error'
 components:
     schemas:
         Error:
@@ -368,6 +420,17 @@ components:
                     format: double
                     description: Observation value.
             description: FredObservation represents a single data point from a FRED economic series.
+        GetFredDashboardRequest:
+            type: object
+            description: GetFredDashboardRequest requests all FRED dashboard series in one call.
+        GetFredDashboardResponse:
+            type: object
+            properties:
+                series:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/FredSeries'
+            description: GetFredDashboardResponse contains all FRED series for the dashboard.
         ListWorldBankIndicatorsRequest:
             type: object
             properties:
@@ -813,3 +876,22 @@ components:
                     type: string
                     description: Date as YYYY-QN.
             description: BisCreditToGdp represents total credit as percentage of GDP from BIS.
+        GetBisDashboardRequest:
+            type: object
+            description: GetBisDashboardRequest requests all BIS dashboard data in one call.
+        GetBisDashboardResponse:
+            type: object
+            properties:
+                policyRates:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/BisPolicyRate'
+                exchangeRates:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/BisExchangeRate'
+                creditGdp:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/BisCreditToGdp'
+            description: GetBisDashboardResponse contains all BIS dashboard data.

@@ -19,6 +19,7 @@ import {
   type GetBisPolicyRatesResponse,
   type GetBisExchangeRatesResponse,
   type GetBisCreditResponse,
+  type GetBisDashboardResponse,
   type BisPolicyRate,
   type BisExchangeRate,
   type BisCreditToGdp,
@@ -65,6 +66,24 @@ const emptyCapacityFallback: GetEnergyCapacityResponse = { series: [] };
 const emptyBisPolicyFallback: GetBisPolicyRatesResponse = { rates: [] };
 const emptyBisEerFallback: GetBisExchangeRatesResponse = { rates: [] };
 const emptyBisCreditFallback: GetBisCreditResponse = { entries: [] };
+
+const bisDashboardBreaker = createCircuitBreaker<GetBisDashboardResponse>({
+  name: 'BIS Dashboard',
+  cacheTtlMs: 6 * 60 * 60 * 1000,
+  persistCache: true,
+});
+
+const emptyBisDashboard: GetBisDashboardResponse = { policyRates: [], exchangeRates: [], creditGdp: [] };
+
+export async function fetchBisDashboard(): Promise<GetBisDashboardResponse> {
+  try {
+    return await bisDashboardBreaker.execute(async () => {
+      return client.getBisDashboard({});
+    }, emptyBisDashboard);
+  } catch {
+    return emptyBisDashboard;
+  }
+}
 
 // ========================================================================
 // FRED -- replaces src/services/fred.ts

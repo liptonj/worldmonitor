@@ -43,7 +43,7 @@ import {
   fetchNaturalEvents,
   fetchRecentAwards,
   fetchOilAnalytics,
-  fetchBisData,
+  fetchBisDashboard,
   fetchCyberThreats,
   drainTrendingSignals,
   fetchTradeRestrictions,
@@ -1879,7 +1879,13 @@ export class DataLoaderManager implements AppModule {
   async loadBisData(): Promise<void> {
     const economicPanel = this.ctx.panels['economic'] as EconomicPanel;
     try {
-      const data = await fetchBisData();
+      const dashboard = await fetchBisDashboard();
+      const data = {
+        policyRates: dashboard.policyRates,
+        exchangeRates: dashboard.exchangeRates,
+        creditToGdp: dashboard.creditGdp,
+        fetchedAt: new Date(),
+      };
       economicPanel?.updateBis(data);
       const hasData = data.policyRates.length > 0;
       this.ctx.statusPanel?.updateApi('BIS', { status: hasData ? 'ok' : 'error' });

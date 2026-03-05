@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package worldmonitor.economic.v1;
+
+import "worldmonitor/economic/v1/bis_data.proto";
+
+// GetBisDashboardRequest requests all BIS dashboard data in one call.
+message GetBisDashboardRequest {}
+
+// GetBisDashboardResponse contains all BIS dashboard data.
+message GetBisDashboardResponse {
+  repeated BisPolicyRate policy_rates = 1;
+  repeated BisExchangeRate exchange_rates = 2;
+  repeated BisCreditToGdp credit_gdp = 3;
+}
