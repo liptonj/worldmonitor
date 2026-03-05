@@ -59,12 +59,11 @@ export async function getSecret(secretName: string): Promise<string | undefined>
     }
   }
 
-  // 2. Supabase Vault (service-role client — has EXECUTE on wm_admin.get_vault_secret)
+  // 2. Supabase Vault via public.get_vault_secret_value() (SECURITY DEFINER wrapper)
   try {
     const supabase = createServiceClient();
     const { data, error } = await supabase
-      .schema('wm_admin')
-      .rpc('get_vault_secret', { secret_name: secretName });
+      .rpc('get_vault_secret_value', { secret_name: secretName });
     if (!error && data) {
       if (redis) {
         try { await redis.setex(vaultCacheKey(secretName), CACHE_TTL_SECONDS, data); } catch { /* non-fatal */ }

@@ -43,22 +43,35 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
   }
 
   // 2. Supabase via public RPC (anon key)
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) return null;
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+    console.error('[LLM] Missing env: SUPABASE_URL=%s SUPABASE_ANON_KEY=%s',
+      process.env.SUPABASE_URL ? 'set' : 'MISSING',
+      process.env.SUPABASE_ANON_KEY ? 'set' : 'MISSING');
+    return null;
+  }
 
   try {
     const supabase = createAnonClient();
     const { data, error } = await supabase.rpc('get_active_llm_provider');
     const row = Array.isArray(data) && data.length > 0 ? data[0] as Record<string, string> : null;
 
+    if (error) {
+      console.error('[LLM] RPC get_active_llm_provider error:', error.message);
+    }
+
     if (!error && row) {
       const secretName = row.api_key_secret_name;
-      if (!secretName) return null;
+      if (!secretName) {
+        console.error('[LLM] Provider %s has no api_key_secret_name', row.name);
+        return null;
+      }
       const apiKey = await getSecret(secretName);
+      if (!apiKey) {
+        console.error('[LLM] Could not resolve secret %s for provider %s', secretName, row.name);
+      }
       if (apiKey) {
         const extraHeaders: Record<string, string> = {};
         if ((row.name ?? '') === 'ollama') {
-          // Use public.get_ollama_credentials() RPC (anon-callable) to get CF Access headers.
-          // This avoids needing SUPABASE_SERVICE_ROLE_KEY in the environment.
           try {
             const anonClient = createAnonClient();
             const { data: credsData } = await anonClient.rpc('get_ollama_credentials');
@@ -68,7 +81,6 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
               if (creds.cf_access_client_secret) extraHeaders['CF-Access-Client-Secret'] = creds.cf_access_client_secret;
             }
           } catch { /* non-fatal — CF Access headers optional if endpoint allows */ }
-          // Env fallback for local dev
           if (!extraHeaders['CF-Access-Client-Id'] && process.env.OLLAMA_CF_ACCESS_CLIENT_ID) {
             extraHeaders['CF-Access-Client-Id'] = process.env.OLLAMA_CF_ACCESS_CLIENT_ID;
           }
@@ -88,8 +100,12 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
         }
         return provider;
       }
+    } else if (!row) {
+      console.error('[LLM] RPC get_active_llm_provider returned no rows');
     }
-  } catch { /* fall through */ }
+  } catch (err) {
+    console.error('[LLM] getActiveLlmProvider exception:', err);
+  }
 
   // 3. No provider available
   return null;
