@@ -667,6 +667,20 @@ export class LiveNewsPanel extends Panel {
     closeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.destroyPlayer();
+      // Reset state so panel can re-initialize when re-enabled from settings
+      this.deferredInit = false;
+      this.playerContainer = null;
+      if (this.lazyObserver) {
+        this.lazyObserver.disconnect();
+        this.lazyObserver = null;
+      }
+      if (this.idleCallbackId !== null) {
+        if ('cancelIdleCallback' in window) (window as any).cancelIdleCallback(this.idleCallbackId);
+        else clearTimeout(this.idleCallbackId as ReturnType<typeof setTimeout>);
+        this.idleCallbackId = null;
+      }
+      this.renderPlaceholder();
+      this.setupLazyInit();
       this.element.dispatchEvent(
         new CustomEvent('panel-close-request', { bubbles: true, detail: { panelId: this.panelId } })
       );

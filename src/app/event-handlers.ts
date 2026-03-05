@@ -71,6 +71,7 @@ export class EventHandlerManager implements AppModule {
   private boundDesktopExternalLinkHandler: ((e: MouseEvent) => void) | null = null;
   private boundIdleResetHandler: (() => void) | null = null;
   private idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private panelCloseHandler: EventListener | null = null;
   private summarizeViewModal: SummarizeViewModal | null = null;
   private updateSummarizeButtonState: (() => void) | null = null;
   private snapshotIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -172,6 +173,10 @@ export class EventHandlerManager implements AppModule {
     if (this.displayPrefsHandler) {
       window.removeEventListener('display-prefs-changed', this.displayPrefsHandler);
       this.displayPrefsHandler = null;
+    }
+    if (this.panelCloseHandler) {
+      document.removeEventListener('panel-close-request', this.panelCloseHandler);
+      this.panelCloseHandler = null;
     }
     this.ctx.tvMode?.destroy();
     this.ctx.tvMode = null;
@@ -282,8 +287,10 @@ export class EventHandlerManager implements AppModule {
       this.updateHeaderThemeIcon();
     });
 
-    document.addEventListener('panel-close-request', ((e: Event) => {
-      const { panelId } = (e as CustomEvent<{ panelId: string }>).detail;
+    this.panelCloseHandler = ((e: Event) => {
+      const detail = (e as CustomEvent<{ panelId: string }>).detail;
+      const panelId = detail?.panelId;
+      if (!panelId) return;
       const config = this.ctx.panelSettings[panelId];
       if (config) {
         config.enabled = false;
@@ -291,7 +298,8 @@ export class EventHandlerManager implements AppModule {
         saveToStorage(STORAGE_KEYS.panels, this.ctx.panelSettings);
         this.applyPanelSettings();
       }
-    }) as EventListener);
+    }) as EventListener;
+    document.addEventListener('panel-close-request', this.panelCloseHandler);
 
     this.displayPrefsHandler = () => {
       if (this.clockIntervalId) {
