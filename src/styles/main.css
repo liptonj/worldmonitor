@@ -625,6 +625,10 @@ canvas,
   gap: 12px;
 }
 
+.hamburger-btn {
+  display: none;
+}
+
 .theme-toggle-btn {
   display: flex;
   align-items: center;
@@ -9715,6 +9719,83 @@ a.prediction-link:hover {
   /* Ensure conflict click areas are large enough */
   .conflict-click-area {
     cursor: pointer;
+    pointer-events: auto;
+  }
+
+  /* === Hamburger Menu === */
+  .header {
+    position: relative;
+    z-index: 1002;
+  }
+  .hamburger-btn {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    flex-shrink: 0;
+  }
+  .hamburger-btn span {
+    display: block;
+    width: 16px;
+    height: 2px;
+    background: var(--text-dim);
+    border-radius: 1px;
+    transition: transform 0.2s, opacity 0.2s;
+  }
+  .header.mobile-nav-open .hamburger-btn span:nth-child(1) {
+    transform: rotate(45deg) translate(4px, 4px);
+  }
+  .header.mobile-nav-open .hamburger-btn span:nth-child(2) {
+    opacity: 0;
+  }
+  .header.mobile-nav-open .hamburger-btn span:nth-child(3) {
+    transform: rotate(-45deg) translate(4px, -4px);
+  }
+  /* Hide clutter items; hamburger reveals them */
+  .header-right,
+  .region-selector,
+  .status-indicator,
+  .version,
+  .beta-badge {
+    display: none !important;
+  }
+  /* Open state: .header-right drops down as vertical panel */
+  .header.mobile-nav-open .header-right {
+    display: flex !important;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    gap: 10px;
+    z-index: 1001;
+    box-shadow: 0 8px 24px var(--shadow-color);
+  }
+  .header.mobile-nav-open .region-selector {
+    display: flex !important;
+  }
+  /* Semi-transparent backdrop that closes menu on tap */
+  .mobile-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.3);
+    display: none;
+    pointer-events: none;
+  }
+  .mobile-nav-backdrop.active {
+    display: block;
     pointer-events: auto;
   }
 }
