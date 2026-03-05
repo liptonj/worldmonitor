@@ -395,7 +395,7 @@ export class DataLoaderManager implements AppModule {
           });
           this.updateSearchIndex();
         });
-      }, 50);
+      }, profile.phaseBDelayMs);
     } else {
       this.updateSearchIndex();
     }
