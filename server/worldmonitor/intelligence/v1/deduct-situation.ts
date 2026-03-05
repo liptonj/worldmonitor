@@ -40,7 +40,7 @@ export async function deductSituation(
                 const dbPrompt = await getLlmPrompt('deduction', null, null, model);
                 if (!dbPrompt) return null;
 
-                const dateStr = new Date().toISOString().split('T')[0];
+                const dateStr = new Date().toISOString().slice(0, 10);
                 const recentHeadlinesText = await fetchRecentHeadlines(['global', 'conflict'], 15);
 
                 const systemPrompt = buildPrompt(dbPrompt.systemPrompt, { date: dateStr });

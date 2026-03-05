@@ -118,7 +118,7 @@ export function renderDashboard(
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `worldmonitor-config-${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `worldmonitor-config-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

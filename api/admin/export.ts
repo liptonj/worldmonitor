@@ -48,7 +48,7 @@ export default async function handler(req: Request): Promise<Response> {
     headers: {
       ...headers,
       'Content-Type': 'application/json',
-      'Content-Disposition': `attachment; filename="worldmonitor-config-${new Date().toISOString().split('T')[0]}.json"`,
+      'Content-Disposition': `attachment; filename="worldmonitor-config-${new Date().toISOString().slice(0, 10)}.json"`,
     },
   });
 }

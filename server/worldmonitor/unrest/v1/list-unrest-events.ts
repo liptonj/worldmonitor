@@ -35,8 +35,8 @@ async function fetchAcledProtests(req: ListUnrestEventsRequest): Promise<UnrestE
     const now = Date.now();
     const startMs = req.start ?? (now - 30 * 24 * 60 * 60 * 1000);
     const endMs = req.end ?? now;
-    const startDate = new Date(startMs).toISOString().split('T')[0]!;
-    const endDate = new Date(endMs).toISOString().split('T')[0]!;
+    const startDate = new Date(startMs).toISOString().slice(0, 10);
+    const endDate = new Date(endMs).toISOString().slice(0, 10);
 
     const rawEvents = await fetchAcledCached({
       eventTypes: 'Protests',

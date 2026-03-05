@@ -38,14 +38,14 @@ import { createAnonClient } from '../../../_shared/supabase';
 // ========================================================================
 
 export function buildArticlePrompts(
-  headlines: string[],
+  _headlines: string[],
   uniqueHeadlines: string[],
   opts: { mode: string; geoContext: string; variant: string; lang: string },
   dbPrompt: { systemPrompt: string; userPrompt: string },
 ): { systemPrompt: string; userPrompt: string } {
   const headlineText = uniqueHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n');
   const intelSection = opts.geoContext ? `\n\n${opts.geoContext}` : '';
-  const dateContext = `Current date: ${new Date().toISOString().split('T')[0]}.`;
+  const dateContext = `Current date: ${new Date().toISOString().slice(0, 10)}.`;
   const langInstruction = opts.lang && opts.lang !== 'en'
     ? `\nIMPORTANT: Output the summary in ${opts.lang.toUpperCase()} language.`
     : '';

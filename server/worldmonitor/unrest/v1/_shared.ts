@@ -72,7 +72,7 @@ export function deduplicateEvents(events: UnrestEvent[]): UnrestEvent[] {
     const lon = event.location?.longitude ?? 0;
     const latKey = Math.round(lat * 10) / 10;
     const lonKey = Math.round(lon * 10) / 10;
-    const dateKey = new Date(event.occurredAt).toISOString().split('T')[0];
+    const dateKey = new Date(event.occurredAt).toISOString().slice(0, 10);
     const key = `${latKey}:${lonKey}:${dateKey}`;
 
     const existing = unique.get(key);

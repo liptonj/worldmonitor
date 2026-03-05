@@ -70,7 +70,7 @@ export async function getMarketDashboard(
 
       const [finnhubResults, yahooCommodityResults, yahooStockResults, yahooSectorResults, cryptoResults] = await Promise.allSettled([
         allFinnhubSymbols.length > 0
-          ? Promise.all(allFinnhubSymbols.map((s) => fetchFinnhubQuote(s, apiKey!).then((r) => r ? { symbol: s, ...r } : null)))
+          ? Promise.all(allFinnhubSymbols.map((s) => fetchFinnhubQuote(s, apiKey!).then((r) => r ? { ...r, symbol: s } : null)))
           : Promise.resolve([]),
         commoditySymbols.length > 0 ? fetchYahooQuotesBatch(commoditySymbols) : Promise.resolve({ results: new Map(), rateLimited: false }),
         yahooStockSymbols.length > 0 ? fetchYahooQuotesBatch(yahooStockSymbols) : Promise.resolve({ results: new Map(), rateLimited: false }),
@@ -147,7 +147,7 @@ export async function getMarketDashboard(
         }
       }
       if (commodities.length > 0) {
-        setCachedJson(BOOTSTRAP_CACHE_KEYS.commodities, { quotes: commodities }, 600).catch(() => {});
+        setCachedJson(BOOTSTRAP_CACHE_KEYS.commodities ?? 'market:commodities:v1', { quotes: commodities }, 600).catch(() => {});
       }
 
       // Sectors: prefer Finnhub data, fall back to Yahoo (matches getSectorSummary)

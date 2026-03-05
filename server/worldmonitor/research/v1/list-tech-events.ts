@@ -210,7 +210,7 @@ function parseDevEventsRSS(rssText: string): TechEvent[] {
     if (dateMatch) {
       const parsed = new Date(dateMatch[1]!);
       if (!isNaN(parsed.getTime())) {
-        startDate = parsed.toISOString().split('T')[0]!;
+        startDate = parsed.toISOString().slice(0, 10);
       }
     }
 

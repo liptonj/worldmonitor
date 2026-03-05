@@ -39,7 +39,7 @@ export async function summarizeView(
   if (!provider) return empty;
   const { apiKey, apiUrl, model, extraHeaders } = provider;
 
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = new Date().toISOString().slice(0, 10);
 
   try {
     const dbPrompt = await getLlmPrompt('view_summary', null, null, model);

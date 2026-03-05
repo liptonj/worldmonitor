@@ -53,7 +53,7 @@ export async function getCountryIntelBrief(
   try {
     result = await cachedFetchJson<GetCountryIntelBriefResponse>(cacheKey, INTEL_CACHE_TTL, async () => {
       try {
-        const dateStr = new Date().toISOString().split('T')[0];
+        const dateStr = new Date().toISOString().slice(0, 10);
         const dbPrompt = await getLlmPrompt('intel_brief', null, null, model);
         if (!dbPrompt) return null;
 

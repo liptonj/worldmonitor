@@ -37,11 +37,11 @@ const AWARD_TYPE_MAP: Record<string, GovernmentAward['awardType']> = {
 function getDateDaysAgo(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() - days);
-  return date.toISOString().split('T')[0]!;
+  return date.toISOString().slice(0, 10);
 }
 
 function getToday(): string {
-  return new Date().toISOString().split('T')[0]!;
+  return new Date().toISOString().slice(0, 10);
 }
 
 // Input validation bounds

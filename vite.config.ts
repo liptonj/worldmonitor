@@ -670,6 +670,9 @@ export default defineConfig({
       ),
     },
   },
+  worker: {
+    format: 'es',
+  },
   build: {
     // Geospatial bundles (maplibre/deck) are expected to be large even when split.
     // Raise warning threshold to reduce noisy false alarms in CI.

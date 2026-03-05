@@ -81,7 +81,7 @@ export async function getGlobalIntelDigest(
   // Country signals (simplified)
   const countrySignals = 'Monitoring active in all TIER1 regions';
 
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = new Date().toISOString().slice(0, 10);
   const recentHeadlinesText = headlines.length > 0
     ? headlines.map((h, i) => `${i + 1}. ${h.title}`).join('\n')
     : 'No recent headlines available';
