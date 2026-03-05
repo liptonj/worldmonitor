@@ -244,9 +244,21 @@ npm install --omit=dev || warn "npm install failed — relay may be missing node
 restart_pm2() {
   log "Restarting via pm2 (process: ${RELAY_PROCESS_NAME})..."
   if pm2 describe "${RELAY_PROCESS_NAME}" > /dev/null 2>&1; then
-    pm2 restart "${RELAY_PROCESS_NAME}" --update-env
+    if pm2 restart "${RELAY_PROCESS_NAME}" --update-env; then
+      pm2 save
+      log "pm2 restart done."
+      return
+    fi
+    warn "pm2 restart failed for '${RELAY_PROCESS_NAME}' (possibly stale process entry)."
+    warn "Cleaning stale pm2 entry and starting relay fresh..."
+    pm2 delete "${RELAY_PROCESS_NAME}" > /dev/null 2>&1 || true
+    pm2 start "${SCRIPT_DIR}/ais-relay.cjs" \
+      --name "${RELAY_PROCESS_NAME}" \
+      --interpreter node \
+      --restart-delay 3000 \
+      --max-restarts 10
     pm2 save
-    log "pm2 restart done."
+    log "pm2 process re-created."
   else
     warn "pm2 process '${RELAY_PROCESS_NAME}' not found — starting it fresh..."
     pm2 start "${SCRIPT_DIR}/ais-relay.cjs" \
