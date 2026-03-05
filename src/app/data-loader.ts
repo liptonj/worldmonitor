@@ -1845,44 +1845,10 @@ export class DataLoaderManager implements AppModule {
         this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
         return;
       }
-      const { regions, totalCount } = fireResult;
-      if (totalCount > 0) {
-        const flat = flattenFires(regions);
-        const stats = computeRegionStats(regions);
-        const satelliteFires = flat.map(f => ({
-          lat: f.location?.latitude ?? 0,
-          lon: f.location?.longitude ?? 0,
-          brightness: f.brightness,
-          frp: f.frp,
-          region: f.region,
-          acq_date: new Date(f.detectedAt).toISOString().slice(0, 10),
-        }));
-
-        signalAggregator.ingestSatelliteFires(satelliteFires);
-        ingestSatelliteFiresForCII(satelliteFires);
-        (this.ctx.panels['cii'] as CIIPanel)?.refresh();
-
-        this.ctx.map?.setFires(toMapFires(flat));
-
-        (this.ctx.panels['satellite-fires'] as SatelliteFiresPanel)?.update(stats, totalCount);
-
-        dataFreshness.recordUpdate('firms', totalCount);
-
-        updateAndCheck([
-          { type: 'satellite_fires', region: 'global', count: totalCount },
-        ]).then(anomalies => {
-          if (anomalies.length > 0) {
-            signalAggregator.ingestTemporalAnomalies(anomalies);
-            ingestTemporalAnomaliesForCII(anomalies);
-            (this.ctx.panels['cii'] as CIIPanel)?.refresh();
-          }
-        }).catch(() => { });
-      } else {
-        ingestSatelliteFiresForCII([]);
-        (this.ctx.panels['cii'] as CIIPanel)?.refresh();
-        (this.ctx.panels['satellite-fires'] as SatelliteFiresPanel)?.update([], 0);
-      }
-      this.ctx.statusPanel?.updateApi('FIRMS', { status: 'ok' });
+      const data: ListFireDetectionsResponse = {
+        fireDetections: flattenFires(fireResult.regions),
+      };
+      this.renderNatural(data);
     } catch (e) {
       console.warn('[App] FIRMS load failed:', e);
       (this.ctx.panels['satellite-fires'] as SatelliteFiresPanel)?.update([], 0);
