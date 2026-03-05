@@ -100,8 +100,21 @@ is_https_url() {
 is_valid_warm_host() {
   local value="$1"
   local host
+  local allowed_raw allowed_host
   host="$(echo "${value}" | sed -E 's#^https://([^/]+).*$#\1#')"
-  [[ "${host}" == "worldmonitor.app" || "${host}" == *.worldmonitor.app ]]
+  allowed_raw="$(env_get RELAY_ALLOWED_WARM_HOSTS)"
+  if [[ -z "${allowed_raw}" ]]; then
+    allowed_raw="worldmonitor.app,info.5ls.us"
+  fi
+  IFS=',' read -r -a allowed_hosts <<< "${allowed_raw}"
+  for allowed_host in "${allowed_hosts[@]}"; do
+    allowed_host="$(echo "${allowed_host}" | awk '{$1=$1};1' | tr '[:upper:]' '[:lower:]')"
+    [[ -z "${allowed_host}" ]] && continue
+    if [[ "${host}" == "${allowed_host}" || "${host}" == *.${allowed_host} ]]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 is_strong_secret() {
@@ -154,7 +167,7 @@ if [[ "${VERIFY_ONLY}" == "false" ]]; then
   prompt_env "RELAY_SHARED_SECRET" \
     "Shared secret between relay and Vercel (must match RELAY_SHARED_SECRET on Vercel)."
   prompt_env "VERCEL_APP_URL" \
-    "URL of Vercel deployment relay warms (e.g. https://worldmonitor.app)."
+    "URL of deployment relay warms (e.g. https://worldmonitor.app or https://info.5ls.us)."
   prompt_env "UPSTASH_REDIS_REST_URL" \
     "Upstash Redis REST URL used by warm-and-broadcast."
   prompt_env "UPSTASH_REDIS_REST_TOKEN" \
@@ -184,7 +197,7 @@ if [[ -n "${vercel_url}" ]]; then
   if ! is_https_url "${vercel_url}"; then
     fail "VERCEL_APP_URL must start with https://"
   elif ! is_valid_warm_host "${vercel_url}"; then
-    fail "VERCEL_APP_URL host must be worldmonitor.app or a subdomain."
+    fail "VERCEL_APP_URL host is not in RELAY_ALLOWED_WARM_HOSTS."
   else
     log "VERCEL_APP_URL format is valid."
   fi

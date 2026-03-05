@@ -276,7 +276,11 @@ function sendCachedPayloads(ws, channels) {
 const VERCEL_APP_URL = process.env.VERCEL_APP_URL || 'https://worldmonitor.app';
 const RELAY_WARMER_API_KEY = process.env.RELAY_SHARED_SECRET || '';
 
-const ALLOWED_WARM_HOSTS = ['worldmonitor.app'];
+const RELAY_ALLOWED_WARM_HOSTS = process.env.RELAY_ALLOWED_WARM_HOSTS || 'worldmonitor.app,info.5ls.us';
+const ALLOWED_WARM_HOSTS = RELAY_ALLOWED_WARM_HOSTS
+  .split(',')
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
 
 function isAllowedWarmHost(url) {
   try {
