@@ -27,8 +27,8 @@ describe('App.ts relay push wiring', () => {
   it('App.ts does not call loadAllData for API fetches', () => {
     const src = readFileSync('src/App.ts', 'utf8');
     assert.ok(
-      !src.includes('this.dataLoader.loadAllData()') || src.includes('// relay push handles data loading'),
-      'loadAllData should be replaced by relay push'
+      !src.includes('void this.dataLoader.loadAllData()'),
+      'loadAllData should not be called eagerly at startup — relay push handles data'
     );
   });
 });

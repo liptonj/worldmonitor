@@ -624,6 +624,7 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
+      workbox: { navigateFallback: null },
 
       includeAssets: [
         'favico/favicon.ico',

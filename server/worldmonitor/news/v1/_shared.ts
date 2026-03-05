@@ -45,7 +45,7 @@ export function buildArticlePrompts(
 ): { systemPrompt: string; userPrompt: string } {
   const headlineText = uniqueHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n');
   const intelSection = opts.geoContext ? `\n\n${opts.geoContext}` : '';
-  const dateContext = `Current date: ${new Date().toISOString().slice(0, 10)}.`;
+  const dateContext = `Current date: ${new Date().toISOString().slice(0, 10)}. Provide geopolitical context appropriate for the current date.`;
   const langInstruction = opts.lang && opts.lang !== 'en'
     ? `\nIMPORTANT: Output the summary in ${opts.lang.toUpperCase()} language.`
     : '';

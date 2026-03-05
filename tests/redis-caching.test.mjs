@@ -78,17 +78,20 @@ describe('redis caching behavior', { concurrency: 1 }, () => {
 
     let getCalls = 0;
     let setCalls = 0;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
+      if (!raw.includes('/pipeline')) throw new Error(`Unexpected fetch URL: ${raw}`);
+      const body = JSON.parse(String(init?.body || '[]'));
+      const cmd = body[0];
+      if (cmd?.[0] === 'GET') {
         getCalls += 1;
-        return jsonResponse({ result: undefined });
+        return jsonResponse([{ result: null }]);
       }
-      if (raw.includes('/set/')) {
+      if (cmd?.[0] === 'SET') {
         setCalls += 1;
-        return jsonResponse({ result: 'OK' });
+        return jsonResponse([{ result: 'OK' }]);
       }
-      throw new Error(`Unexpected fetch URL: ${raw}`);
+      throw new Error(`Unexpected pipeline command: ${JSON.stringify(cmd)}`);
     };
 
     try {
@@ -164,12 +167,15 @@ describe('cachedFetchJsonWithMeta source labeling', { concurrency: 1 }, () => {
     });
     const originalFetch = globalThis.fetch;
 
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
-        return jsonResponse({ result: JSON.stringify({ value: 'cached-data' }) });
+      if (!raw.includes('/pipeline')) throw new Error(`Unexpected fetch URL: ${raw}`);
+      const body = JSON.parse(String(init?.body || '[]'));
+      const cmd = body[0];
+      if (cmd?.[0] === 'GET') {
+        return jsonResponse([{ result: JSON.stringify({ value: 'cached-data' }) }]);
       }
-      throw new Error(`Unexpected fetch URL: ${raw}`);
+      throw new Error(`Unexpected pipeline command: ${JSON.stringify(cmd)}`);
     };
 
     try {
@@ -198,11 +204,14 @@ describe('cachedFetchJsonWithMeta source labeling', { concurrency: 1 }, () => {
     });
     const originalFetch = globalThis.fetch;
 
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) return jsonResponse({ result: undefined });
-      if (raw.includes('/set/')) return jsonResponse({ result: 'OK' });
-      throw new Error(`Unexpected fetch URL: ${raw}`);
+      if (!raw.includes('/pipeline')) throw new Error(`Unexpected fetch URL: ${raw}`);
+      const body = JSON.parse(String(init?.body || '[]'));
+      const cmd = body[0];
+      if (cmd?.[0] === 'GET') return jsonResponse([{ result: null }]);
+      if (cmd?.[0] === 'SET') return jsonResponse([{ result: 'OK' }]);
+      throw new Error(`Unexpected pipeline command: ${JSON.stringify(cmd)}`);
     };
 
     try {
@@ -228,11 +237,14 @@ describe('cachedFetchJsonWithMeta source labeling', { concurrency: 1 }, () => {
     });
     const originalFetch = globalThis.fetch;
 
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) return jsonResponse({ result: undefined });
-      if (raw.includes('/set/')) return jsonResponse({ result: 'OK' });
-      throw new Error(`Unexpected fetch URL: ${raw}`);
+      if (!raw.includes('/pipeline')) throw new Error(`Unexpected fetch URL: ${raw}`);
+      const body = JSON.parse(String(init?.body || '[]'));
+      const cmd = body[0];
+      if (cmd?.[0] === 'GET') return jsonResponse([{ result: null }]);
+      if (cmd?.[0] === 'SET') return jsonResponse([{ result: 'OK' }]);
+      throw new Error(`Unexpected pipeline command: ${JSON.stringify(cmd)}`);
     };
 
     try {
@@ -274,16 +286,19 @@ describe('cachedFetchJsonWithMeta source labeling', { concurrency: 1 }, () => {
 
     // First call: cache miss. Second call (from a "different instance"): cache hit.
     let getCalls = 0;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
+      if (!raw.includes('/pipeline')) throw new Error(`Unexpected fetch URL: ${raw}`);
+      const body = JSON.parse(String(init?.body || '[]'));
+      const cmd = body[0];
+      if (cmd?.[0] === 'GET') {
         getCalls += 1;
-        if (getCalls === 1) return jsonResponse({ result: undefined });
+        if (getCalls === 1) return jsonResponse([{ result: null }]);
         // Simulate another instance populating cache between calls
-        return jsonResponse({ result: JSON.stringify({ value: 'from-other-instance' }) });
+        return jsonResponse([{ result: JSON.stringify({ value: 'from-other-instance' }) }]);
       }
-      if (raw.includes('/set/')) return jsonResponse({ result: 'OK' });
-      throw new Error(`Unexpected fetch URL: ${raw}`);
+      if (cmd?.[0] === 'SET') return jsonResponse([{ result: 'OK' }]);
+      throw new Error(`Unexpected pipeline command: ${JSON.stringify(cmd)}`);
     };
 
     try {
@@ -320,21 +335,23 @@ describe('negative-result caching', { concurrency: 1 }, () => {
     const originalFetch = globalThis.fetch;
 
     const store = new Map();
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
-        const key = decodeURIComponent(raw.split('/get/').pop() || '');
+      if (!raw.includes('/pipeline')) throw new Error(`Unexpected fetch URL: ${raw}`);
+      const body = JSON.parse(String(init?.body || '[]'));
+      const cmd = body[0];
+      if (cmd?.[0] === 'GET') {
+        const key = cmd[1] ?? '';
         const val = store.get(key);
-        return jsonResponse({ result: val ?? undefined });
+        return jsonResponse([{ result: val ?? null }]);
       }
-      if (raw.includes('/set/')) {
-        const parts = raw.split('/set/').pop().split('/');
-        const key = decodeURIComponent(parts[0]);
-        const value = decodeURIComponent(parts[1]);
+      if (cmd?.[0] === 'SET') {
+        const key = cmd[1] ?? '';
+        const value = cmd[2] ?? '';
         store.set(key, value);
-        return jsonResponse({ result: 'OK' });
+        return jsonResponse([{ result: 'OK' }]);
       }
-      throw new Error(`Unexpected fetch URL: ${raw}`);
+      throw new Error(`Unexpected pipeline command: ${JSON.stringify(cmd)}`);
     };
 
     try {
@@ -369,21 +386,23 @@ describe('negative-result caching', { concurrency: 1 }, () => {
     const originalFetch = globalThis.fetch;
 
     const store = new Map();
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
-        const key = decodeURIComponent(raw.split('/get/').pop() || '');
+      if (!raw.includes('/pipeline')) throw new Error(`Unexpected fetch URL: ${raw}`);
+      const body = JSON.parse(String(init?.body || '[]'));
+      const cmd = body[0];
+      if (cmd?.[0] === 'GET') {
+        const key = cmd[1] ?? '';
         const val = store.get(key);
-        return jsonResponse({ result: val ?? undefined });
+        return jsonResponse([{ result: val ?? null }]);
       }
-      if (raw.includes('/set/')) {
-        const parts = raw.split('/set/').pop().split('/');
-        const key = decodeURIComponent(parts[0]);
-        const value = decodeURIComponent(parts[1]);
+      if (cmd?.[0] === 'SET') {
+        const key = cmd[1] ?? '';
+        const value = cmd[2] ?? '';
         store.set(key, value);
-        return jsonResponse({ result: 'OK' });
+        return jsonResponse([{ result: 'OK' }]);
       }
-      throw new Error(`Unexpected fetch URL: ${raw}`);
+      throw new Error(`Unexpected pipeline command: ${JSON.stringify(cmd)}`);
     };
 
     try {
@@ -414,14 +433,17 @@ describe('negative-result caching', { concurrency: 1 }, () => {
     const originalFetch = globalThis.fetch;
 
     let setCalls = 0;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) return jsonResponse({ result: undefined });
-      if (raw.includes('/set/')) {
+      if (!raw.includes('/pipeline')) throw new Error(`Unexpected fetch URL: ${raw}`);
+      const body = JSON.parse(String(init?.body || '[]'));
+      const cmd = body[0];
+      if (cmd?.[0] === 'GET') return jsonResponse([{ result: null }]);
+      if (cmd?.[0] === 'SET') {
         setCalls += 1;
-        return jsonResponse({ result: 'OK' });
+        return jsonResponse([{ result: 'OK' }]);
       }
-      throw new Error(`Unexpected fetch URL: ${raw}`);
+      throw new Error(`Unexpected pipeline command: ${JSON.stringify(cmd)}`);
     };
 
     try {
@@ -477,13 +499,13 @@ describe('theater posture caching behavior', { concurrency: 1 }, () => {
     const originalFetch = globalThis.fetch;
 
     let openskyFetchCount = 0;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/') || raw.includes('/pipeline')) {
-        return jsonResponse({ result: undefined });
-      }
-      if (raw.includes('/set/')) {
-        return jsonResponse({ result: 'OK' });
+      if (raw.includes('/pipeline')) {
+        const body = JSON.parse(String(init?.body || '[]'));
+        const cmd = body[0];
+        if (cmd?.[0] === 'GET') return jsonResponse([{ result: null }]);
+        if (cmd?.[0] === 'SET') return jsonResponse([{ result: 'OK' }]);
       }
       if (raw.includes('opensky-network.org')) {
         openskyFetchCount += 1;
@@ -526,20 +548,22 @@ describe('theater posture caching behavior', { concurrency: 1 }, () => {
 
     const staleData = { theaters: [{ theater: 'stale-test', postureLevel: 'normal', activeFlights: 1, trackedVessels: 0, activeOperations: [], assessedAt: 1 }] };
 
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
-        const key = decodeURIComponent(raw.split('/get/').pop() || '');
-        if (key === 'theater-posture:sebuf:v1') {
-          return jsonResponse({ result: undefined });
+      if (raw.includes('/pipeline')) {
+        const body = JSON.parse(String(init?.body || '[]'));
+        const cmd = body[0];
+        if (cmd?.[0] === 'GET') {
+          const key = cmd[1] ?? '';
+          if (key === 'theater-posture:sebuf:v1') {
+            return jsonResponse([{ result: null }]);
+          }
+          if (key === 'theater-posture:sebuf:stale:v1') {
+            return jsonResponse([{ result: JSON.stringify(staleData) }]);
+          }
+          return jsonResponse([{ result: null }]);
         }
-        if (key === 'theater-posture:sebuf:stale:v1') {
-          return jsonResponse({ result: JSON.stringify(staleData) });
-        }
-        return jsonResponse({ result: undefined });
-      }
-      if (raw.includes('/set/')) {
-        return jsonResponse({ result: 'OK' });
+        if (cmd?.[0] === 'SET') return jsonResponse([{ result: 'OK' }]);
       }
       if (raw.includes('opensky-network.org')) {
         throw new Error('OpenSky down');
@@ -570,13 +594,13 @@ describe('theater posture caching behavior', { concurrency: 1 }, () => {
     });
     const originalFetch = globalThis.fetch;
 
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
-        return jsonResponse({ result: undefined });
-      }
-      if (raw.includes('/set/')) {
-        return jsonResponse({ result: 'OK' });
+      if (raw.includes('/pipeline')) {
+        const body = JSON.parse(String(init?.body || '[]'));
+        const cmd = body[0];
+        if (cmd?.[0] === 'GET') return jsonResponse([{ result: null }]);
+        if (cmd?.[0] === 'SET') return jsonResponse([{ result: 'OK' }]);
       }
       if (raw.includes('opensky-network.org')) {
         throw new Error('OpenSky down');
@@ -608,15 +632,17 @@ describe('theater posture caching behavior', { concurrency: 1 }, () => {
     const originalFetch = globalThis.fetch;
 
     const cacheWrites = [];
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
-        return jsonResponse({ result: undefined });
-      }
-      if (raw.includes('/set/')) {
-        const key = decodeURIComponent(raw.split('/set/').pop()?.split('/').shift() || '');
-        cacheWrites.push(key);
-        return jsonResponse({ result: 'OK' });
+      if (raw.includes('/pipeline')) {
+        const body = JSON.parse(String(init?.body || '[]'));
+        const cmd = body[0];
+        if (cmd?.[0] === 'GET') return jsonResponse([{ result: null }]);
+        if (cmd?.[0] === 'SET') {
+          const key = cmd[1] ?? '';
+          cacheWrites.push(key);
+          return jsonResponse([{ result: 'OK' }]);
+        }
       }
       if (raw.includes('opensky-network.org')) {
         return mockOpenSkyResponse();
@@ -641,18 +667,18 @@ describe('theater posture caching behavior', { concurrency: 1 }, () => {
 describe('country intel brief caching behavior', { concurrency: 1 }, () => {
   async function importCountryIntelBrief() {
     return importPatchedTsModule('server/worldmonitor/intelligence/v1/get-country-intel-brief.ts', {
-      './_shared': resolve(root, 'server/worldmonitor/intelligence/v1/_shared.ts'),
+      './_shared': resolve(root, 'tests/_stubs/intelligence-shared.mjs'),
       '../../../_shared/constants': resolve(root, 'server/_shared/constants.ts'),
       '../../../_shared/redis': resolve(root, 'server/_shared/redis.ts'),
+      '../../../_shared/llm': resolve(root, 'tests/_stubs/llm.mjs'),
       '../../../_shared/secrets': resolve(root, 'tests/_stubs/secrets.mjs'),
     });
   }
 
-  function parseRedisKey(rawUrl, op) {
-    const marker = `/${op}/`;
-    const idx = rawUrl.indexOf(marker);
-    if (idx === -1) return '';
-    return decodeURIComponent(rawUrl.slice(idx + marker.length).split('/')[0] || '');
+  function parsePipelineBody(init) {
+    const body = JSON.parse(String(init?.body || '[]'));
+    const cmd = body[0];
+    return { op: cmd?.[0], key: cmd?.[1] ?? '', value: cmd?.[2] ?? '' };
   }
 
   function makeCtx(url) {
@@ -677,16 +703,17 @@ describe('country intel brief caching behavior', { concurrency: 1 }, () => {
 
     globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
-        const key = parseRedisKey(raw, 'get');
-        return jsonResponse({ result: store.get(key) });
-      }
-      if (raw.includes('/set/')) {
-        const key = parseRedisKey(raw, 'set');
-        const encodedValue = raw.slice(raw.indexOf('/set/') + 5).split('/')[1] || '';
-        store.set(key, decodeURIComponent(encodedValue));
-        setKeys.push(key);
-        return jsonResponse({ result: 'OK' });
+      if (raw.includes('/pipeline')) {
+        const { op, key, value } = parsePipelineBody(init);
+        if (op === 'GET') {
+          const val = store.get(key);
+          return jsonResponse([{ result: val ?? null }]);
+        }
+        if (op === 'SET') {
+          store.set(key, value);
+          setKeys.push(key);
+          return jsonResponse([{ result: 'OK' }]);
+        }
       }
       if (raw.includes('api.groq.com/openai/v1/chat/completions')) {
         groqCalls += 1;
@@ -738,16 +765,17 @@ describe('country intel brief caching behavior', { concurrency: 1 }, () => {
 
     globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
-        const key = parseRedisKey(raw, 'get');
-        return jsonResponse({ result: store.get(key) });
-      }
-      if (raw.includes('/set/')) {
-        const key = parseRedisKey(raw, 'set');
-        const encodedValue = raw.slice(raw.indexOf('/set/') + 5).split('/')[1] || '';
-        store.set(key, decodeURIComponent(encodedValue));
-        setKeys.push(key);
-        return jsonResponse({ result: 'OK' });
+      if (raw.includes('/pipeline')) {
+        const { op, key, value } = parsePipelineBody(init);
+        if (op === 'GET') {
+          const val = store.get(key);
+          return jsonResponse([{ result: val ?? null }]);
+        }
+        if (op === 'SET') {
+          store.set(key, value);
+          setKeys.push(key);
+          return jsonResponse([{ result: 'OK' }]);
+        }
       }
       if (raw.includes('api.groq.com/openai/v1/chat/completions')) {
         groqCalls += 1;
@@ -855,19 +883,25 @@ describe('military flights bbox behavior', { concurrency: 1 }, () => {
 
     let openskyCalls = 0;
     let redisGetCalls = 0;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, init = {}) => {
       const raw = String(url);
-      if (raw.includes('/get/')) {
-        redisGetCalls += 1;
-        return jsonResponse({
-          result: JSON.stringify({
-            flights: [
-              { id: 'cache-in', location: { latitude: 10.2, longitude: 10.2 } },
-              { id: 'cache-out', location: { latitude: 9.8, longitude: 10.2 } },
-            ],
-            clusters: [],
-          }),
-        });
+      if (raw.includes('/pipeline')) {
+        const body = JSON.parse(String(init?.body || '[]'));
+        const cmd = body[0];
+        if (cmd?.[0] === 'GET') {
+          redisGetCalls += 1;
+          return jsonResponse([
+            {
+              result: JSON.stringify({
+                flights: [
+                  { id: 'cache-in', location: { latitude: 10.2, longitude: 10.2 } },
+                  { id: 'cache-out', location: { latitude: 9.8, longitude: 10.2 } },
+                ],
+                clusters: [],
+              }),
+            },
+          ]);
+        }
       }
       if (raw.includes('opensky-network.org/api/states/all')) {
         openskyCalls += 1;

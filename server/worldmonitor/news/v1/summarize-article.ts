@@ -154,12 +154,7 @@ export async function summarizeArticle(
         const message = useOllamaNativeApi
           ? data.message
           : data.choices?.[0]?.message;
-        // Some thinking models (e.g. qwen3) return content in message.reasoning
-        // when think mode is enabled; use content first, fall back to reasoning.
-        let rawContent = typeof message?.content === 'string' && message.content.trim()
-          ? message.content.trim()
-          : typeof message?.reasoning === 'string' ? message.reasoning.trim() : '';
-
+        let rawContent = typeof message?.content === 'string' ? message.content.trim() : '';
         rawContent = rawContent
           .replace(/<think>[\s\S]*?<\/think>/gi, '')
           .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/gi, '')

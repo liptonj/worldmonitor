@@ -3,6 +3,7 @@ import { escapeHtml } from '@/utils/sanitize';
 import { t } from '@/services/i18n';
 import type { GetMacroSignalsResponse } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import { getHydratedData } from '@/services/bootstrap';
+import { fetchMacroSignals } from '@/services/economic';
 
 interface MacroSignalData {
   timestamp: string;
@@ -120,6 +121,7 @@ export class MacroSignalsPanel extends Panel {
   private data: MacroSignalData | null = null;
   private loading = true;
   private error: string | null = null;
+  private lastTimestamp = '';
 
   constructor() {
     super({ id: 'macro-signals', title: t('panels.macroSignals'), showCount: false });
@@ -140,6 +142,21 @@ export class MacroSignalsPanel extends Panel {
       this.loading = false;
       this.renderPanel();
     }
+  }
+
+  public async fetchData(): Promise<boolean> {
+    const resp = await fetchMacroSignals();
+    if (!resp) return false;
+    const newTs = resp.timestamp ?? '';
+    const changed = newTs !== this.lastTimestamp;
+    if (changed) this.lastTimestamp = newTs;
+    if (resp && !resp.unavailable) {
+      this.data = mapProtoToData(resp);
+      this.error = null;
+      this.loading = false;
+      this.renderPanel();
+    }
+    return changed;
   }
 
   private renderPanel(): void {

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const vercelConfig = JSON.parse(readFileSync(resolve(__dirname, '../vercel.json'), 'utf-8'));
 const viteConfigSource = readFileSync(resolve(__dirname, '../vite.config.ts'), 'utf-8');
+const swSource = readFileSync(resolve(__dirname, '../src/sw.ts'), 'utf-8');
 
 const getCacheHeaderValue = (sourcePath) => {
   const rule = vercelConfig.headers.find((entry) => entry.source === sourcePath);
@@ -41,9 +42,9 @@ describe('deploy/cache configuration guardrails', () => {
   });
 
   it('uses network-first runtime caching for navigation requests', () => {
-    assert.match(viteConfigSource, /request\.mode === 'navigate'/);
-    assert.match(viteConfigSource, /handler:\s*'NetworkFirst'/);
-    assert.match(viteConfigSource, /cacheName:\s*'html-navigation'/);
+    assert.match(swSource, /request\.mode === 'navigate'/);
+    assert.match(swSource, /NetworkFirst/);
+    assert.match(swSource, /cacheName:\s*'html-navigation'/);
   });
 
   it('contains variant-specific metadata fields used by html replacement and manifest', () => {
