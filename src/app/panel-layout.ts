@@ -311,6 +311,8 @@ export class PanelLayoutManager implements AppModule {
     closeOnClick('#unifiedSettingsMount');
     closeOnClick('#fullscreenBtn');
     closeOnClick('#tvModeBtn');
+    closeOnClick('#summarizeViewBtn');
+    closeOnClick('.variant-switcher a');
 
     this.mobileNavCleanup = () => {
       hamburgerBtn.removeEventListener('click', toggleHandler);

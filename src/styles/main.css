@@ -9829,13 +9829,20 @@ a.prediction-link:hover {
 
   /* === Panel-wide & span resets (no-op on flex layout but defensive for future) === */
   .panel-wide {
+    grid-column: span 1 !important;
+    grid-row: span 1 !important;
     min-height: 280px;
     max-height: none;
   }
   .panel.span-2,
   .panel.span-3,
   .panel.span-4 {
+    grid-row: span 1 !important;
     min-height: 250px !important;
+  }
+  .panel.col-span-2,
+  .panel.col-span-3 {
+    grid-column: span 1 !important;
   }
   /* === Live news player sizing === */
   .live-news-player {
