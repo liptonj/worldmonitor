@@ -1,7 +1,6 @@
 import type { Monitor, PanelConfig, MapLayers } from '@/types';
 import type { AppContext } from '@/app/app-context';
 import {
-  REFRESH_INTERVALS,
   DEFAULT_PANELS,
   DEFAULT_MAP_LAYERS,
   MOBILE_DEFAULT_MAP_LAYERS,
@@ -17,12 +16,6 @@ import { loadFromStorage, parseMapUrlState, saveToStorage, isMobileDevice } from
 import type { ParsedMapUrlState } from '@/utils';
 import { SignalModal, IntelligenceGapBadge, BreakingNewsBanner } from '@/components';
 import { initBreakingNewsAlerts, destroyBreakingNewsAlerts } from '@/services/breaking-news-alerts';
-import type { ServiceStatusPanel } from '@/components/ServiceStatusPanel';
-import type { StablecoinPanel } from '@/components/StablecoinPanel';
-import type { ETFFlowsPanel } from '@/components/ETFFlowsPanel';
-import type { MacroSignalsPanel } from '@/components/MacroSignalsPanel';
-import type { StrategicPosturePanel } from '@/components/StrategicPosturePanel';
-import type { StrategicRiskPanel } from '@/components/StrategicRiskPanel';
 import { isDesktopRuntime } from '@/services/runtime';
 import { BETA_MODE } from '@/config/beta';
 import { trackEvent, trackDeeplinkOpened } from '@/services/analytics';
@@ -41,18 +34,9 @@ import { DataLoaderManager } from '@/app/data-loader';
 import { EventHandlerManager } from '@/app/event-handlers';
 import { resolveUserRegion } from '@/utils/user-location';
 import { initDisplayPrefs } from '@/utils/display-prefs';
+import { initRelayPush, subscribe as subscribeRelayPush, destroyRelayPush } from '@/services/relay-push';
 
 const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
-
-function logPerformanceSummary(): void {
-  const entries = performance.getEntriesByType('measure')
-    .filter(e => e.name.startsWith('wm:'));
-  if (entries.length === 0) return;
-  console.info('[perf] Init breakdown:');
-  for (const e of entries) {
-    console.info(`  ${e.name}: ${Math.round(e.duration)}ms`);
-  }
-}
 
 export type { CountryBriefSignals } from '@/app/app-context';
 
@@ -483,18 +467,7 @@ export class App {
     performance.mark('wm:bootstrap-done');
     performance.measure('wm:bootstrap', 'wm:layout-done', 'wm:bootstrap-done');
 
-    void this.dataLoader.loadAllData()
-      .then(() => {
-        performance.mark('wm:data-done');
-        performance.measure('wm:data-load', 'wm:bootstrap-done', 'wm:data-done');
-        performance.measure('wm:total-init', 'wm:init-start', 'wm:data-done');
-        logPerformanceSummary();
-        const totalMs = performance.now() - initStart;
-        if (totalMs > 500) {
-          console.info(`[perf] App.init total: ${Math.round(totalMs)}ms`);
-        }
-      })
-      .catch((e) => console.warn('[DataLoader] loadAllData failed:', e));
+    // relay push handles data loading — data arrives via WebSocket on connect
 
     startLearning();
 
@@ -510,6 +483,7 @@ export class App {
     }
 
     this.setupRefreshIntervals();
+    this.setupRelayPush();
     this.eventHandlers.setupSnapshotSaving();
     cleanOldSnapshots().catch((e) => console.warn('[Storage] Snapshot cleanup failed:', e));
 
@@ -525,6 +499,7 @@ export class App {
 
   public destroy(): void {
     this.state.isDestroyed = true;
+    destroyRelayPush();
 
     // Destroy all modules in reverse order
     for (let i = this.modules.length - 1; i >= 0; i--) {
@@ -603,96 +578,86 @@ export class App {
   }
 
   private setupRefreshIntervals(): void {
-    // Always refresh news for all variants
-    this.refreshScheduler.scheduleRefresh('news', () => this.dataLoader.loadNews(), REFRESH_INTERVALS.feeds);
+    // All data is now pushed by the relay. No browser-side polling.
+  }
 
-    // Happy variant only refreshes news -- skip all geopolitical/financial/military refreshes
-    if (SITE_VARIANT !== 'happy') {
-      this.refreshScheduler.registerAll([
-        { name: 'markets', fn: () => this.dataLoader.loadMarkets(), intervalMs: REFRESH_INTERVALS.markets },
-        { name: 'predictions', fn: () => this.dataLoader.loadPredictions(), intervalMs: REFRESH_INTERVALS.predictions },
-        { name: 'pizzint', fn: () => this.dataLoader.loadPizzInt(), intervalMs: 10 * 60 * 1000 },
-        { name: 'natural', fn: () => this.dataLoader.loadNatural(), intervalMs: 60 * 60 * 1000, condition: () => this.state.mapLayers.natural },
-        { name: 'weather', fn: () => this.dataLoader.loadWeatherAlerts(), intervalMs: 10 * 60 * 1000, condition: () => this.state.mapLayers.weather },
-        { name: 'fred', fn: () => this.dataLoader.loadFredData(), intervalMs: 30 * 60 * 1000 },
-        { name: 'oil', fn: () => this.dataLoader.loadOilAnalytics(), intervalMs: 30 * 60 * 1000 },
-        { name: 'spending', fn: () => this.dataLoader.loadGovernmentSpending(), intervalMs: 60 * 60 * 1000 },
-        { name: 'bis', fn: () => this.dataLoader.loadBisData(), intervalMs: 60 * 60 * 1000 },
-        { name: 'firms', fn: () => this.dataLoader.loadFirmsData(), intervalMs: 30 * 60 * 1000 },
-        { name: 'ais', fn: () => this.dataLoader.loadAisSignals(), intervalMs: REFRESH_INTERVALS.ais, condition: () => this.state.mapLayers.ais },
-        { name: 'cables', fn: () => this.dataLoader.loadCableActivity(), intervalMs: 30 * 60 * 1000, condition: () => this.state.mapLayers.cables },
-        { name: 'cableHealth', fn: () => this.dataLoader.loadCableHealth(), intervalMs: 2 * 60 * 60 * 1000, condition: () => this.state.mapLayers.cables },
-        { name: 'flights', fn: () => this.dataLoader.loadFlightDelays(), intervalMs: 2 * 60 * 60 * 1000, condition: () => this.state.mapLayers.flights },
-        {
-          name: 'cyberThreats', fn: () => {
-            this.state.cyberThreatsCache = null;
-            return this.dataLoader.loadCyberThreats();
-          }, intervalMs: 10 * 60 * 1000, condition: () => CYBER_LAYER_ENABLED && this.state.mapLayers.cyberThreats
-        },
-      ]);
-    }
-
-    // Panel-level refreshes (moved from panel constructors into scheduler for hidden-tab awareness + jitter)
-    this.refreshScheduler.scheduleRefresh(
-      'service-status',
-      () => (this.state.panels['service-status'] as ServiceStatusPanel).fetchStatus(),
-      60_000,
-      () => !!this.state.panels['service-status']
-    );
-    this.refreshScheduler.scheduleRefresh(
+  private setupRelayPush(): void {
+    const variant = SITE_VARIANT || 'full';
+    const channels = [
+      `news:${variant}`,
+      'markets',
+      'predictions',
+      'pizzint',
+      'fred',
+      'oil',
+      'bis',
+      'trade',
+      'supply-chain',
+      'intelligence',
       'stablecoins',
-      () => (this.state.panels['stablecoins'] as StablecoinPanel).fetchData(),
-      3 * 60_000,
-      () => !!this.state.panels['stablecoins']
-    );
-    this.refreshScheduler.scheduleRefresh(
       'etf-flows',
-      () => (this.state.panels['etf-flows'] as ETFFlowsPanel).fetchData(),
-      3 * 60_000,
-      () => !!this.state.panels['etf-flows']
-    );
-    this.refreshScheduler.scheduleRefresh(
       'macro-signals',
-      () => (this.state.panels['macro-signals'] as MacroSignalsPanel).fetchData(),
-      3 * 60_000,
-      () => !!this.state.panels['macro-signals']
-    );
-    this.refreshScheduler.scheduleRefresh(
       'strategic-posture',
-      () => (this.state.panels['strategic-posture'] as StrategicPosturePanel).refresh(),
-      15 * 60_000,
-      () => !!this.state.panels['strategic-posture']
-    );
-    this.refreshScheduler.scheduleRefresh(
       'strategic-risk',
-      () => (this.state.panels['strategic-risk'] as StrategicRiskPanel).refresh(),
-      5 * 60_000,
-      () => !!this.state.panels['strategic-risk']
-    );
+      'service-status',
+      'cables',
+      'natural',
+      'cyber',
+      'flights',
+      'ais',
+      'weather',
+      'spending',
+      'giving',
+      'telegram',
+    ];
 
-    // WTO trade policy data — annual data, poll every 10 min to avoid hammering upstream
-    if (SITE_VARIANT === 'full' || SITE_VARIANT === 'finance') {
-      this.refreshScheduler.scheduleRefresh('tradePolicy', () => this.dataLoader.loadTradePolicy(), 10 * 60 * 1000);
-      this.refreshScheduler.scheduleRefresh('supplyChain', () => this.dataLoader.loadSupplyChain(), 10 * 60 * 1000);
-    }
+    initRelayPush(channels);
 
-    // Telegram Intel (near real-time, 60s refresh)
-    this.refreshScheduler.scheduleRefresh(
-      'telegram-intel',
-      () => this.dataLoader.loadTelegramIntel(),
-      60_000,
-      () => !!this.state.panels['telegram-intel']
-    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dl = this.dataLoader as any;
+    subscribeRelayPush(`news:${variant}`, (payload) => { void dl.applyNewsDigest(payload); });
+    subscribeRelayPush('markets', (payload) => { void dl.applyMarkets(payload); });
+    subscribeRelayPush('predictions', (payload) => { void dl.applyPredictions(payload); });
+    subscribeRelayPush('fred', (payload) => { void dl.applyFredData(payload); });
+    subscribeRelayPush('oil', (payload) => { void dl.applyOilData(payload); });
+    subscribeRelayPush('bis', (payload) => { void dl.applyBisData(payload); });
+    subscribeRelayPush('intelligence', (payload) => { void dl.applyIntelligence(payload); });
+    subscribeRelayPush('pizzint', (payload) => { void dl.applyPizzInt(payload); });
+    subscribeRelayPush('trade', (payload) => { void dl.applyTradePolicy(payload); });
+    subscribeRelayPush('supply-chain', (payload) => { void dl.applySupplyChain(payload); });
+    subscribeRelayPush('natural', (payload) => { void dl.applyNatural(payload); });
+    subscribeRelayPush('cyber', (payload) => { void dl.applyCyberThreats(payload); });
+    subscribeRelayPush('cables', (payload) => { void dl.applyCableHealth(payload); });
+    subscribeRelayPush('flights', (payload) => { void dl.applyFlightDelays(payload); });
+    subscribeRelayPush('ais', (payload) => { void dl.applyAisSignals(payload); });
+    subscribeRelayPush('weather', (payload) => { void dl.applyWeatherAlerts(payload); });
+    subscribeRelayPush('spending', (payload) => { void dl.applySpending(payload); });
+    subscribeRelayPush('giving', (payload) => { void dl.applyGiving(payload); });
+    subscribeRelayPush('telegram', (payload) => { void dl.applyTelegramIntel(payload); });
 
-    // Refresh intelligence signals for CII (geopolitical variant only)
-    if (SITE_VARIANT === 'full') {
-      this.refreshScheduler.scheduleRefresh('intelligence', () => {
-        const { military, iranEvents } = this.state.intelligenceCache;
-        this.state.intelligenceCache = {};
-        if (military) this.state.intelligenceCache.military = military;
-        if (iranEvents) this.state.intelligenceCache.iranEvents = iranEvents;
-        return this.dataLoader.loadIntelligenceSignals();
-      }, 15 * 60 * 1000);
-    }
+    subscribeRelayPush('strategic-posture', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state.panels['strategic-posture'] as any)?.applyPush?.(payload);
+    });
+    subscribeRelayPush('strategic-risk', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state.panels['strategic-risk'] as any)?.applyPush?.(payload);
+    });
+    subscribeRelayPush('stablecoins', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state.panels['stablecoins'] as any)?.applyPush?.(payload);
+    });
+    subscribeRelayPush('etf-flows', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state.panels['etf-flows'] as any)?.applyPush?.(payload);
+    });
+    subscribeRelayPush('macro-signals', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state.panels['macro-signals'] as any)?.applyPush?.(payload);
+    });
+    subscribeRelayPush('service-status', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state.panels['service-status'] as any)?.applyPush?.(payload);
+    });
   }
 }
