@@ -1,7 +1,6 @@
 import { Panel } from './Panel';
 import { t } from '@/services/i18n';
 import { escapeHtml } from '@/utils/sanitize';
-import { MarketServiceClient } from '@/generated/client/worldmonitor/market/v1/service_client';
 import type { ListStablecoinMarketsResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
 
 type StablecoinResult = ListStablecoinMarketsResponse;
@@ -31,34 +30,16 @@ export class StablecoinPanel extends Panel {
   private error: string | null = null;
   constructor() {
     super({ id: 'stablecoins', title: t('panels.stablecoins'), showCount: false });
-    void this.fetchData();
+    // Data arrives via relay push — no initial fetch
   }
 
-  public async fetchData(): Promise<void> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const client = new MarketServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-        this.data = await client.listStablecoinMarkets({ coins: [] });
-        this.error = null;
-
-        if (this.data && this.data.stablecoins.length === 0 && attempt < 2) {
-          this.showRetrying();
-          await new Promise(r => setTimeout(r, 20_000));
-          continue;
-        }
-        break;
-      } catch (err) {
-        if (this.isAbortError(err)) return;
-        if (attempt < 2) {
-          this.showRetrying();
-          await new Promise(r => setTimeout(r, 20_000));
-          continue;
-        }
-        this.error = err instanceof Error ? err.message : 'Failed to fetch';
-      }
+  applyPush(payload: unknown): void {
+    if (payload && typeof payload === 'object' && 'stablecoins' in payload) {
+      this.data = payload as StablecoinResult;
+      this.error = null;
+      this.loading = false;
+      this.renderPanel();
     }
-    this.loading = false;
-    this.renderPanel();
   }
 
   private renderPanel(): void {

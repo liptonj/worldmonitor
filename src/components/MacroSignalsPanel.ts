@@ -1,7 +1,6 @@
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
 import { t } from '@/services/i18n';
-import { EconomicServiceClient } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import type { GetMacroSignalsResponse } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import { getHydratedData } from '@/services/bootstrap';
 
@@ -22,8 +21,6 @@ interface MacroSignalData {
   meta: { qqqSparkline: number[] };
   unavailable?: boolean;
 }
-
-const economicClient = new EconomicServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 
 /** Map proto response (optional fields = undefined) to MacroSignalData (null for absent values). */
 function mapProtoToData(r: GetMacroSignalsResponse): MacroSignalData {
@@ -123,53 +120,26 @@ export class MacroSignalsPanel extends Panel {
   private data: MacroSignalData | null = null;
   private loading = true;
   private error: string | null = null;
-  private lastTimestamp = '';
 
   constructor() {
     super({ id: 'macro-signals', title: t('panels.macroSignals'), showCount: false });
-    void this.fetchData();
-  }
-
-  public async fetchData(): Promise<boolean> {
     const hydrated = getHydratedData('macroSignals') as GetMacroSignalsResponse | undefined;
     if (hydrated) {
       this.data = mapProtoToData(hydrated);
-      this.lastTimestamp = this.data.timestamp;
       this.error = null;
       this.loading = false;
       this.renderPanel();
-      return true;
     }
+    // Otherwise data arrives via relay push
+  }
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const res = await economicClient.getMacroSignals({});
-        this.data = mapProtoToData(res);
-        this.error = null;
-
-        if (this.data && this.data.unavailable && attempt < 2) {
-          this.showRetrying();
-          await new Promise(r => setTimeout(r, 20_000));
-          continue;
-        }
-        break;
-      } catch (err) {
-        if (this.isAbortError(err)) return false;
-        if (attempt < 2) {
-          this.showRetrying();
-          await new Promise(r => setTimeout(r, 20_000));
-          continue;
-        }
-        this.error = err instanceof Error ? err.message : 'Failed to fetch';
-      }
+  applyPush(payload: unknown): void {
+    if (payload && typeof payload === 'object' && 'signals' in payload) {
+      this.data = mapProtoToData(payload as GetMacroSignalsResponse);
+      this.error = null;
+      this.loading = false;
+      this.renderPanel();
     }
-    this.loading = false;
-    this.renderPanel();
-
-    const ts = this.data?.timestamp ?? '';
-    const changed = ts !== this.lastTimestamp;
-    this.lastTimestamp = ts;
-    return changed;
   }
 
   private renderPanel(): void {

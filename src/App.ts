@@ -28,7 +28,6 @@ import { fetchBootstrapData } from '@/services/bootstrap';
 import { DesktopUpdater } from '@/app/desktop-updater';
 import { CountryIntelManager } from '@/app/country-intel';
 import { SearchManager } from '@/app/search-manager';
-import { RefreshScheduler } from '@/app/refresh-scheduler';
 import { PanelLayoutManager } from '@/app/panel-layout';
 import { DataLoaderManager } from '@/app/data-loader';
 import { EventHandlerManager } from '@/app/event-handlers';
@@ -50,7 +49,6 @@ export class App {
   private eventHandlers: EventHandlerManager;
   private searchManager: SearchManager;
   private countryIntel: CountryIntelManager;
-  private refreshScheduler: RefreshScheduler;
   private desktopUpdater: DesktopUpdater;
 
   private modules: { destroy(): void }[] = [];
@@ -281,7 +279,6 @@ export class App {
     };
 
     // Instantiate modules (callbacks wired after all modules exist)
-    this.refreshScheduler = new RefreshScheduler(this.state);
     this.countryIntel = new CountryIntelManager(this.state);
     this.desktopUpdater = new DesktopUpdater(this.state);
 
@@ -303,8 +300,8 @@ export class App {
     this.eventHandlers = new EventHandlerManager(this.state, {
       updateSearchIndex: () => this.searchManager.updateSearchIndex(),
       loadAllData: () => this.dataLoader.loadAllData(),
-      flushStaleRefreshes: () => this.refreshScheduler.flushStaleRefreshes(),
-      setHiddenSince: (ts) => this.refreshScheduler.setHiddenSince(ts),
+      flushStaleRefreshes: () => { /* relay push handles data */ },
+      setHiddenSince: () => { /* relay push handles data */ },
       loadDataForLayer: (layer) => { void this.dataLoader.loadDataForLayer(layer as keyof MapLayers); },
       waitForAisData: () => this.dataLoader.waitForAisData(),
       syncDataFreshnessWithLayers: () => this.dataLoader.syncDataFreshnessWithLayers(),
@@ -321,7 +318,6 @@ export class App {
       this.countryIntel,
       this.searchManager,
       this.dataLoader,
-      this.refreshScheduler,
       this.eventHandlers,
     ];
   }

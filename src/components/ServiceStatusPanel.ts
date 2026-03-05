@@ -1,4 +1,3 @@
-
 import { Panel } from './Panel';
 import { t } from '@/services/i18n';
 import { getLocalApiPort, isDesktopRuntime } from '@/services/runtime';
@@ -43,7 +42,18 @@ export class ServiceStatusPanel extends Panel {
 
   constructor() {
     super({ id: 'service-status', title: t('panels.serviceStatus'), showCount: false });
+    // Data arrives via relay push; fetchStatus is fallback for retry button
     void this.fetchStatus();
+  }
+
+  applyPush(payload: unknown): void {
+    if (payload && typeof payload === 'object' && 'services' in payload) {
+      const data = payload as { services: ServiceStatus[] };
+      this.services = data.services;
+      this.error = null;
+      this.loading = false;
+      this.render();
+    }
   }
 
   private lastServicesJson = '';

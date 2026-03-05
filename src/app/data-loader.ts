@@ -7,8 +7,6 @@ import {
   SITE_VARIANT,
   LAYER_TO_SOURCE,
 } from '@/config';
-import { getStartupLoadProfile } from '@/app/startup-load-profile';
-import { createStartupRequestBudget } from '@/app/startup-request-budget';
 import { INTEL_HOTSPOTS, CONFLICT_ZONES } from '@/config/geo';
 import { tokenizeForMatch, matchKeyword } from '@/utils/keyword-match';
 import {
@@ -72,14 +70,15 @@ import { enrichEventsWithExposure } from '@/services/population-exposure';
 import { debounce, getCircuitBreakerCooldownInfo } from '@/utils';
 import { isFeatureAvailable, isFeatureEnabled } from '@/services/runtime-config';
 import { getAiFlowSettings } from '@/services/ai-flow-settings';
-import { t, getCurrentLanguage } from '@/services/i18n';
+import { t } from '@/services/i18n';
 import { getHydratedData } from '@/services/bootstrap';
 import { canQueueAiClassification, AI_CLASSIFY_MAX_PER_FEED } from '@/services/ai-classify-queue';
 import { classifyWithAI } from '@/services/threat-classifier';
 import { ingestHeadlines } from '@/services/trending-keywords';
 import type { ListFeedDigestResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
 import type { GetSectorSummaryResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
-import { ResearchServiceClient } from '@/generated/client/worldmonitor/research/v1/service_client';
+import { fetchNewsDigest } from '@/services/news-digest';
+import { fetchTechEvents } from '@/services/research';
 import {
   MarketPanel,
   HeatmapPanel,
@@ -91,7 +90,6 @@ import {
   CIIPanel,
   StrategicPosturePanel,
   EconomicPanel,
-  TechReadinessPanel,
   UcdpEventsPanel,
   DisplacementPanel,
   ClimateAnomalyPanel,
@@ -104,14 +102,6 @@ import {
 } from '@/components';
 import { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
 import { classifyNewsItem } from '@/services/positive-classifier';
-import { fetchGivingSummary } from '@/services/giving';
-import { GivingPanel } from '@/components';
-import { fetchProgressData } from '@/services/progress-data';
-import { fetchConservationWins } from '@/services/conservation-data';
-import { fetchRenewableEnergyData, fetchEnergyCapacity } from '@/services/renewable-energy-data';
-import { checkMilestones } from '@/services/celebration';
-import { fetchHappinessScores } from '@/services/happiness-data';
-import { fetchRenewableInstallations } from '@/services/renewable-installations';
 import { filterBySentiment } from '@/services/sentiment-gate';
 import { fetchAllPositiveTopicIntelligence } from '@/services/gdelt-intel';
 import { fetchPositiveGeoEvents, geocodePositiveNewsItems } from '@/services/positive-events-geo';
@@ -119,19 +109,6 @@ import { fetchKindnessData } from '@/services/kindness-data';
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
 import type { ThreatLevel as ClientThreatLevel } from '@/services/threat-classifier';
 import type { NewsItem as ProtoNewsItem, ThreatLevel as ProtoThreatLevel } from '@/generated/client/worldmonitor/news/v1/service_client';
-
-/** Maps task names (used in runGuarded) to panel keys (used in ctx.panels / ctx.newsPanels). */
-const TASK_TO_PANEL: Record<string, string> = {
-  predictions: 'polymarket',
-  fred: 'economic',
-  oil: 'economic',
-  spending: 'economic',
-  bis: 'economic',
-  tradePolicy: 'trade-policy',
-  supplyChain: 'supply-chain',
-  techReadiness: 'tech-readiness',
-  firms: 'satellite-fires',
-};
 
 const PROTO_TO_CLIENT_LEVEL: Record<ProtoThreatLevel, ClientThreatLevel> = {
   THREAT_LEVEL_UNSPECIFIED: 'info',
@@ -216,12 +193,8 @@ export class DataLoaderManager implements AppModule {
     }
 
     try {
-      const resp = await fetch(
-        `/api/news/v1/list-feed-digest?variant=${SITE_VARIANT}&lang=${getCurrentLanguage()}`,
-        { signal: AbortSignal.timeout(this.digestRequestTimeoutMs) },
-      );
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json() as ListFeedDigestResponse;
+      const data = await fetchNewsDigest(this.digestRequestTimeoutMs);
+      if (!data) throw new Error('No digest data');
       const catCount = Object.keys(data.categories ?? {}).length;
       console.info(`[News] Digest fetched: ${catCount} categories`);
       this.lastGoodDigest = data;
@@ -273,138 +246,9 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadAllData(): Promise<void> {
-    const profile = getStartupLoadProfile(SITE_VARIANT);
-    const budget = createStartupRequestBudget(profile.initialRequestBudget);
-
-    const runGuarded = async (name: string, fn: () => Promise<void>): Promise<void> => {
-      if (this.ctx.isDestroyed || this.ctx.inFlight.has(name)) return;
-      this.ctx.inFlight.add(name);
-      try {
-        await fn();
-      } catch (e) {
-        if (!this.ctx.isDestroyed) {
-          console.error(`[App] ${name} failed:`, e);
-          const panelKey = TASK_TO_PANEL[name] ?? name;
-          const panel = this.ctx.panels[panelKey] ?? this.ctx.newsPanels[panelKey];
-          if (panel && typeof panel.showUnavailable === 'function') {
-            panel.showUnavailable();
-          }
-        }
-      } finally {
-        this.ctx.inFlight.delete(name);
-      }
-    };
-
-    const taskDescriptors: Array<{ name: string; fn: () => Promise<void> }> = [];
-
-    taskDescriptors.push({ name: 'news', fn: () => this.loadNews() });
-
-    // Happy variant only loads news data -- skip all geopolitical/financial/military data
-    if (SITE_VARIANT !== 'happy') {
-      taskDescriptors.push({ name: 'markets', fn: () => this.loadMarkets() });
-      taskDescriptors.push({ name: 'predictions', fn: () => this.loadPredictions() });
-      taskDescriptors.push({ name: 'pizzint', fn: () => this.loadPizzInt() });
-      taskDescriptors.push({ name: 'fred', fn: () => this.loadFredData() });
-      taskDescriptors.push({ name: 'oil', fn: () => this.loadOilAnalytics() });
-      taskDescriptors.push({ name: 'spending', fn: () => this.loadGovernmentSpending() });
-      taskDescriptors.push({ name: 'bis', fn: () => this.loadBisData() });
-
-      // Trade policy data (FULL and FINANCE only)
-      if (SITE_VARIANT === 'full' || SITE_VARIANT === 'finance') {
-        taskDescriptors.push({ name: 'tradePolicy', fn: () => this.loadTradePolicy() });
-        taskDescriptors.push({ name: 'supplyChain', fn: () => this.loadSupplyChain() });
-      }
-    }
-
-    // Progress charts data (happy variant only)
-    if (SITE_VARIANT === 'happy') {
-      taskDescriptors.push({ name: 'progress', fn: () => this.loadProgressData() });
-      taskDescriptors.push({ name: 'species', fn: () => this.loadSpeciesData() });
-      taskDescriptors.push({ name: 'renewable', fn: () => this.loadRenewableData() });
-      taskDescriptors.push({
-        name: 'happinessMap',
-        fn: async () => {
-          const data = await fetchHappinessScores();
-          this.ctx.map?.setHappinessScores(data);
-        },
-      });
-      taskDescriptors.push({
-        name: 'renewableMap',
-        fn: async () => {
-          const installations = await fetchRenewableInstallations();
-          this.ctx.map?.setRenewableInstallations(installations);
-        },
-      });
-    }
-
-    // Global giving activity data (all variants)
-    taskDescriptors.push({
-      name: 'giving',
-      fn: async () => {
-        const givingResult = await fetchGivingSummary();
-        if (!givingResult.ok) {
-          dataFreshness.recordError('giving', 'Giving data unavailable (retaining prior state)');
-          return;
-        }
-        const data = givingResult.data;
-        (this.ctx.panels['giving'] as GivingPanel)?.setData(data);
-        if (data.platforms.length > 0) dataFreshness.recordUpdate('giving', data.platforms.length);
-      },
-    });
-
-    if (SITE_VARIANT === 'full') {
-      taskDescriptors.push({ name: 'intelligence', fn: () => this.loadIntelligenceSignals() });
-    }
-
-    if (SITE_VARIANT === 'full') taskDescriptors.push({ name: 'firms', fn: () => this.loadFirmsData() });
-    if (this.ctx.mapLayers.natural) taskDescriptors.push({ name: 'natural', fn: () => this.loadNatural() });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.weather) taskDescriptors.push({ name: 'weather', fn: () => this.loadWeatherAlerts() });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.ais) taskDescriptors.push({ name: 'ais', fn: () => this.loadAisSignals() });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.cables) taskDescriptors.push({ name: 'cables', fn: () => this.loadCableActivity() });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.cables) taskDescriptors.push({ name: 'cableHealth', fn: () => this.loadCableHealth() });
-    if (SITE_VARIANT !== 'happy' && this.ctx.mapLayers.flights) taskDescriptors.push({ name: 'flights', fn: () => this.loadFlightDelays() });
-    if (SITE_VARIANT !== 'happy' && CYBER_LAYER_ENABLED && this.ctx.mapLayers.cyberThreats) taskDescriptors.push({ name: 'cyberThreats', fn: () => this.loadCyberThreats() });
-    if (SITE_VARIANT !== 'happy') taskDescriptors.push({ name: 'iranAttacks', fn: () => this.loadIranEvents() });
-    if (SITE_VARIANT !== 'happy' && (this.ctx.mapLayers.techEvents || SITE_VARIANT === 'tech')) taskDescriptors.push({ name: 'techEvents', fn: () => this.loadTechEvents() });
-
-    if (SITE_VARIANT === 'tech') {
-      taskDescriptors.push({ name: 'techReadiness', fn: () => (this.ctx.panels['tech-readiness'] as TechReadinessPanel)?.refresh() });
-    }
-
-    const phaseADescriptors = taskDescriptors.filter(d => profile.phaseA.includes(d.name));
-    const phaseBDescriptors = taskDescriptors.filter(d => !profile.phaseA.includes(d.name));
-
-    for (const d of phaseADescriptors) {
-      if (!budget.tryConsume(d.name)) {
-        console.warn(`[App] Startup budget exceeded for Phase A task "${d.name}" (remaining: ${budget.remaining()})`);
-      }
-    }
-
-    const phaseAResults = await Promise.allSettled(
-      phaseADescriptors.map(d => runGuarded(d.name, d.fn))
-    );
-    phaseAResults.forEach((result, idx) => {
-      if (result.status === 'rejected') {
-        console.error(`[App] ${phaseADescriptors[idx]?.name} load failed:`, result.reason);
-      }
-    });
-
-    if (phaseBDescriptors.length > 0) {
-      setTimeout(() => {
-        if (this.ctx.isDestroyed) return;
-        const results = phaseBDescriptors.map(d => runGuarded(d.name, d.fn));
-        void Promise.allSettled(results).then(settled => {
-          settled.forEach((result, idx) => {
-            if (result.status === 'rejected') {
-              console.error(`[App] ${phaseBDescriptors[idx]?.name} load failed:`, result.reason);
-            }
-          });
-          this.updateSearchIndex();
-        });
-      }, profile.phaseBDelayMs);
-    } else {
-      this.updateSearchIndex();
-    }
+    // Relay push handles all data — arrives via WebSocket on connect.
+    // No browser-side polling; load* methods remain for loadDataForLayer (user-triggered).
+    this.updateSearchIndex();
   }
 
   async loadDataForLayer(layer: keyof MapLayers): Promise<void> {
@@ -1088,13 +932,7 @@ export class DataLoaderManager implements AppModule {
     if (SITE_VARIANT !== 'tech' && !this.ctx.mapLayers.techEvents) return;
 
     try {
-      const client = new ResearchServiceClient('', { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
-      const data = await client.listTechEvents({
-        type: 'conference',
-        mappable: true,
-        days: 90,
-        limit: 50,
-      });
+      const data = await fetchTechEvents('conference', true, 90, 50);
       if (!data.success) throw new Error(data.error || 'Unknown error');
 
       const now = new Date();
@@ -2250,39 +2088,6 @@ export class DataLoaderManager implements AppModule {
     this.ctx.map?.setKindnessData(kindnessItems);
   }
 
-  private async loadProgressData(): Promise<void> {
-    const datasets = await fetchProgressData();
-    this.ctx.progressPanel?.setData(datasets);
-  }
-
-  private async loadSpeciesData(): Promise<void> {
-    const species = await fetchConservationWins();
-    this.ctx.speciesPanel?.setData(species);
-    this.ctx.map?.setSpeciesRecoveryZones(species);
-    if (SITE_VARIANT === 'happy' && species.length > 0) {
-      checkMilestones({
-        speciesRecoveries: species.map(s => ({ name: s.commonName, status: s.recoveryStatus })),
-        newSpeciesCount: species.length,
-      });
-    }
-  }
-
-  private async loadRenewableData(): Promise<void> {
-    const data = await fetchRenewableEnergyData();
-    this.ctx.renewablePanel?.setData(data);
-    if (SITE_VARIANT === 'happy' && data?.globalPercentage) {
-      checkMilestones({
-        renewablePercent: data.globalPercentage,
-      });
-    }
-    try {
-      const capacity = await fetchEnergyCapacity();
-      this.ctx.renewablePanel?.setCapacityData(capacity);
-    } catch {
-      // EIA failure does not break the existing World Bank gauge
-    }
-  }
-
   async loadSecurityAdvisories(): Promise<void> {
     try {
       const result = await fetchSecurityAdvisories();
@@ -2304,4 +2109,25 @@ export class DataLoaderManager implements AppModule {
       console.error('[App] Telegram intel fetch failed:', error);
     }
   }
+
+  // ── apply* methods: receive relay-push payloads (stubs for now) ──
+  applyNewsDigest(_payload: unknown): void { /* relay push */ }
+  applyMarkets(_payload: unknown): void { /* relay push */ }
+  applyPredictions(_payload: unknown): void { /* relay push */ }
+  applyFredData(_payload: unknown): void { /* relay push */ }
+  applyOilData(_payload: unknown): void { /* relay push */ }
+  applyBisData(_payload: unknown): void { /* relay push */ }
+  applyIntelligence(_payload: unknown): void { /* relay push */ }
+  applyPizzInt(_payload: unknown): void { /* relay push */ }
+  applyTradePolicy(_payload: unknown): void { /* relay push */ }
+  applySupplyChain(_payload: unknown): void { /* relay push */ }
+  applyNatural(_payload: unknown): void { /* relay push */ }
+  applyCyberThreats(_payload: unknown): void { /* relay push */ }
+  applyCableHealth(_payload: unknown): void { /* relay push */ }
+  applyFlightDelays(_payload: unknown): void { /* relay push */ }
+  applyAisSignals(_payload: unknown): void { /* relay push */ }
+  applyWeatherAlerts(_payload: unknown): void { /* relay push */ }
+  applySpending(_payload: unknown): void { /* relay push */ }
+  applyGiving(_payload: unknown): void { /* relay push */ }
+  applyTelegramIntel(_payload: unknown): void { /* relay push */ }
 }
