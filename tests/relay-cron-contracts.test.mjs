@@ -10,10 +10,10 @@ describe('relay cron contracts', () => {
       'relay must require node-cron');
   });
 
-  it('relay defines scheduleWarmAndBroadcast function', () => {
+  it('relay defines warmIntelligenceAndBroadcast for LLM route', () => {
     const src = readFileSync('scripts/ais-relay.cjs', 'utf8');
-    assert.ok(src.includes('scheduleWarmAndBroadcast'),
-      'relay must define scheduleWarmAndBroadcast');
+    assert.ok(src.includes('warmIntelligenceAndBroadcast'),
+      'relay must define warmIntelligenceAndBroadcast for intelligence channel');
   });
 
   it('relay schedules market cron every 5 minutes', () => {
