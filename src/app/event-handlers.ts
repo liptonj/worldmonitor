@@ -538,14 +538,11 @@ export class EventHandlerManager implements AppModule {
       return snapshots.join('\n\n---\n\n');
     };
 
-    const hasData = (): boolean => collectPanelSnapshots().trim().length >= 20;
-
-    const updateButtonState = (): void => {
-      btn.disabled = !hasData();
-    };
-
-    this.updateSummarizeButtonState = updateButtonState;
-    updateButtonState();
+    // Always keep the button enabled — the modal handles the empty state gracefully.
+    // Disabling based on data presence caused the button to stay grayed out permanently
+    // because panel data loads asynchronously after the button state is first evaluated.
+    btn.disabled = false;
+    this.updateSummarizeButtonState = () => { btn.disabled = false; };
 
     btn.addEventListener('click', async () => {
       const snapshotText = collectPanelSnapshots();

@@ -67,7 +67,16 @@ export async function searchGdeltDocuments(
           throw new Error(`GDELT returned ${response.status}`);
         }
 
-        const data = (await response.json()) as {
+        // GDELT occasionally returns HTML error pages (quota exceeded, server errors)
+        // even with a 200 status — guard against non-JSON before parsing
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('json')) {
+          const text = await response.text();
+          throw new Error(`GDELT returned non-JSON response: ${text.slice(0, 120)}`);
+        }
+
+        const rawText = await response.text();
+        let data: {
           articles?: Array<{
             title?: string;
             url?: string;
@@ -79,6 +88,12 @@ export async function searchGdeltDocuments(
             tone?: number;
           }>;
         };
+
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          throw new Error(`GDELT returned invalid JSON: ${rawText.slice(0, 120)}`);
+        }
 
         const articles: GdeltArticle[] = (data.articles || []).map((article) => ({
           title: article.title || '',

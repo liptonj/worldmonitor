@@ -160,6 +160,17 @@ export interface GetGlobalIntelDigestResponse {
   generatedAt: string;
 }
 
+export interface SummarizeViewRequest {
+  panelSnapshots: string;
+}
+
+export interface SummarizeViewResponse {
+  summary: string;
+  model: string;
+  provider: string;
+  generatedAt: string;
+}
+
 export type SeverityLevel = "SEVERITY_LEVEL_UNSPECIFIED" | "SEVERITY_LEVEL_LOW" | "SEVERITY_LEVEL_MEDIUM" | "SEVERITY_LEVEL_HIGH";
 
 export type TrendDirection = "TREND_DIRECTION_UNSPECIFIED" | "TREND_DIRECTION_RISING" | "TREND_DIRECTION_STABLE" | "TREND_DIRECTION_FALLING";
@@ -393,6 +404,30 @@ export class IntelligenceServiceClient {
     }
 
     return await resp.json() as GetGlobalIntelDigestResponse;
+  }
+
+  async summarizeView(req: SummarizeViewRequest, options?: IntelligenceServiceCallOptions): Promise<SummarizeViewResponse> {
+    let path = "/api/intelligence/v1/summarize-view";
+    const url = this.baseURL + path;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+      ...options?.headers,
+    };
+
+    const resp = await this.fetchFn(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(req),
+      signal: options?.signal,
+    });
+
+    if (!resp.ok) {
+      return this.handleError(resp);
+    }
+
+    return await resp.json() as SummarizeViewResponse;
   }
 
   private async handleError(resp: Response): Promise<never> {

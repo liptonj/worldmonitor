@@ -6,16 +6,14 @@
  * to maintain a single source of truth.
  */
 
-import {
-  clusterNewsCore,
-  analyzeCorrelationsCore,
-  type NewsItemCore,
-  type ClusteredEventCore,
-  type PredictionMarketCore,
-  type MarketDataCore,
-  type CorrelationSignalCore,
-  type SourceType,
-  type StreamSnapshot,
+import type {
+  NewsItemCore,
+  ClusteredEventCore,
+  PredictionMarketCore,
+  MarketDataCore,
+  CorrelationSignalCore,
+  SourceType,
+  StreamSnapshot,
 } from '@/services/analysis-core';
 
 // Message types for worker communication
@@ -53,6 +51,18 @@ interface CorrelationResult {
   signals: CorrelationSignalCore[];
 }
 
+let coreModule: typeof import('@/services/analysis-core') | null = null;
+let coreLoadPromise: Promise<typeof import('@/services/analysis-core')> | null = null;
+
+async function getCore() {
+  if (coreModule) return coreModule;
+  if (!coreLoadPromise) {
+    coreLoadPromise = import('@/services/analysis-core');
+  }
+  coreModule = await coreLoadPromise;
+  return coreModule;
+}
+
 // Worker-local state (persists between messages)
 let previousSnapshot: StreamSnapshot | null = null;
 const recentSignalKeys = new Set<string>();
@@ -66,12 +76,16 @@ function markSignalSeen(key: string): void {
   setTimeout(() => recentSignalKeys.delete(key), 30 * 60 * 1000);
 }
 
+// Signal that worker is ready (before heavy imports load)
+self.postMessage({ type: 'ready' });
+
 // Worker message handler
-self.onmessage = (event: MessageEvent<WorkerMessage>) => {
+self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const message = event.data;
 
   switch (message.type) {
     case 'cluster': {
+      const core = await getCore();
       // Deserialize dates (they come as strings over postMessage)
       const items = message.items.map(item => ({
         ...item,
@@ -79,7 +93,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
       }));
 
       const getSourceTier = (source: string): number => message.sourceTiers[source] ?? 4;
-      const clusters = clusterNewsCore(items, getSourceTier);
+      const clusters = core.clusterNewsCore(items, getSourceTier);
 
       const result: ClusterResult = {
         type: 'cluster-result',
@@ -91,6 +105,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
     }
 
     case 'correlation': {
+      const core = await getCore();
       // Deserialize dates in clusters
       const clusters = message.clusters.map(cluster => ({
         ...cluster,
@@ -104,7 +119,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
 
       const getSourceType = (source: string): SourceType => message.sourceTypes[source] ?? 'other';
 
-      const { signals, snapshot } = analyzeCorrelationsCore(
+      const { signals, snapshot } = core.analyzeCorrelationsCore(
         clusters,
         message.predictions,
         message.markets,
@@ -132,6 +147,3 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
     }
   }
 };
-
-// Signal that worker is ready
-self.postMessage({ type: 'ready' });

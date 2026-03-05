@@ -193,13 +193,19 @@ export async function fetchTopicIntelligence(topic: IntelTopic): Promise<TopicIn
 }
 
 export async function fetchAllTopicIntelligence(): Promise<TopicIntelligence[]> {
-  const results = await Promise.allSettled(
-    INTEL_TOPICS.map(topic => fetchTopicIntelligence(topic))
-  );
-
-  return results
-    .filter((r): r is PromiseFulfilledResult<TopicIntelligence> => r.status === 'fulfilled')
-    .map(r => r.value);
+  // Sequential with delay — GDELT rate-limits parallel bursts aggressively
+  const results: TopicIntelligence[] = [];
+  for (const topic of INTEL_TOPICS) {
+    try {
+      results.push(await fetchTopicIntelligence(topic));
+    } catch {
+      // skip failed topics
+    }
+    if (results.length < INTEL_TOPICS.length) {
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  return results;
 }
 
 export function formatArticleDate(dateStr: string): string {
@@ -276,10 +282,17 @@ export async function fetchPositiveTopicIntelligence(topic: IntelTopic): Promise
 }
 
 export async function fetchAllPositiveTopicIntelligence(): Promise<TopicIntelligence[]> {
-  const results = await Promise.allSettled(
-    POSITIVE_GDELT_TOPICS.map(topic => fetchPositiveTopicIntelligence(topic))
-  );
-  return results
-    .filter((r): r is PromiseFulfilledResult<TopicIntelligence> => r.status === 'fulfilled')
-    .map(r => r.value);
+  // Sequential with delay — GDELT rate-limits parallel bursts aggressively
+  const results: TopicIntelligence[] = [];
+  for (const topic of POSITIVE_GDELT_TOPICS) {
+    try {
+      results.push(await fetchPositiveTopicIntelligence(topic));
+    } catch {
+      // skip failed topics
+    }
+    if (results.length < POSITIVE_GDELT_TOPICS.length) {
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  return results;
 }

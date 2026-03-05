@@ -52,7 +52,16 @@ BEGIN
     PERFORM vault.create_secret(
       '3000',
       'OLLAMA_MAX_TOKENS',
-      'Max tokens for Ollama completions — thinking models (qwen3-wm, deepseek-r1) need 1000+ to leave room for the answer after reasoning'
+      'Max tokens for Ollama intelligence tasks (deduction, country briefs) — thinking models need 1000+ to leave room for the answer after reasoning'
+    );
+  END IF;
+
+  -- OLLAMA_MAX_TOKENS_SUMMARY
+  IF NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'OLLAMA_MAX_TOKENS_SUMMARY') THEN
+    PERFORM vault.create_secret(
+      '400',
+      'OLLAMA_MAX_TOKENS_SUMMARY',
+      'Max tokens for Ollama news summarization — briefs are 3 sentences (~150 tokens); keep low to avoid timeouts on large models like qwen3:14b'
     );
   END IF;
 

@@ -50,13 +50,17 @@ export async function getCachedJson(key: string, raw = false): Promise<unknown |
   if (!url || !token) return null;
   try {
     const finalKey = raw ? key : prefixKey(key);
-    const resp = await fetch(`${url}/get/${encodeURIComponent(finalKey)}`, {
-      headers: { Authorization: `Bearer ${token}` },
+    // Use pipeline POST to avoid SRH path-routing issues with special chars (parens, quotes, etc.)
+    const resp = await fetch(`${url}/pipeline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([['GET', finalKey]]),
       signal: AbortSignal.timeout(REDIS_OP_TIMEOUT_MS),
     });
     if (!resp.ok) return null;
-    const data = (await resp.json()) as { result?: string };
-    return data.result ? JSON.parse(data.result) : null;
+    const data = (await resp.json()) as Array<{ result?: string | null }>;
+    const raw_result = data[0]?.result;
+    return raw_result ? JSON.parse(raw_result) : null;
   } catch (err) {
     console.warn('[redis] getCachedJson failed:', errMsg(err));
     return null;
@@ -68,10 +72,12 @@ export async function setCachedJson(key: string, value: unknown, ttlSeconds: num
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return;
   try {
-    // Atomic SET with EX — single call avoids race between SET and EXPIRE (C-3 fix)
-    await fetch(`${url}/set/${encodeURIComponent(prefixKey(key))}/${encodeURIComponent(JSON.stringify(value))}/EX/${ttlSeconds}`, {
+    // Atomic SET EX via pipeline POST — avoids SRH path-routing issues with special chars
+    // and handles large payloads that would overflow URL length limits
+    await fetch(`${url}/pipeline`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([['SET', prefixKey(key), JSON.stringify(value), 'EX', ttlSeconds]]),
       signal: AbortSignal.timeout(REDIS_OP_TIMEOUT_MS),
     });
   } catch (err) {

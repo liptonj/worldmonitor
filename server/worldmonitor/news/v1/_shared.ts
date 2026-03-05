@@ -71,12 +71,11 @@ export interface ProviderCredentials {
 
 export async function getProviderCredentials(provider: string): Promise<ProviderCredentials | null> {
   if (provider === 'ollama') {
-    // Use the anon-callable public.get_ollama_credentials() RPC — no service role required.
-    // Falls back to process.env for local dev without Supabase configured.
     let apiUrl: string | undefined;
     let model: string | undefined;
     let cfId: string | undefined;
     let cfSecret: string | undefined;
+    let maxTokensSummary = 400;
 
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
@@ -91,11 +90,14 @@ export async function getProviderCredentials(provider: string): Promise<Provider
             model: string | null;
             cf_access_client_id: string | null;
             cf_access_client_secret: string | null;
+            max_tokens: number | null;
+            max_tokens_summary: number | null;
           };
           apiUrl = row.api_url ?? undefined;
           model = row.model ?? undefined;
           cfId = row.cf_access_client_id ?? undefined;
           cfSecret = row.cf_access_client_secret ?? undefined;
+          if (row.max_tokens_summary != null) maxTokensSummary = row.max_tokens_summary;
         }
       } catch { /* fall through to env */ }
     }
@@ -114,8 +116,6 @@ export async function getProviderCredentials(provider: string): Promise<Provider
     if (cfId) headers['CF-Access-Client-Id'] = cfId;
     if (cfSecret) headers['CF-Access-Client-Secret'] = cfSecret;
 
-    const rawMax = parseInt((await getSecret('OLLAMA_MAX_TOKENS')) || '1500', 10);
-    const ollamaMaxTokens = Number.isFinite(rawMax) ? Math.min(Math.max(rawMax, 100), 4000) : 1500;
     // qwen3 thinking models: use the native Ollama /api/chat endpoint which supports
     // think:false directly. The OpenAI-compat /v1/chat/completions ignores think:false
     // and routes all output to message.reasoning instead of message.content, causing timeouts.
@@ -127,7 +127,7 @@ export async function getProviderCredentials(provider: string): Promise<Provider
         model: resolvedModel,
         headers,
         extraBody: {
-          options: { num_predict: ollamaMaxTokens },
+          options: { num_predict: maxTokensSummary },
           think: false,
           stream: false,
         },
@@ -139,7 +139,7 @@ export async function getProviderCredentials(provider: string): Promise<Provider
       model: resolvedModel,
       headers,
       extraBody: {
-        max_tokens: ollamaMaxTokens,
+        max_tokens: maxTokensSummary,
       },
     };
   }

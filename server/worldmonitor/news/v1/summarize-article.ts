@@ -131,12 +131,14 @@ export async function summarizeArticle(
           top_p: 0.9,
           ...extraBody,
         };
-        console.log(`[SummarizeArticle:${provider}] → ${apiUrl} model=${model} think=${(extraBody as any)?.think ?? (extraBody as any)?.options?.think} max_tokens=${(extraBody as any)?.max_tokens ?? (extraBody as any)?.options?.num_predict} hasCFAccess=${!!providerHeaders['CF-Access-Client-Id']}`);
+        const logMaxTokens = (extraBody as Record<string, unknown>)?.max_tokens ?? (extraBody as Record<string, Record<string, unknown>>)?.options?.num_predict ?? 'default';
+        const logThink = (extraBody as Record<string, unknown>)?.think ?? (extraBody as Record<string, Record<string, unknown>>)?.options?.think;
+        console.log(`[SummarizeArticle:${provider}] → ${apiUrl} model=${model} think=${logThink} max_tokens=${logMaxTokens} hasCFAccess=${!!providerHeaders['CF-Access-Client-Id']}`);
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { ...providerHeaders, 'User-Agent': CHROME_UA },
           body: JSON.stringify(requestBody),
-          signal: AbortSignal.timeout(60_000),
+          signal: AbortSignal.timeout(90_000),
         });
 
         if (!response.ok) {

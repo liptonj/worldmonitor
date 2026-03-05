@@ -40,8 +40,10 @@ class AnalysisWorkerManager {
   private readyResolve: (() => void) | null = null;
   private readyReject: ((error: Error) => void) | null = null;
   private readyTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readyAttempts = 0;
 
-  private static readonly READY_TIMEOUT_MS = 10000; // 10 seconds to become ready
+  private static readonly READY_TIMEOUT_MS = 20000;
+  private static readonly MAX_READY_RETRIES = 1;
 
   /**
    * Initialize the worker. Called lazily on first use.
@@ -49,18 +51,41 @@ class AnalysisWorkerManager {
   private initWorker(): void {
     if (this.worker) return;
 
+    this.readyAttempts = 0;
     this.readyPromise = new Promise((resolve, reject) => {
       this.readyResolve = resolve;
       this.readyReject = reject;
     });
 
-    // Set ready timeout - reject if worker doesn't become ready in time
+    this.startWorker();
+  }
+
+  /**
+   * Create worker instance and attach event handlers.
+   * Can be called again on retry without re-creating the ready promise.
+   */
+  private startWorker(): void {
+    // Set ready timeout - reject if worker doesn't become ready in time (with retry)
     this.readyTimeout = setTimeout(() => {
       if (!this.isReady) {
-        const error = new Error('Worker failed to become ready within timeout');
-        console.error('[AnalysisWorker]', error.message);
-        this.readyReject?.(error);
-        this.cleanup();
+        if (this.readyAttempts < AnalysisWorkerManager.MAX_READY_RETRIES) {
+          console.warn('[AnalysisWorker] Ready timeout, retrying...');
+          this.readyAttempts++;
+          if (this.worker) {
+            this.worker.terminate();
+            this.worker = null;
+          }
+          if (this.readyTimeout) {
+            clearTimeout(this.readyTimeout);
+            this.readyTimeout = null;
+          }
+          this.startWorker();
+        } else {
+          const error = new Error('Worker failed to become ready within timeout');
+          console.error('[AnalysisWorker]', error.message);
+          this.readyReject?.(error);
+          this.cleanup();
+        }
       }
     }, AnalysisWorkerManager.READY_TIMEOUT_MS);
 
@@ -151,6 +176,7 @@ class AnalysisWorkerManager {
     this.readyPromise = null;
     this.readyResolve = null;
     this.readyReject = null;
+    this.readyAttempts = 0;
   }
 
   /**
