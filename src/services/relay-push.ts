@@ -107,3 +107,8 @@ export function destroyRelayPush(): void {
 export function isRelayConnected(): boolean {
   return socket?.readyState === WebSocket.OPEN;
 }
+
+/** For tests only: simulate an incoming wm-push message. */
+export function dispatchForTesting(channel: string, payload: unknown): void {
+  dispatch(channel, payload);
+}
