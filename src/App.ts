@@ -40,6 +40,7 @@ import { PanelLayoutManager } from '@/app/panel-layout';
 import { DataLoaderManager } from '@/app/data-loader';
 import { EventHandlerManager } from '@/app/event-handlers';
 import { resolveUserRegion } from '@/utils/user-location';
+import { initDisplayPrefs } from '@/utils/display-prefs';
 
 const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
 
@@ -408,6 +409,11 @@ export class App {
 
     // ── PHASE 3: Render UI shell immediately ──
     this.panelLayout.init();
+
+    // Display prefs: fetch admin defaults in background — never blocks first paint.
+    // localStorage values (getTimeFormat/getTimezoneMode/getTempUnit) already work without
+    // this. When it resolves it dispatches 'display-prefs-changed' to update any components.
+    void initDisplayPrefs().catch(() => {});
 
     performance.mark('wm:layout-done');
     performance.measure('wm:to-layout', 'wm:init-start', 'wm:layout-done');
