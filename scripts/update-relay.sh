@@ -34,16 +34,19 @@ warn() { echo "[update-relay] WARN: $*" >&2; }
 die()  { echo "[update-relay] ERROR: $*" >&2; exit 1; }
 fail() { echo "[update-relay] ERROR: $*" >&2; VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1)); }
 
+CLEANUP_SRH=false
 for arg in "$@"; do
   case "${arg}" in
     --verify-only) VERIFY_ONLY=true ;;
+    --cleanup-srh) CLEANUP_SRH=true ;;
     -h|--help)
       cat <<'EOF'
 Usage:
-  bash scripts/update-relay.sh [--verify-only]
+  bash scripts/update-relay.sh [--verify-only] [--cleanup-srh]
 
 Options:
   --verify-only   Validate relay env settings and exit without pull/restart.
+  --cleanup-srh   Stop and remove SRH Docker container if present (Phase 6 cleanup).
 EOF
       exit 0
       ;;
@@ -90,31 +93,6 @@ prompt_env() {
     die "${key} cannot be empty."
   fi
   env_set "${key}" "${input_value}"
-}
-
-is_https_url() {
-  local value="$1"
-  [[ "${value}" =~ ^https://[^[:space:]]+$ ]]
-}
-
-is_valid_warm_host() {
-  local value="$1"
-  local host
-  local allowed_raw allowed_host
-  host="$(echo "${value}" | sed -E 's#^https://([^/]+).*$#\1#')"
-  allowed_raw="$(env_get RELAY_ALLOWED_WARM_HOSTS)"
-  if [[ -z "${allowed_raw}" ]]; then
-    allowed_raw="worldmonitor.app,info.5ls.us"
-  fi
-  IFS=',' read -r -a allowed_hosts <<< "${allowed_raw}"
-  for allowed_host in "${allowed_hosts[@]}"; do
-    allowed_host="$(echo "${allowed_host}" | awk '{$1=$1};1' | tr '[:upper:]' '[:lower:]')"
-    [[ -z "${allowed_host}" ]] && continue
-    if [[ "${host}" == "${allowed_host}" || "${host}" == *.${allowed_host} ]]; then
-      return 0
-    fi
-  done
-  return 1
 }
 
 is_strong_secret() {
@@ -179,8 +157,6 @@ if [[ "${VERIFY_ONLY}" == "false" ]]; then
     "AIS upstream API key used by relay WebSocket ingestion."
   prompt_env "RELAY_SHARED_SECRET" \
     "Shared secret between relay and Vercel (must match RELAY_SHARED_SECRET on Vercel)."
-  prompt_env "VERCEL_APP_URL" \
-    "URL of deployment relay warms (e.g. https://worldmonitor.app or https://info.5ls.us)."
   prompt_env "UPSTASH_REDIS_REST_URL" \
     "Upstash Redis REST URL used by warm-and-broadcast."
   prompt_env "UPSTASH_REDIS_REST_TOKEN" \
@@ -195,7 +171,6 @@ fi
 log "Running env validation..."
 validate_required_env "AISSTREAM_API_KEY" "AIS upstream auth"
 validate_required_env "RELAY_SHARED_SECRET" "Relay auth secret"
-validate_required_env "VERCEL_APP_URL" "Vercel warm target URL"
 validate_required_env "UPSTASH_REDIS_REST_URL" "Upstash REST URL"
 validate_required_env "UPSTASH_REDIS_REST_TOKEN" "Upstash REST token"
 
@@ -215,20 +190,9 @@ else
 fi
 
 relay_secret="$(env_get RELAY_SHARED_SECRET)"
-vercel_url="$(env_get VERCEL_APP_URL)"
 
 if [[ -n "${relay_secret}" ]] && ! is_strong_secret "${relay_secret}"; then
   fail "RELAY_SHARED_SECRET should be at least 24 characters."
-fi
-
-if [[ -n "${vercel_url}" ]]; then
-  if ! is_https_url "${vercel_url}"; then
-    fail "VERCEL_APP_URL must start with https://"
-  elif ! is_valid_warm_host "${vercel_url}"; then
-    fail "VERCEL_APP_URL host is not in RELAY_ALLOWED_WARM_HOSTS."
-  else
-    log "VERCEL_APP_URL format is valid."
-  fi
 fi
 
 validate_conditional_pair "OPENSKY_CLIENT_ID" "OPENSKY_CLIENT_SECRET" "OpenSky credentials"
@@ -326,6 +290,19 @@ configure_redis() {
   log "Redis configure done."
 }
 
+# ── 3b. Stop and remove SRH Docker container (Phase 6 cleanup) ──────────────────
+stop_srh() {
+  log "Checking for SRH Docker container..."
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^srh$'; then
+    log "Stopping and removing SRH container..."
+    docker stop srh 2>/dev/null || true
+    docker rm srh 2>/dev/null || true
+    log "SRH container removed."
+  else
+    log "SRH container not found (already removed or never installed)."
+  fi
+}
+
 # ── 4. Detect process manager and restart ──────────────────────────────────────
 restart_pm2() {
   log "Restarting via pm2 (process: ${RELAY_PROCESS_NAME})..."
@@ -416,6 +393,10 @@ fi
 log "Process manager: ${MANAGER}"
 
 configure_redis
+
+if [[ "${CLEANUP_SRH}" == "true" ]]; then
+  stop_srh
+fi
 
 case "${MANAGER}" in
   pm2)     restart_pm2 ;;

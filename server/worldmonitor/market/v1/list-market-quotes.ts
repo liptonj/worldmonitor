@@ -1,4 +1,6 @@
 /**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
  * RPC: ListMarketQuotes
  * Fetches stock/index quotes from Finnhub (stocks) and Yahoo Finance (indices/futures).
  */

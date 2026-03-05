@@ -1,4 +1,6 @@
 /**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
  * RPC: listAllHumanitarianSummaries -- returns HAPI summaries for all 20 monitored countries.
  *
  * Implementation strategy: calls the existing getHumanitarianSummary handler in parallel for

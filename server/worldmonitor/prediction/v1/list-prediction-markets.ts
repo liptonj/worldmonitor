@@ -7,6 +7,10 @@
  * behavior. This is expected, not an error.
  */
 
+/**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ */
 import type {
   PredictionServiceHandler,
   ServerContext,

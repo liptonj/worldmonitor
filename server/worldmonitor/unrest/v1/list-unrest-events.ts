@@ -1,4 +1,6 @@
 /**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
  * ListUnrestEvents RPC -- merges ACLED and GDELT data into deduplicated,
  * severity-classified, sorted unrest events.
  */

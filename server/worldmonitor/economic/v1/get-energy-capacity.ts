@@ -2,6 +2,10 @@
  * RPC: getEnergyCapacity -- EIA Open Data API v2
  * Installed generation capacity data (solar, wind, coal) aggregated to US national totals.
  */
+/**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ */
 import type {
   ServerContext,
   GetEnergyCapacityRequest,

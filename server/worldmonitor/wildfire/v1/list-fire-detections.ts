@@ -1,4 +1,7 @@
 /**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ *
  * ListFireDetections RPC -- proxies the NASA FIRMS CSV API.
  *
  * Fetches active fire detections from all 9 monitored regions in parallel

@@ -3,6 +3,10 @@
  * Central bank policy rates for major economies.
  */
 
+/**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ */
 import type {
   ServerContext,
   GetBisPolicyRatesRequest,

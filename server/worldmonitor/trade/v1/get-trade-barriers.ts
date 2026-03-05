@@ -7,6 +7,10 @@
  * NOTE: The WTO ePing API (SPS/TBT notifications) is a separate subscription product.
  * This handler uses Timeseries API tariff data to surface sector-level trade barriers.
  */
+/**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ */
 import type {
   ServerContext,
   GetTradeBarriersRequest,

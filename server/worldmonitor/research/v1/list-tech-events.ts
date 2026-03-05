@@ -1,4 +1,7 @@
 /**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ *
  * RPC: listTechEvents
  *
  * Aggregates tech events from three sources:

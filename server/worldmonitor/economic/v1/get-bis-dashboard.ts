@@ -1,4 +1,6 @@
 /**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
  * RPC: getBisDashboard -- batch fetch all BIS dashboard data in parallel.
  * Fans out to the existing BIS handlers (with their Redis caching).
  */

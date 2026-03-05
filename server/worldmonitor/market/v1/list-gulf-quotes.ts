@@ -5,6 +5,10 @@
  * Inspired by https://github.com/koala73/worldmonitor/pull/641 (@aa5064).
  */
 
+/**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ */
 import type {
   ServerContext,
   ListGulfQuotesRequest,

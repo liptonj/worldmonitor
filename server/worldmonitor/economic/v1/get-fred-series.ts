@@ -2,6 +2,10 @@
  * RPC: getFredSeries -- Federal Reserve Economic Data (FRED) time series
  * Port from api/fred-data.js
  */
+/**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ */
 import type {
   ServerContext,
   GetFredSeriesRequest,

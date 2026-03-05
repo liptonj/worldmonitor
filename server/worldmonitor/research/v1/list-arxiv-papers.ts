@@ -11,6 +11,10 @@ import { cachedFetchJson } from '../../../_shared/redis';
 
 const REDIS_CACHE_KEY = 'research:arxiv:v1';
 const REDIS_CACHE_TTL = 3600; // 1 hr — daily arXiv updates
+/**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ */
 import type {
   ServerContext,
   ListArxivPapersRequest,

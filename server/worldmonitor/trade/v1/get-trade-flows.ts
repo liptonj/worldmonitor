@@ -5,6 +5,10 @@
  * NOTE: The WTO API does NOT support comma-separated indicator codes.
  * Exports and imports must be fetched in separate requests.
  */
+/**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ */
 import type {
   ServerContext,
   GetTradeFlowsRequest,

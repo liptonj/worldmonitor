@@ -1,4 +1,6 @@
 /**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
  * RPC: getTradeDashboard -- batch fetch all trade dashboard data in parallel.
  * Uses default parameters matching what data-loader.ts currently uses.
  */

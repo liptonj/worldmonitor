@@ -378,11 +378,9 @@ function sendCachedPayloads(ws, channels) {
   }
 }
 
-// ── Relay warm-and-broadcast helpers ─────────────────────────────────────────
-
+// ── Intelligence channel warm (LLM route on Vercel) ──────────────────────────
+// Only remaining Vercel warm: get-global-intel-digest. All other channels use relay direct fetch.
 const VERCEL_APP_URL = process.env.VERCEL_APP_URL || 'https://worldmonitor.app';
-const RELAY_WARMER_API_KEY = process.env.RELAY_SHARED_SECRET || '';
-
 const RELAY_ALLOWED_WARM_HOSTS = process.env.RELAY_ALLOWED_WARM_HOSTS || 'worldmonitor.app,info.5ls.us';
 const ALLOWED_WARM_HOSTS = RELAY_ALLOWED_WARM_HOSTS
   .split(',')
@@ -396,78 +394,45 @@ function isAllowedWarmHost(url) {
   } catch { return false; }
 }
 
-if (UPSTASH_ENABLED && !RELAY_WARMER_API_KEY) {
-  console.error('[relay] RELAY_SHARED_SECRET required for warm-and-broadcast');
-}
-
-/**
- * Warm a Vercel API endpoint then broadcast the response to subscribed clients.
- *
- * For handlers with parameterized Redis keys, we use the warm response body
- * directly rather than reading from Redis, since the Redis key is unpredictable.
- *
- * @param {string} channel  - WS channel to broadcast on
- * @param {string} path     - Vercel API path, e.g. '/api/news/v1/list-feed-digest?variant=full&lang=en'
- * @param {string} [redisKey] - Optional Upstash Redis key. If provided, reads from Redis after warming.
- *                               If omitted, uses the warm response body directly.
- */
-async function warmAndBroadcast(channel, path, redisKey) {
-  if (!UPSTASH_ENABLED) return;
-  if (!RELAY_WARMER_API_KEY) return;
+async function warmIntelligenceAndBroadcast() {
+  if (!UPSTASH_ENABLED || !RELAY_SHARED_SECRET) return;
+  const channel = 'intelligence';
+  const path = '/api/intelligence/v1/get-global-intel-digest';
+  const redisKey = 'digest:global:v1';
   try {
     const warmUrl = `${VERCEL_APP_URL}${path}`;
     if (!isAllowedWarmHost(warmUrl)) {
       console.error(`[relay-cron] VERCEL_APP_URL points to disallowed host: ${VERCEL_APP_URL}`);
       return;
     }
-
     const warmRes = await fetch(warmUrl, {
       headers: {
-        'X-WorldMonitor-Key': RELAY_WARMER_API_KEY,
+        'X-WorldMonitor-Key': RELAY_SHARED_SECRET,
         'User-Agent': 'worldmonitor-relay-warmer/1.0',
       },
       signal: AbortSignal.timeout(30_000),
     });
     if (!warmRes.ok) {
-      console.warn(`[relay-cron] warm failed ${channel}: ${warmRes.status}`);
+      console.warn(`[relay-cron] intelligence warm failed: ${warmRes.status}`);
       return;
     }
-
+    const getRes = await fetch(
+      `${UPSTASH_REDIS_REST_URL}/get/${encodeURIComponent(redisKey)}`,
+      { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }, signal: AbortSignal.timeout(5_000) }
+    );
+    if (!getRes.ok) return;
+    const { result } = await getRes.json();
+    if (!result) return;
     let payload;
-
-    if (redisKey) {
-      const getRes = await fetch(
-        `${UPSTASH_REDIS_REST_URL}/get/${encodeURIComponent(redisKey)}`,
-        { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }, signal: AbortSignal.timeout(5_000) }
-      );
-      if (!getRes.ok) return;
-      const { result } = await getRes.json();
-      if (!result) return;
-      try { payload = JSON.parse(result); } catch {
-        console.warn(`[relay-cron] unparseable Redis value for ${channel}`);
-        return;
-      }
-    } else {
-      try { payload = await warmRes.json(); } catch {
-        console.warn(`[relay-cron] unparseable response body for ${channel}`);
-        return;
-      }
+    try { payload = JSON.parse(result); } catch {
+      console.warn('[relay-cron] unparseable Redis value for intelligence');
+      return;
     }
-
     broadcastToChannel(channel, payload);
     console.log(`[relay-cron] broadcast channel=${channel} subs=${channelSubscribers.get(channel)?.size ?? 0}`);
   } catch (err) {
-    console.warn(`[relay-cron] warmAndBroadcast error (${channel}):`, err?.message ?? err);
+    console.warn('[relay-cron] intelligence warm error:', err?.message ?? err);
   }
-}
-
-function scheduleWarmAndBroadcast(cronExpr, channel, path, redisKey) {
-  cron.schedule(cronExpr, () => {
-    void warmAndBroadcast(channel, path, redisKey).catch(err =>
-      console.error(`[relay-cron] unhandled error (${channel}):`, err)
-    );
-  });
-  console.log(`[relay-cron] scheduled channel=${channel} (${cronExpr})`);
 }
 
 let messageCount = 0;
@@ -6319,8 +6284,10 @@ cron.schedule('3-59/5 * * * *', async () => {
   try { await directFetchAndBroadcast('news:happy', 'news:digest:v1:happy:en', 900, () => fetchNewsDigest('happy', 'en')); } catch (err) { console.error('[relay] news:happy cron error:', err?.message ?? err); }
 });
 
-// intelligence — LLM route, stays on Vercel (scheduleWarmAndBroadcast)
-scheduleWarmAndBroadcast('*/10 * * * *', 'intelligence', '/api/intelligence/v1/get-global-intel-digest', 'digest:global:v1');
+// intelligence — LLM route, stays on Vercel (warmIntelligenceAndBroadcast)
+cron.schedule('*/10 * * * *', () => {
+  void warmIntelligenceAndBroadcast().catch(err => console.error('[relay-cron] intelligence unhandled error:', err));
+});
 
 cron.schedule('2-59/10 * * * *', async () => {
   try { await directFetchAndBroadcast('supply-chain', 'supply_chain:chokepoints:v1', 900, fetchSupplyChain); } catch (err) { console.error('[relay] supply-chain cron error:', err?.message ?? err); }

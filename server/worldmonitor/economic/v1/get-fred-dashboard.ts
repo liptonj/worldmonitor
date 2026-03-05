@@ -1,4 +1,6 @@
 /**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
  * RPC: getFredDashboard -- batch fetch all 7 FRED dashboard series in parallel.
  * Fans out to the existing getFredSeries handler (with its Redis caching) for each series.
  * Returns all series in a single response.

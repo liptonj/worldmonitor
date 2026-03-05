@@ -2,6 +2,10 @@
  * RPC: getEnergyPrices -- EIA Open Data API v2
  * Energy commodity price data (WTI, Brent, etc.)
  */
+/**
+ * @deprecated Migrated to relay direct fetch (Phase 3). This route is no longer called.
+ * Kept for reference only.
+ */
 import type {
   ServerContext,
   GetEnergyPricesRequest,
