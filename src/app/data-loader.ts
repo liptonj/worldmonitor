@@ -846,33 +846,7 @@ export class DataLoaderManager implements AppModule {
     try {
       const data = await fetchTechEvents('conference', true, 90, 50);
       if (!data.success) throw new Error(data.error || 'Unknown error');
-
-      const now = new Date();
-      const mapEvents = data.events.map((e: any) => ({
-        id: e.id,
-        title: e.title,
-        location: e.location,
-        lat: e.coords?.lat ?? 0,
-        lng: e.coords?.lng ?? 0,
-        country: e.coords?.country ?? '',
-        startDate: e.startDate,
-        endDate: e.endDate,
-        url: e.url,
-        daysUntil: Math.ceil((new Date(e.startDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
-      }));
-
-      this.ctx.map?.setTechEvents(mapEvents);
-      this.ctx.map?.setLayerReady('techEvents', mapEvents.length > 0);
-      this.ctx.statusPanel?.updateFeed('Tech Events', { status: 'ok', itemCount: mapEvents.length });
-
-      if (SITE_VARIANT === 'tech' && this.ctx.searchModal) {
-        this.ctx.searchModal.registerSource('techevent', mapEvents.map((e: { id: string; title: string; location: string; startDate: string }) => ({
-          id: e.id,
-          title: e.title,
-          subtitle: `${e.location} • ${new Date(e.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
-          data: e,
-        })));
-      }
+      this.renderTechEvents(data);
     } catch (error) {
       console.error('[App] Failed to load tech events:', error);
       this.ctx.map?.setTechEvents([]);
@@ -1255,13 +1229,7 @@ export class DataLoaderManager implements AppModule {
   async loadIranEvents(): Promise<void> {
     try {
       const events = await fetchIranEvents();
-      this.ctx.intelligenceCache.iranEvents = events;
-      this.ctx.map?.setIranEvents(events);
-      this.ctx.map?.setLayerReady('iranAttacks', events.length > 0);
-      const coerced = events.map(e => ({ ...e, timestamp: Number(e.timestamp) || 0 }));
-      signalAggregator.ingestConflictEvents(coerced);
-      ingestStrikesForCII(coerced);
-      (this.ctx.panels['cii'] as CIIPanel)?.refresh();
+      this.renderIranEvents(events);
     } catch {
       this.ctx.map?.setLayerReady('iranAttacks', false);
     }
@@ -2325,18 +2293,20 @@ export class DataLoaderManager implements AppModule {
     this.ctx.statusPanel?.updateApi('CoinGecko', { status: cryptoData.length > 0 ? 'ok' : 'error' });
   }
 
-  // ── apply* methods: receive relay-push payloads (stubs for now) ──
+  // ── apply* methods: receive relay-push payloads ──
   applyNewsDigest(payload: unknown): void {
     const data = payload as ListFeedDigestResponse;
     if (!data?.categories || typeof data.categories !== 'object') return;
     this.processDigestData(data);
   }
-applyMarkets(payload: unknown): void {
-  if (!payload || typeof payload !== 'object') return;
-  const dashboard = payload as GetMarketDashboardResponse;
-  if (!Array.isArray(dashboard.stocks)) return;
-  this.renderMarketDashboard(dashboard);
-}
+
+  applyMarkets(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const dashboard = payload as GetMarketDashboardResponse;
+    if (!Array.isArray(dashboard.stocks)) return;
+    this.renderMarketDashboard(dashboard);
+  }
+
   applyPredictions(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
     const resp = payload as ListPredictionMarketsResponse;
