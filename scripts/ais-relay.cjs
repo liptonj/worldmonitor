@@ -189,6 +189,8 @@ const ALLOWED_CHANNELS = new Set([
 const CHANNEL_PATTERN = /^[a-z0-9:_-]{1,63}$/;
 const MAX_CHANNELS_PER_CLIENT = 50;
 const MAX_WS_MESSAGE_BYTES = 64 * 1024;
+const MAX_PUSH_PAYLOAD_BYTES = 512 * 1024;
+const WS_BUFFERED_AMOUNT_THRESHOLD = 1024 * 1024;
 
 // Per-client rate limiting for subscribe messages
 const SUB_RATE_LIMIT_WINDOW_MS = 5_000;
@@ -209,15 +211,18 @@ function checkSubscribeRateLimit(ws) {
 const clientChannelCount = new Map(); // ws → number
 
 function subscribeClient(ws, channel) {
-  if (!ALLOWED_CHANNELS.has(channel)) return;
-  if (!CHANNEL_PATTERN.test(channel)) return;
+  if (!ALLOWED_CHANNELS.has(channel)) return false;
+  if (!CHANNEL_PATTERN.test(channel)) return false;
   const count = clientChannelCount.get(ws) || 0;
-  if (count >= MAX_CHANNELS_PER_CLIENT) return;
+  if (count >= MAX_CHANNELS_PER_CLIENT) return false;
   if (!channelSubscribers.has(channel)) {
     channelSubscribers.set(channel, new Set());
   }
-  channelSubscribers.get(channel).add(ws);
+  const subs = channelSubscribers.get(channel);
+  if (subs.has(ws)) return false; // already subscribed — don't count again
+  subs.add(ws);
   clientChannelCount.set(ws, count + 1);
+  return true;
 }
 
 function unsubscribeClient(ws) {
@@ -229,7 +234,7 @@ function unsubscribeClient(ws) {
 }
 
 // Cache the latest payload per channel so new subscribers get data immediately
-const latestPayloads = new Map(); // channel → { msg: string, ts: number }
+const latestPayloads = new Map(); // channel → serialized JSON string (wm-push message)
 
 /**
  * Broadcast a typed payload to all clients subscribed to a channel.
@@ -240,7 +245,7 @@ const latestPayloads = new Map(); // channel → { msg: string, ts: number }
 function broadcastToChannel(channel, payload) {
   const msg = JSON.stringify({ type: 'wm-push', channel, payload, ts: Date.now() });
   const msgBytes = Buffer.byteLength(msg);
-  if (msgBytes > 512 * 1024) {
+  if (msgBytes > MAX_PUSH_PAYLOAD_BYTES) {
     console.warn(`[relay] payload too large for ${channel} (${msgBytes} bytes), skipping`);
     return;
   }
@@ -248,7 +253,7 @@ function broadcastToChannel(channel, payload) {
   const subs = channelSubscribers.get(channel);
   if (!subs || subs.size === 0) return;
   for (const ws of subs) {
-    if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 1024 * 1024) {
+    if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < WS_BUFFERED_AMOUNT_THRESHOLD) {
       ws.send(msg);
     }
   }
@@ -261,7 +266,7 @@ function broadcastToChannel(channel, payload) {
 function sendCachedPayloads(ws, channels) {
   for (const ch of channels) {
     const cached = latestPayloads.get(ch);
-    if (cached && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 1024 * 1024) {
+    if (cached && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < WS_BUFFERED_AMOUNT_THRESHOLD) {
       ws.send(cached);
     }
   }
@@ -3749,8 +3754,9 @@ wss.on('connection', (ws, req) => {
         const accepted = [];
         for (const ch of msg.channels) {
           if (typeof ch === 'string' && ALLOWED_CHANNELS.has(ch)) {
-            subscribeClient(ws, ch);
-            accepted.push(ch);
+            if (subscribeClient(ws, ch)) {
+              accepted.push(ch);
+            }
           }
         }
         ws.send(JSON.stringify({ type: 'wm-subscribed', channels: accepted }));
@@ -3760,7 +3766,12 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'wm-unsubscribe' && Array.isArray(msg.channels)) {
         for (const ch of msg.channels) {
           const subs = channelSubscribers.get(ch);
-          if (subs) subs.delete(ws);
+          if (subs && subs.has(ws)) {
+            subs.delete(ws);
+            const n = clientChannelCount.get(ws) ?? 0;
+            if (n > 1) clientChannelCount.set(ws, n - 1);
+            else clientChannelCount.delete(ws);
+          }
         }
         return;
       }
