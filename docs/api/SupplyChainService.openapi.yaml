@@ -78,6 +78,32 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Error'
+    /api/supply-chain/v1/get-supply-chain-dashboard:
+        get:
+            tags:
+                - SupplyChainService
+            summary: GetSupplyChainDashboard
+            description: GetSupplyChainDashboard retrieves all supply chain dashboard data in a single batch call.
+            operationId: GetSupplyChainDashboard
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetSupplyChainDashboardResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidationError'
+                default:
+                    description: Error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Error'
 components:
     schemas:
         Error:
@@ -243,3 +269,16 @@ components:
                 sharePct:
                     type: number
                     format: double
+        GetSupplyChainDashboardRequest:
+            type: object
+            description: GetSupplyChainDashboardRequest requests all supply chain dashboard data in one call.
+        GetSupplyChainDashboardResponse:
+            type: object
+            properties:
+                shipping:
+                    $ref: '#/components/schemas/GetShippingRatesResponse'
+                chokepoints:
+                    $ref: '#/components/schemas/GetChokepointStatusResponse'
+                minerals:
+                    $ref: '#/components/schemas/GetCriticalMineralsResponse'
+            description: GetSupplyChainDashboardResponse aggregates all supply chain dashboard data.

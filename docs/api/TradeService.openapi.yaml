@@ -187,6 +187,32 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Error'
+    /api/trade/v1/get-trade-dashboard:
+        get:
+            tags:
+                - TradeService
+            summary: GetTradeDashboard
+            description: GetTradeDashboard retrieves all trade dashboard data in a single batch call.
+            operationId: GetTradeDashboard
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetTradeDashboardResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidationError'
+                default:
+                    description: Error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Error'
 components:
     schemas:
         Error:
@@ -459,3 +485,20 @@ components:
                     type: string
                     description: WTO source document URL (must be http/https protocol).
             description: SPS or TBT trade barrier notification.
+        GetTradeDashboardRequest:
+            type: object
+            description: |-
+                GetTradeDashboardRequest requests all trade dashboard data in one call.
+                 Uses default parameters: top 50 restrictions, US-China tariffs/flows, top 50 barriers.
+        GetTradeDashboardResponse:
+            type: object
+            properties:
+                restrictions:
+                    $ref: '#/components/schemas/GetTradeRestrictionsResponse'
+                tariffs:
+                    $ref: '#/components/schemas/GetTariffTrendsResponse'
+                flows:
+                    $ref: '#/components/schemas/GetTradeFlowsResponse'
+                barriers:
+                    $ref: '#/components/schemas/GetTradeBarriersResponse'
+            description: GetTradeDashboardResponse aggregates all trade dashboard data.
