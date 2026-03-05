@@ -81,6 +81,9 @@ cd "${ROOT_DIR}"
 log "Pulling latest code..."
 git pull --ff-only || die "git pull failed — resolve conflicts manually and re-run"
 
+log "Installing/updating dependencies..."
+npm install --omit=dev || warn "npm install failed — relay may be missing node-cron"
+
 # ── 3. Detect process manager and restart ────────────────────────────────────
 
 restart_pm2() {
