@@ -6,6 +6,7 @@ import {
   type ListAcledEventsResponse,
   type ListUcdpEventsResponse,
   type GetHumanitarianSummaryResponse,
+  type ListAllHumanitarianSummariesResponse,
   type IranEvent,
   type ListIranEventsResponse,
 } from '@/generated/client/worldmonitor/conflict/v1/service_client';
@@ -19,6 +20,11 @@ const client = new ConflictServiceClient('', { fetch: (...args) => globalThis.fe
 const acledBreaker = createCircuitBreaker<ListAcledEventsResponse>({ name: 'ACLED Conflicts', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
 const ucdpBreaker = createCircuitBreaker<ListUcdpEventsResponse>({ name: 'UCDP Events', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
 const hapiBreaker = createCircuitBreaker<GetHumanitarianSummaryResponse>({ name: 'HDX HAPI', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
+const hapiAllBreaker = createCircuitBreaker<ListAllHumanitarianSummariesResponse>({
+  name: 'HDX HAPI All',
+  cacheTtlMs: 10 * 60 * 1000,
+  persistCache: true,
+});
 const iranBreaker = createCircuitBreaker<ListIranEventsResponse>({ name: 'Iran Events', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
 
 const emptyIranFallback: ListIranEventsResponse = { events: [], scrapedAt: '0' };
@@ -234,6 +240,7 @@ interface AcledEvent {
 const emptyAcledFallback: ListAcledEventsResponse = { events: [], pagination: undefined };
 const emptyUcdpFallback: ListUcdpEventsResponse = { events: [], pagination: undefined };
 const emptyHapiFallback: GetHumanitarianSummaryResponse = { summary: undefined };
+const emptyHapiAllFallback: ListAllHumanitarianSummariesResponse = { summaries: [] };
 
 // ---- Exported Functions ----
 
@@ -293,6 +300,18 @@ export async function fetchHapiSummary(): Promise<Map<string, HapiConflictSummar
     }
   }
 
+  return byCode;
+}
+
+export async function fetchAllHapiSummaries(): Promise<Map<string, HapiConflictSummary>> {
+  const resp = await hapiAllBreaker.execute(async () => {
+    return client.listAllHumanitarianSummaries({});
+  }, emptyHapiAllFallback);
+
+  const byCode = new Map<string, HapiConflictSummary>();
+  for (const summary of resp.summaries) {
+    byCode.set(summary.countryCode, toHapiSummary(summary));
+  }
   return byCode;
 }
 

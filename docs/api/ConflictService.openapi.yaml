@@ -156,6 +156,34 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Error'
+    /api/conflict/v1/list-all-humanitarian-summaries:
+        get:
+            tags:
+                - ConflictService
+            summary: ListAllHumanitarianSummaries
+            description: |-
+                ListAllHumanitarianSummaries retrieves humanitarian summaries for all monitored countries.
+                 Replaces 20 individual GetHumanitarianSummary calls with a single batch request.
+            operationId: ListAllHumanitarianSummaries
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListAllHumanitarianSummariesResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidationError'
+                default:
+                    description: Error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Error'
     /api/conflict/v1/list-iran-events:
         get:
             tags:
@@ -446,6 +474,17 @@ components:
                     format: int64
                     description: 'Last data update time, as Unix epoch milliseconds.. Warning: Values > 2^53 may lose precision in JavaScript'
             description: HumanitarianCountrySummary represents HAPI conflict event counts for a country.
+        ListAllHumanitarianSummariesRequest:
+            type: object
+            description: ListAllHumanitarianSummariesRequest requests summaries for all monitored countries.
+        ListAllHumanitarianSummariesResponse:
+            type: object
+            properties:
+                summaries:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/HumanitarianCountrySummary'
+            description: ListAllHumanitarianSummariesResponse contains summaries for all monitored countries.
         ListIranEventsRequest:
             type: object
         ListIranEventsResponse:

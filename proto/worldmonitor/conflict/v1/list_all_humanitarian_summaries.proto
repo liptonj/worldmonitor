@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package worldmonitor.conflict.v1;
+
+import "worldmonitor/conflict/v1/humanitarian_summary.proto";
+
+// ListAllHumanitarianSummariesRequest requests summaries for all monitored countries.
+message ListAllHumanitarianSummariesRequest {}
+
+// ListAllHumanitarianSummariesResponse contains summaries for all monitored countries.
+message ListAllHumanitarianSummariesResponse {
+  repeated HumanitarianCountrySummary summaries = 1;
+}

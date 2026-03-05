@@ -20,11 +20,13 @@ import type { ConflictServiceHandler } from '../../../../src/generated/server/wo
 import { listAcledEvents } from './list-acled-events';
 import { listUcdpEvents } from './list-ucdp-events';
 import { getHumanitarianSummary } from './get-humanitarian-summary';
+import { listAllHumanitarianSummaries } from './list-all-humanitarian-summaries';
 import { listIranEvents } from './list-iran-events';
 
 export const conflictHandler: ConflictServiceHandler = {
   listAcledEvents,
   listUcdpEvents,
   getHumanitarianSummary,
+  listAllHumanitarianSummaries,
   listIranEvents,
 };
