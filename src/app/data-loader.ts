@@ -47,10 +47,7 @@ import {
   type BisData,
   fetchCyberThreats,
   drainTrendingSignals,
-  fetchTradeRestrictions,
-  fetchTariffTrends,
-  fetchTradeFlows,
-  fetchTradeBarriers,
+  fetchTradeDashboard,
   fetchShippingRates,
   fetchChokepointStatus,
   fetchCriticalMinerals,
@@ -1925,12 +1922,11 @@ export class DataLoaderManager implements AppModule {
     if (!tradePanel) return;
 
     try {
-      const [restrictions, tariffs, flows, barriers] = await Promise.all([
-        fetchTradeRestrictions([], 50),
-        fetchTariffTrends('840', '156', '', 10),
-        fetchTradeFlows('840', '156', 10),
-        fetchTradeBarriers([], '', 50),
-      ]);
+      const dashboard = await fetchTradeDashboard();
+      const restrictions = dashboard.restrictions ?? { restrictions: [], fetchedAt: '', upstreamUnavailable: false };
+      const tariffs = dashboard.tariffs ?? { datapoints: [], fetchedAt: '', upstreamUnavailable: false };
+      const flows = dashboard.flows ?? { flows: [], fetchedAt: '', upstreamUnavailable: false };
+      const barriers = dashboard.barriers ?? { barriers: [], fetchedAt: '', upstreamUnavailable: false };
 
       tradePanel.updateRestrictions(restrictions);
       tradePanel.updateTariffs(tariffs);

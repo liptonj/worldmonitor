@@ -7,6 +7,7 @@ import "worldmonitor/trade/v1/get_trade_restrictions.proto";
 import "worldmonitor/trade/v1/get_tariff_trends.proto";
 import "worldmonitor/trade/v1/get_trade_flows.proto";
 import "worldmonitor/trade/v1/get_trade_barriers.proto";
+import "worldmonitor/trade/v1/get_trade_dashboard.proto";
 
 // Trade policy intelligence from WTO data sources.
 service TradeService {
@@ -30,5 +31,10 @@ service TradeService {
   // Get SPS/TBT barrier notifications.
   rpc GetTradeBarriers(GetTradeBarriersRequest) returns (GetTradeBarriersResponse) {
     option (sebuf.http.config) = {path: "/get-trade-barriers", method: HTTP_METHOD_GET};
+  }
+
+  // GetTradeDashboard retrieves all trade dashboard data in a single batch call.
+  rpc GetTradeDashboard(GetTradeDashboardRequest) returns (GetTradeDashboardResponse) {
+    option (sebuf.http.config) = {path: "/get-trade-dashboard", method: HTTP_METHOD_GET};
   }
 }

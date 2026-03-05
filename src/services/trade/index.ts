@@ -9,6 +9,7 @@ import {
   type GetTariffTrendsResponse,
   type GetTradeFlowsResponse,
   type GetTradeBarriersResponse,
+  type GetTradeDashboardResponse,
   type TradeRestriction,
   type TariffDataPoint,
   type TradeFlowRecord,
@@ -24,6 +25,7 @@ export type {
   GetTariffTrendsResponse,
   GetTradeFlowsResponse,
   GetTradeBarriersResponse,
+  GetTradeDashboardResponse,
 };
 
 const client = new TradeServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
@@ -37,6 +39,19 @@ const emptyRestrictions: GetTradeRestrictionsResponse = { restrictions: [], fetc
 const emptyTariffs: GetTariffTrendsResponse = { datapoints: [], fetchedAt: '', upstreamUnavailable: false };
 const emptyFlows: GetTradeFlowsResponse = { flows: [], fetchedAt: '', upstreamUnavailable: false };
 const emptyBarriers: GetTradeBarriersResponse = { barriers: [], fetchedAt: '', upstreamUnavailable: false };
+
+const tradeDashboardBreaker = createCircuitBreaker<GetTradeDashboardResponse>({
+  name: 'Trade Dashboard',
+  cacheTtlMs: 6 * 60 * 60 * 1000,
+  persistCache: true,
+});
+
+const emptyTradeDashboard: GetTradeDashboardResponse = {
+  restrictions: emptyRestrictions,
+  tariffs: emptyTariffs,
+  flows: emptyFlows,
+  barriers: emptyBarriers,
+};
 
 export async function fetchTradeRestrictions(countries: string[] = [], limit = 50): Promise<GetTradeRestrictionsResponse> {
   if (!isFeatureAvailable('wtoTrade')) return emptyRestrictions;
@@ -79,5 +94,16 @@ export async function fetchTradeBarriers(countries: string[] = [], measureType =
     }, emptyBarriers);
   } catch {
     return emptyBarriers;
+  }
+}
+
+export async function fetchTradeDashboard(): Promise<GetTradeDashboardResponse> {
+  if (!isFeatureAvailable('wtoTrade')) return emptyTradeDashboard;
+  try {
+    return await tradeDashboardBreaker.execute(async () => {
+      return client.getTradeDashboard({});
+    }, emptyTradeDashboard);
+  } catch {
+    return emptyTradeDashboard;
   }
 }

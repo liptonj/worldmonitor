@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package worldmonitor.trade.v1;
+
+import "worldmonitor/trade/v1/get_trade_restrictions.proto";
+import "worldmonitor/trade/v1/get_tariff_trends.proto";
+import "worldmonitor/trade/v1/get_trade_flows.proto";
+import "worldmonitor/trade/v1/get_trade_barriers.proto";
+
+// GetTradeDashboardRequest requests all trade dashboard data in one call.
+// Uses default parameters: top 50 restrictions, US-China tariffs/flows, top 50 barriers.
+message GetTradeDashboardRequest {}
+
+// GetTradeDashboardResponse aggregates all trade dashboard data.
+message GetTradeDashboardResponse {
+  GetTradeRestrictionsResponse restrictions = 1;
+  GetTariffTrendsResponse tariffs = 2;
+  GetTradeFlowsResponse flows = 3;
+  GetTradeBarriersResponse barriers = 4;
+}
