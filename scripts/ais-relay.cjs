@@ -239,10 +239,12 @@ async function directFetchAndBroadcast(channel, redisKey, ttlSec, fetcher) {
       return;
     }
   }
-  if (data) {
-    await redisSetex(redisKey, effectiveTtl, data);
-    broadcastToChannel(channel, data);
+  if (!data) {
+    console.warn(`[relay-fetch] ${channel} fetcher returned no data — skipping cache and broadcast`);
+    return;
   }
+  await redisSetex(redisKey, effectiveTtl, data);
+  broadcastToChannel(channel, data);
 }
 
 async function auditStaleTTLs() {
@@ -266,7 +268,7 @@ cron.schedule('0 * * * *', async () => {
   try {
     await auditStaleTTLs();
   } catch (err) {
-    console.error('[redis-audit] error:', err.message);
+    console.error('[redis-audit] error:', err?.message ?? err);
   }
 });
 
