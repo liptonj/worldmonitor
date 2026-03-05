@@ -295,9 +295,18 @@ fi
 
 # ── 3. Configure local Redis (persistence, memory, eviction) ───────────────────
 configure_redis() {
+  if ! command -v redis-cli > /dev/null 2>&1; then
+    die "redis-cli not found — install redis-tools first (apt install redis-tools or brew install redis)."
+  fi
+
   log "Checking local Redis..."
   if ! redis-cli ping 2>/dev/null | grep -q PONG; then
     die "Redis is not running on localhost:6379 -- install/start Redis first."
+  fi
+
+  if [[ -n "${REDIS_URL:-}" && "${REDIS_URL}" != *"localhost"* && "${REDIS_URL}" != *"127.0.0.1"* ]]; then
+    warn "REDIS_URL points to a non-local host (${REDIS_URL}) — skipping local Redis configuration."
+    return 0
   fi
 
   log "Setting Redis persistence (RDB + AOF)..."
@@ -310,10 +319,10 @@ configure_redis() {
   redis-cli CONFIG SET maxmemory-policy allkeys-lru
 
   log "Persisting Redis config to disk..."
-  redis-cli CONFIG REWRITE
+  redis-cli CONFIG REWRITE || warn "Could not persist Redis config to disk (CONFIG REWRITE failed — changes are in-memory only)."
 
-  log "Redis persistence: $(redis-cli INFO persistence | grep -E 'aof_enabled|rdb_last_save')"
-  log "Redis maxmemory: $(redis-cli CONFIG GET maxmemory | tail -1)"
+  log "Redis persistence: $(redis-cli INFO persistence | grep -E 'aof_enabled|rdb_last_save' || true)"
+  log "Redis maxmemory: $(redis-cli CONFIG GET maxmemory | tail -1 || true)"
   log "Redis configure done."
 }
 
