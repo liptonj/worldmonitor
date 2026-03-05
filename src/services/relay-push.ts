@@ -93,7 +93,14 @@ export function initRelayPush(channels: string[]): void {
   }
   if (socket) return;
   destroyed = false;
-  connect(relayWsUrl, channels);
+
+  const wsToken = import.meta.env.VITE_WS_RELAY_TOKEN as string | undefined;
+  let url = relayWsUrl;
+  if (wsToken) {
+    const sep = relayWsUrl.includes('?') ? '&' : '?';
+    url = `${relayWsUrl}${sep}token=${encodeURIComponent(wsToken)}`;
+  }
+  connect(url, channels);
 }
 
 export function destroyRelayPush(): void {

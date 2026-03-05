@@ -27,4 +27,16 @@ describe('relay channel broadcast contract', () => {
     assert.ok(src.includes("'wm-push'") || src.includes('"wm-push"'),
       'relay must send wm-push typed messages');
   });
+
+  it('relay supports RELAY_WS_TOKEN for browser WebSocket auth', () => {
+    const src = readFileSync('scripts/ais-relay.cjs', 'utf8');
+    assert.ok(src.includes('RELAY_WS_TOKEN'), 'relay must read RELAY_WS_TOKEN env var');
+    assert.ok(src.includes('isAuthorizedWsRequest'), 'relay must have isAuthorizedWsRequest function');
+  });
+
+  it('relay WS auth reads token from query param', () => {
+    const src = readFileSync('scripts/ais-relay.cjs', 'utf8');
+    assert.ok(src.includes("searchParams.get('token')") || src.includes('searchParams.get("token")'),
+      'relay WS auth must read token from URL query parameter');
+  });
 });

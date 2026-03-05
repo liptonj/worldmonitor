@@ -28,4 +28,10 @@ describe('relay-push service contract', () => {
     assert.ok(src.includes('reconnect') || src.includes('Reconnect'),
       'must implement reconnection');
   });
+
+  it('relay-push.ts appends VITE_WS_RELAY_TOKEN as query param when set', () => {
+    const src = readFileSync('src/services/relay-push.ts', 'utf8');
+    assert.ok(src.includes('VITE_WS_RELAY_TOKEN'), 'must read VITE_WS_RELAY_TOKEN');
+    assert.ok(src.includes('token='), 'must append token as query param');
+  });
 });

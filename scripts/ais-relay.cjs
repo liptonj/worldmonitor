@@ -59,6 +59,7 @@ const MEMORY_CLEANUP_THRESHOLD_GB = (() => {
 })();
 const RELAY_SHARED_SECRET = process.env.RELAY_SHARED_SECRET || '';
 const RELAY_AUTH_HEADER = (process.env.RELAY_AUTH_HEADER || 'x-relay-key').toLowerCase();
+const RELAY_WS_TOKEN = process.env.RELAY_WS_TOKEN || '';
 const ALLOW_UNAUTHENTICATED_RELAY = process.env.ALLOW_UNAUTHENTICATED_RELAY === 'true';
 const IS_PRODUCTION_RELAY = process.env.NODE_ENV === 'production'
   || !!process.env.RAILWAY_ENVIRONMENT
@@ -1157,6 +1158,21 @@ function isAuthorizedRequest(req) {
   const provided = getRelaySecretFromRequest(req);
   if (!provided) return false;
   return safeTokenEquals(provided, RELAY_SHARED_SECRET);
+}
+
+/**
+ * Auth check for browser WebSocket connections.
+ * Browser WebSocket API cannot set custom headers, so clients pass a token
+ * via ?token= query parameter. Checks against RELAY_WS_TOKEN first, then
+ * falls back to RELAY_SHARED_SECRET. Skips auth when neither is configured.
+ */
+function isAuthorizedWsRequest(req) {
+  const secret = RELAY_WS_TOKEN || RELAY_SHARED_SECRET;
+  if (!secret) return true;
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const provided = url.searchParams.get('token') || '';
+  if (!provided) return false;
+  return safeTokenEquals(provided, secret);
 }
 
 function getRouteGroup(pathname) {
@@ -3271,6 +3287,7 @@ const server = http.createServer(async (req, res) => {
       },
       auth: {
         sharedSecretEnabled: !!RELAY_SHARED_SECRET,
+        wsTokenEnabled: !!RELAY_WS_TOKEN,
         authHeader: RELAY_AUTH_HEADER,
         allowVercelPreviewOrigins: ALLOW_VERCEL_PREVIEW_ORIGINS,
       },
@@ -3879,7 +3896,7 @@ server.listen(PORT, () => {
 });
 
 wss.on('connection', (ws, req) => {
-  if (!isAuthorizedRequest(req)) {
+  if (!isAuthorizedWsRequest(req)) {
     ws.close(1008, 'Unauthorized');
     return;
   }

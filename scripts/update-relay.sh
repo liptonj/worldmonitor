@@ -199,6 +199,21 @@ validate_required_env "VERCEL_APP_URL" "Vercel warm target URL"
 validate_required_env "UPSTASH_REDIS_REST_URL" "Upstash REST URL"
 validate_required_env "UPSTASH_REDIS_REST_TOKEN" "Upstash REST token"
 
+# RELAY_WS_TOKEN: optional separate token for browser WebSocket auth.
+# When set, browser clients pass it as ?token= query param.
+# When unset, RELAY_SHARED_SECRET is used for WS auth as well.
+ws_token="$(env_get RELAY_WS_TOKEN)"
+if [[ -n "${ws_token}" ]]; then
+  if ! is_strong_secret "${ws_token}"; then
+    fail "RELAY_WS_TOKEN should be at least 24 characters."
+  else
+    log "RELAY_WS_TOKEN is set and valid."
+  fi
+else
+  warn "RELAY_WS_TOKEN not set — browser WS auth will use RELAY_SHARED_SECRET."
+  warn "Set RELAY_WS_TOKEN to use a separate browser-safe token (recommended)."
+fi
+
 relay_secret="$(env_get RELAY_SHARED_SECRET)"
 vercel_url="$(env_get VERCEL_APP_URL)"
 
