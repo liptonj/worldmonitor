@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package worldmonitor.economic.v1;
+
+import "worldmonitor/economic/v1/economic_data.proto";
+
+// GetFredDashboardRequest requests all FRED dashboard series in one call.
+message GetFredDashboardRequest {}
+
+// GetFredDashboardResponse contains all FRED series for the dashboard.
+message GetFredDashboardResponse {
+  // All available FRED series (WALCL, FEDFUNDS, T10Y2Y, UNRATE, CPIAUCSL, DGS10, VIXCLS).
+  repeated FredSeries series = 1;
+}

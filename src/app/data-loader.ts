@@ -18,7 +18,7 @@ import {
   fetchPredictions,
   fetchEarthquakes,
   fetchWeatherAlerts,
-  fetchFredData,
+  fetchFredDashboard,
   fetchInternetOutages,
   isOutagesConfigured,
   fetchAisSignals,
@@ -1775,7 +1775,7 @@ export class DataLoaderManager implements AppModule {
 
   async loadFredData(): Promise<void> {
     const economicPanel = this.ctx.panels['economic'] as EconomicPanel;
-    const cbInfo = getCircuitBreakerCooldownInfo('FRED Economic');
+    const cbInfo = getCircuitBreakerCooldownInfo('FRED Dashboard');
     if (cbInfo.onCooldown) {
       economicPanel?.setErrorState(true, `Temporarily unavailable (retry in ${cbInfo.remainingSeconds}s)`);
       this.ctx.statusPanel?.updateApi('FRED', { status: 'error' });
@@ -1784,9 +1784,9 @@ export class DataLoaderManager implements AppModule {
 
     try {
       economicPanel?.setLoading(true);
-      const data = await fetchFredData();
+      const data = await fetchFredDashboard();
 
-      const postInfo = getCircuitBreakerCooldownInfo('FRED Economic');
+      const postInfo = getCircuitBreakerCooldownInfo('FRED Dashboard');
       if (postInfo.onCooldown) {
         economicPanel?.setErrorState(true, `Temporarily unavailable (retry in ${postInfo.remainingSeconds}s)`);
         this.ctx.statusPanel?.updateApi('FRED', { status: 'error' });
@@ -1800,7 +1800,7 @@ export class DataLoaderManager implements AppModule {
         }
         economicPanel?.showRetrying();
         await new Promise(r => setTimeout(r, 20_000));
-        const retryData = await fetchFredData();
+        const retryData = await fetchFredDashboard();
         if (retryData.length === 0) {
           economicPanel?.setErrorState(true, 'FRED data temporarily unavailable — will retry');
           this.ctx.statusPanel?.updateApi('FRED', { status: 'error' });
@@ -1822,7 +1822,7 @@ export class DataLoaderManager implements AppModule {
         economicPanel?.showRetrying();
         try {
           await new Promise(r => setTimeout(r, 20_000));
-          const retryData = await fetchFredData();
+          const retryData = await fetchFredDashboard();
           if (retryData.length > 0) {
             economicPanel?.setErrorState(false);
             economicPanel?.update(retryData);

@@ -23,6 +23,13 @@ export interface FredObservation {
   value: number;
 }
 
+export interface GetFredDashboardRequest {
+}
+
+export interface GetFredDashboardResponse {
+  series: FredSeries[];
+}
+
 export interface ListWorldBankIndicatorsRequest {
   indicatorCode: string;
   countryCode: string;
@@ -281,6 +288,29 @@ export class EconomicServiceClient {
     }
 
     return await resp.json() as GetFredSeriesResponse;
+  }
+
+  async getFredDashboard(req: GetFredDashboardRequest, options?: EconomicServiceCallOptions): Promise<GetFredDashboardResponse> {
+    let path = "/api/economic/v1/get-fred-dashboard";
+    const url = this.baseURL + path;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+      ...options?.headers,
+    };
+
+    const resp = await this.fetchFn(url, {
+      method: "GET",
+      headers,
+      signal: options?.signal,
+    });
+
+    if (!resp.ok) {
+      return this.handleError(resp);
+    }
+
+    return await resp.json() as GetFredDashboardResponse;
   }
 
   async listWorldBankIndicators(req: ListWorldBankIndicatorsRequest, options?: EconomicServiceCallOptions): Promise<ListWorldBankIndicatorsResponse> {

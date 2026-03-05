@@ -23,6 +23,13 @@ export interface FredObservation {
   value: number;
 }
 
+export interface GetFredDashboardRequest {
+}
+
+export interface GetFredDashboardResponse {
+  series: FredSeries[];
+}
+
 export interface ListWorldBankIndicatorsRequest {
   indicatorCode: string;
   countryCode: string;
@@ -255,6 +262,7 @@ export interface RouteDescriptor {
 
 export interface EconomicServiceHandler {
   getFredSeries(ctx: ServerContext, req: GetFredSeriesRequest): Promise<GetFredSeriesResponse>;
+  getFredDashboard(ctx: ServerContext, req: GetFredDashboardRequest): Promise<GetFredDashboardResponse>;
   listWorldBankIndicators(ctx: ServerContext, req: ListWorldBankIndicatorsRequest): Promise<ListWorldBankIndicatorsResponse>;
   getEnergyPrices(ctx: ServerContext, req: GetEnergyPricesRequest): Promise<GetEnergyPricesResponse>;
   getMacroSignals(ctx: ServerContext, req: GetMacroSignalsRequest): Promise<GetMacroSignalsResponse>;
@@ -296,6 +304,43 @@ export function createEconomicServiceRoutes(
 
           const result = await handler.getFredSeries(ctx, body);
           return new Response(JSON.stringify(result as GetFredSeriesResponse), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (err: unknown) {
+          if (err instanceof ValidationError) {
+            return new Response(JSON.stringify({ violations: err.violations }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          if (options?.onError) {
+            return options.onError(err, req);
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          return new Response(JSON.stringify({ message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/economic/v1/get-fred-dashboard",
+      handler: async (req: Request): Promise<Response> => {
+        try {
+          const pathParams: Record<string, string> = {};
+          const body = {} as GetFredDashboardRequest;
+
+          const ctx: ServerContext = {
+            request: req,
+            pathParams,
+            headers: Object.fromEntries(req.headers.entries()),
+          };
+
+          const result = await handler.getFredDashboard(ctx, body);
+          return new Response(JSON.stringify(result as GetFredDashboardResponse), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });

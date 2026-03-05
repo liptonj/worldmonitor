@@ -10,6 +10,7 @@
 import {
   EconomicServiceClient,
   type GetFredSeriesResponse,
+  type GetFredDashboardResponse,
   type ListWorldBankIndicatorsResponse,
   type WorldBankCountryData as ProtoWorldBankCountryData,
   type GetEnergyPricesResponse,
@@ -52,6 +53,12 @@ const bisEerBreaker = createCircuitBreaker<GetBisExchangeRatesResponse>({ name: 
 const bisCreditBreaker = createCircuitBreaker<GetBisCreditResponse>({ name: 'BIS Credit', cacheTtlMs: 30 * 60 * 1000, persistCache: true });
 
 const emptyFredFallback: GetFredSeriesResponse = { series: undefined };
+const fredDashboardBreaker = createCircuitBreaker<GetFredDashboardResponse>({
+  name: 'FRED Dashboard',
+  cacheTtlMs: 60 * 60 * 1000,
+  persistCache: true,
+});
+const emptyFredDashboard: GetFredDashboardResponse = { series: [] };
 const emptyWbFallback: ListWorldBankIndicatorsResponse = { data: [], pagination: undefined };
 const emptyEiaFallback: GetEnergyPricesResponse = { prices: [] };
 const emptyCapacityFallback: GetEnergyCapacityResponse = { series: [] };
@@ -91,12 +98,11 @@ const FRED_SERIES: FredConfig[] = [
   { id: 'VIXCLS', name: 'VIX', unit: '', precision: 2 },
 ];
 
-async function fetchSingleFredSeries(config: FredConfig): Promise<FredSeries | null> {
-  const resp = await getFredBreaker(config.id).execute(async () => {
-    return client.getFredSeries({ seriesId: config.id, limit: 120 });
-  }, emptyFredFallback);
-
-  const obs = resp.series?.observations;
+function protoSeriesToClient(
+  proto: { seriesId: string; observations: { date: string; value: number }[] },
+  config: FredConfig,
+): FredSeries | null {
+  const obs = proto.observations;
   if (!obs || obs.length === 0) return null;
 
   if (obs.length >= 2) {
@@ -134,6 +140,37 @@ async function fetchSingleFredSeries(config: FredConfig): Promise<FredSeries | n
     date: latest.date,
     unit: config.unit,
   };
+}
+
+async function fetchSingleFredSeries(config: FredConfig): Promise<FredSeries | null> {
+  const resp = await getFredBreaker(config.id).execute(async () => {
+    return client.getFredSeries({ seriesId: config.id, limit: 120 });
+  }, emptyFredFallback);
+
+  return protoSeriesToClient(
+    { seriesId: config.id, observations: resp.series?.observations ?? [] },
+    config,
+  );
+}
+
+export async function fetchFredDashboard(): Promise<FredSeries[]> {
+  if (!isFeatureAvailable('economicFred')) return [];
+  try {
+    const resp = await fredDashboardBreaker.execute(async () => {
+      return client.getFredDashboard({});
+    }, emptyFredDashboard);
+    const configById = new Map(FRED_SERIES.map((c) => [c.id, c]));
+    const result: FredSeries[] = [];
+    for (const proto of resp.series) {
+      const config = configById.get(proto.seriesId);
+      if (!config) continue;
+      const clientSeries = protoSeriesToClient(proto, config);
+      if (clientSeries) result.push(clientSeries);
+    }
+    return result;
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchFredData(): Promise<FredSeries[]> {

@@ -4,6 +4,7 @@ package worldmonitor.economic.v1;
 
 import "sebuf/http/annotations.proto";
 import "worldmonitor/economic/v1/get_fred_series.proto";
+import "worldmonitor/economic/v1/get_fred_dashboard.proto";
 import "worldmonitor/economic/v1/list_world_bank_indicators.proto";
 import "worldmonitor/economic/v1/get_energy_prices.proto";
 import "worldmonitor/economic/v1/get_macro_signals.proto";
@@ -19,6 +20,11 @@ service EconomicService {
   // GetFredSeries retrieves time series data from the Federal Reserve Economic Data.
   rpc GetFredSeries(GetFredSeriesRequest) returns (GetFredSeriesResponse) {
     option (sebuf.http.config) = {path: "/get-fred-series", method: HTTP_METHOD_GET};
+  }
+
+  // GetFredDashboard retrieves all FRED dashboard series in a single batch call.
+  rpc GetFredDashboard(GetFredDashboardRequest) returns (GetFredDashboardResponse) {
+    option (sebuf.http.config) = {path: "/get-fred-dashboard", method: HTTP_METHOD_GET};
   }
 
   // ListWorldBankIndicators retrieves development indicator data from the World Bank.
