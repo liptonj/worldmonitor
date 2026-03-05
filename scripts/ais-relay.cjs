@@ -5427,6 +5427,739 @@ async function fetchServiceStatus() {
   return { statuses: results };
 }
 
+// ── Phase 3C: Complex Channels (direct fetch) ─────────────────────────────────
+const PHASE3C_TIMEOUT_MS = 15_000;
+
+// --- fetchMarkets: Finnhub + Yahoo + CoinGecko + Supabase symbols ---
+async function fetchMarketSymbols() {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.rpc('get_market_symbols');
+    if (error || !data) return null;
+    return data;
+  } catch { return null; }
+}
+
+function isYahooOnlySymbol(s) {
+  return s.startsWith('^') || s.includes('=');
+}
+
+async function fetchFinnhubQuote(symbol, apiKey) {
+  try {
+    const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}`;
+    const resp = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': CHROME_UA, 'X-Finnhub-Token': apiKey },
+      signal: AbortSignal.timeout(PHASE3C_TIMEOUT_MS),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (data.c === 0 && data.h === 0 && data.l === 0) return null;
+    return { symbol, price: data.c, changePercent: data.dp };
+  } catch { return null; }
+}
+
+async function fetchYahooQuote(symbol) {
+  await yahooGate();
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`;
+  const resp = await fetch(url, {
+    headers: { 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(PHASE3C_TIMEOUT_MS),
+  });
+  if (!resp.ok) return null;
+  const chart = await resp.json();
+  const result = chart?.chart?.result?.[0];
+  const quote = result?.indicators?.quote?.[0];
+  const closes = (quote?.close || []).filter((v) => v != null);
+  const price = closes.length > 0 ? closes[closes.length - 1] : result?.meta?.regularMarketPrice;
+  const prev = closes.length >= 2 ? closes[closes.length - 2] : result?.chartPreviousClose;
+  const change = prev && price ? ((price - prev) / prev) * 100 : 0;
+  return price != null ? { price, change, sparkline: closes.slice(-48) } : null;
+}
+
+async function fetchCoinGeckoMarkets(ids) {
+  if (!ids || ids.length === 0) return [];
+  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids.join(',')}&sparkline=true&price_change_percentage=24h`;
+  const resp = await fetch(url, {
+    headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(PHASE3C_TIMEOUT_MS),
+  });
+  if (resp.status === 429) throw new Error('CoinGecko rate limited');
+  if (!resp.ok) return [];
+  return resp.json();
+}
+
+const CRYPTO_META = { bitcoin: { name: 'Bitcoin', symbol: 'BTC' }, ethereum: { name: 'Ethereum', symbol: 'ETH' }, solana: { name: 'Solana', symbol: 'SOL' }, ripple: { name: 'XRP', symbol: 'XRP' } };
+
+async function fetchMarkets() {
+  const config = await fetchMarketSymbols();
+  if (!config) {
+    return { stocks: [], commodities: [], sectors: [], crypto: [], finnhubSkipped: true, skipReason: 'Symbol config unavailable', rateLimited: false };
+  }
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey) console.warn('[relay] FINNHUB_API_KEY not set — markets will use Yahoo fallback only');
+
+  const stockSymbols = (config.stock || []).map((s) => s.symbol);
+  const commoditySymbols = (config.commodity || []).map((s) => s.symbol);
+  const sectorSymbols = (config.sector || []).map((s) => s.symbol);
+  const cryptoIds = (config.crypto || []).map((s) => s.symbol);
+
+  const stockMeta = new Map((config.stock || []).map((e) => [e.symbol, e]));
+  const commodityMeta = new Map((config.commodity || []).map((e) => [e.symbol, e]));
+  const sectorMeta = new Map((config.sector || []).map((e) => [e.symbol, e]));
+
+  const finnhubSymbols = stockSymbols.filter((s) => !isYahooOnlySymbol(s));
+  const allFinnhubSymbols = apiKey ? [...finnhubSymbols, ...sectorSymbols] : [];
+  const yahooStockSymbols = [...stockSymbols.filter(isYahooOnlySymbol), ...(!apiKey ? finnhubSymbols : [])];
+  const yahooSectorFallback = !apiKey ? sectorSymbols : [];
+
+  const [finnhubResults, yahooCommodityResults, yahooStockResults, yahooSectorResults, cryptoResults] = await Promise.allSettled([
+    allFinnhubSymbols.length > 0 ? Promise.all(allFinnhubSymbols.map((s) => fetchFinnhubQuote(s, apiKey || '').then((r) => (r ? { ...r, symbol: s } : null)))) : Promise.resolve([]),
+    commoditySymbols.length > 0 ? Promise.all(commoditySymbols.map((s) => fetchYahooQuote(s).then((q) => (q ? { symbol: s, ...q } : null)))) : Promise.resolve([]),
+    yahooStockSymbols.length > 0 ? Promise.all(yahooStockSymbols.map((s) => fetchYahooQuote(s).then((q) => (q ? { symbol: s, ...q } : null)))) : Promise.resolve([]),
+    yahooSectorFallback.length > 0 ? Promise.all(yahooSectorFallback.map((s) => fetchYahooQuote(s).then((q) => (q ? { symbol: s, ...q } : null)))) : Promise.resolve([]),
+    cryptoIds.length > 0 ? fetchCoinGeckoMarkets(cryptoIds) : Promise.resolve([]),
+  ]);
+
+  const finnhubData = finnhubResults.status === 'fulfilled' ? finnhubResults.value : [];
+  const yahooCommodity = yahooCommodityResults.status === 'fulfilled' ? (yahooCommodityResults.value || []).filter(Boolean) : [];
+  const yahooStock = yahooStockResults.status === 'fulfilled' ? (yahooStockResults.value || []).filter(Boolean) : [];
+  const yahooSector = yahooSectorResults.status === 'fulfilled' ? (yahooSectorResults.value || []).filter(Boolean) : [];
+  const cryptoData = cryptoResults.status === 'fulfilled' ? cryptoResults.value : [];
+
+  const yahooMap = new Map();
+  for (const x of [...yahooCommodity, ...yahooStock, ...yahooSector]) {
+    if (x && x.symbol) yahooMap.set(x.symbol, { price: x.price, change: x.change, sparkline: x.sparkline || [] });
+  }
+
+  const stocks = [];
+  const finnhubHits = new Set();
+  for (const r of finnhubData) {
+    if (r) {
+      finnhubHits.add(r.symbol);
+      const meta = stockMeta.get(r.symbol);
+      stocks.push({ symbol: r.symbol, name: meta?.name ?? r.symbol, display: meta?.display ?? r.symbol, price: r.price, change: r.changePercent, sparkline: [] });
+    }
+  }
+  const missedFinnhub = apiKey ? finnhubSymbols.filter((s) => !finnhubHits.has(s)) : finnhubSymbols;
+  for (const s of [...stockSymbols.filter(isYahooOnlySymbol), ...missedFinnhub]) {
+    if (finnhubHits.has(s)) continue;
+    const y = yahooMap.get(s);
+    if (y) {
+      const meta = stockMeta.get(s);
+      stocks.push({ symbol: s, name: meta?.name ?? s, display: meta?.display ?? s, price: y.price, change: y.change, sparkline: y.sparkline });
+    }
+  }
+  const stockOrder = new Map(stockSymbols.map((s, i) => [s, i]));
+  stocks.sort((a, b) => (stockOrder.get(a.symbol) ?? 999) - (stockOrder.get(b.symbol) ?? 999));
+
+  const commodities = commoditySymbols.map((s) => {
+    const y = yahooMap.get(s);
+    if (!y) return null;
+    const meta = commodityMeta.get(s);
+    return { symbol: s, name: meta?.name ?? s, display: meta?.display ?? s, price: y.price, change: y.change, sparkline: y.sparkline };
+  }).filter(Boolean);
+
+  const sectorFinnhubHits = new Set();
+  const sectors = [];
+  for (const r of finnhubData) {
+    if (r && sectorSymbols.includes(r.symbol)) {
+      sectorFinnhubHits.add(r.symbol);
+      const meta = sectorMeta.get(r.symbol);
+      sectors.push({ symbol: r.symbol, name: meta?.name ?? r.symbol, change: r.changePercent });
+    }
+  }
+  for (const s of sectorSymbols) {
+    if (sectorFinnhubHits.has(s)) continue;
+    const y = yahooMap.get(s);
+    if (y) {
+      const meta = sectorMeta.get(s);
+      sectors.push({ symbol: s, name: meta?.name ?? s, change: y.change });
+    }
+  }
+
+  const crypto = [];
+  const cryptoById = new Map((cryptoData || []).map((c) => [c.id, c]));
+  for (const id of cryptoIds) {
+    const coin = cryptoById.get(id);
+    if (!coin) continue;
+    const configEntry = (config.crypto || []).find((c) => c.symbol === id);
+    const meta = CRYPTO_META[id];
+    const prices = coin.sparkline_in_7d?.price;
+    const sparkline = prices && prices.length > 24 ? prices.slice(-48) : (prices || []);
+    crypto.push({
+      name: configEntry?.name ?? meta?.name ?? id,
+      symbol: configEntry?.display ?? meta?.symbol ?? id.toUpperCase(),
+      price: coin.current_price ?? 0,
+      change: coin.price_change_percentage_24h ?? 0,
+      sparkline,
+    });
+  }
+
+  const hasData = stocks.length > 0 || commodities.length > 0 || sectors.length > 0 || crypto.length > 0;
+  if (!hasData) return null;
+
+  const coveredByYahoo = finnhubSymbols.every((s) => stocks.some((q) => q.symbol === s));
+  const skipped = !apiKey && !coveredByYahoo;
+
+  return {
+    stocks,
+    commodities,
+    sectors,
+    crypto,
+    finnhubSkipped: skipped,
+    skipReason: skipped ? 'FINNHUB_API_KEY not configured' : '',
+    rateLimited: false,
+  };
+}
+
+// --- fetchMacroSignals: Yahoo + Alternative.me + Mempool (7 signals) ---
+function rateOfChange(prices, days) {
+  if (!prices || prices.length < days + 1) return null;
+  const recent = prices[prices.length - 1];
+  const past = prices[prices.length - 1 - days];
+  if (!past || past === 0) return null;
+  return ((recent - past) / past) * 100;
+}
+function smaCalc(prices, period) {
+  if (!prices || prices.length < period) return null;
+  return prices.slice(-period).reduce((a, b) => a + b, 0) / period;
+}
+function extractClosePrices(chart) {
+  try {
+    return chart?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter((p) => p != null) || [];
+  } catch { return []; }
+}
+function extractAlignedPriceVolume(chart) {
+  try {
+    const result = chart?.chart?.result?.[0];
+    const closes = result?.indicators?.quote?.[0]?.close || [];
+    const volumes = result?.indicators?.quote?.[0]?.volume || [];
+    const pairs = [];
+    for (let i = 0; i < closes.length; i++) {
+      if (closes[i] != null && volumes[i] != null) pairs.push({ price: closes[i], volume: volumes[i] });
+    }
+    return pairs;
+  } catch { return []; }
+}
+
+async function fetchMacroSignals() {
+  const yahooBase = 'https://query1.finance.yahoo.com/v8/finance/chart';
+  const jpyChart = await fetch(yahooBase + '/JPY=X?range=1y&interval=1d', { headers: { 'User-Agent': CHROME_UA } }).then((r) => r.ok ? r.json() : null).catch(() => null);
+  await yahooGate();
+  const btcChart = await fetch(yahooBase + '/BTC-USD?range=1y&interval=1d', { headers: { 'User-Agent': CHROME_UA } }).then((r) => r.ok ? r.json() : null).catch(() => null);
+  await yahooGate();
+  const qqqChart = await fetch(yahooBase + '/QQQ?range=1y&interval=1d', { headers: { 'User-Agent': CHROME_UA } }).then((r) => r.ok ? r.json() : null).catch(() => null);
+  await yahooGate();
+  const xlpChart = await fetch(yahooBase + '/XLP?range=1y&interval=1d', { headers: { 'User-Agent': CHROME_UA } }).then((r) => r.ok ? r.json() : null).catch(() => null);
+
+  const [fearGreed, mempoolHash] = await Promise.allSettled([
+    fetch('https://api.alternative.me/fng/?limit=30&format=json', { headers: { 'User-Agent': CHROME_UA } }).then((r) => r.ok ? r.json() : null),
+    fetch('https://mempool.space/api/v1/mining/hashrate/1m', { headers: { 'User-Agent': CHROME_UA } }).then((r) => r.ok ? r.json() : null),
+  ]);
+
+  const jpyPrices = extractClosePrices(jpyChart);
+  const btcPrices = extractClosePrices(btcChart);
+  const btcAligned = extractAlignedPriceVolume(btcChart);
+  const qqqPrices = extractClosePrices(qqqChart);
+  const xlpPrices = extractClosePrices(xlpChart);
+
+  const jpyRoc30 = rateOfChange(jpyPrices, 30);
+  const liquidityStatus = jpyRoc30 !== null ? (jpyRoc30 < -2 ? 'SQUEEZE' : 'NORMAL') : 'UNKNOWN';
+
+  const btcReturn5 = rateOfChange(btcPrices, 5);
+  const qqqReturn5 = rateOfChange(qqqPrices, 5);
+  let flowStatus = 'UNKNOWN';
+  if (btcReturn5 !== null && qqqReturn5 !== null) {
+    flowStatus = Math.abs(btcReturn5 - qqqReturn5) > 5 ? 'PASSIVE GAP' : 'ALIGNED';
+  }
+
+  const qqqRoc20 = rateOfChange(qqqPrices, 20);
+  const xlpRoc20 = rateOfChange(xlpPrices, 20);
+  let regimeStatus = 'UNKNOWN';
+  if (qqqRoc20 !== null && xlpRoc20 !== null) regimeStatus = qqqRoc20 > xlpRoc20 ? 'RISK-ON' : 'DEFENSIVE';
+
+  const btcSma50 = smaCalc(btcPrices, 50);
+  const btcSma200 = smaCalc(btcPrices, 200);
+  const btcCurrent = btcPrices.length > 0 ? btcPrices[btcPrices.length - 1] : null;
+
+  let btcVwap = null;
+  if (btcAligned.length >= 30) {
+    const last30 = btcAligned.slice(-30);
+    let sumPV = 0, sumV = 0;
+    for (const { price, volume } of last30) { sumPV += price * volume; sumV += volume; }
+    if (sumV > 0) btcVwap = +(sumPV / sumV).toFixed(0);
+  }
+
+  let trendStatus = 'UNKNOWN';
+  let mayerMultiple = null;
+  if (btcCurrent && btcSma50) {
+    const aboveSma = btcCurrent > btcSma50 * 1.02;
+    const belowSma = btcCurrent < btcSma50 * 0.98;
+    const aboveVwap = btcVwap ? btcCurrent > btcVwap : null;
+    if (aboveSma && aboveVwap !== false) trendStatus = 'BULLISH';
+    else if (belowSma && aboveVwap !== true) trendStatus = 'BEARISH';
+    else trendStatus = 'NEUTRAL';
+  }
+  if (btcCurrent && btcSma200) mayerMultiple = +(btcCurrent / btcSma200).toFixed(2);
+
+  let hashStatus = 'UNKNOWN';
+  let hashChange = null;
+  if (mempoolHash.status === 'fulfilled' && mempoolHash.value) {
+    const hr = mempoolHash.value.hashrates || mempoolHash.value;
+    if (Array.isArray(hr) && hr.length >= 2) {
+      const recent = hr[hr.length - 1]?.avgHashrate ?? hr[hr.length - 1];
+      const older = hr[0]?.avgHashrate ?? hr[0];
+      if (recent && older && older > 0) {
+        hashChange = +((recent - older) / older * 100).toFixed(1);
+        hashStatus = hashChange > 3 ? 'GROWING' : hashChange < -3 ? 'DECLINING' : 'STABLE';
+      }
+    }
+  }
+
+  let momentumStatus = mayerMultiple !== null ? (mayerMultiple > 1.0 ? 'STRONG' : mayerMultiple > 0.8 ? 'MODERATE' : 'WEAK') : 'UNKNOWN';
+
+  let fgValue, fgLabel = 'UNKNOWN', fgHistory = [];
+  if (fearGreed.status === 'fulfilled' && fearGreed.value?.data) {
+    const d = fearGreed.value.data[0];
+    fgValue = parseInt(d?.value, 10);
+    if (!Number.isFinite(fgValue)) fgValue = undefined;
+    fgLabel = d?.value_classification || 'UNKNOWN';
+    fgHistory = (fearGreed.value.data || []).slice(0, 30).map((x) => ({ value: parseInt(x.value, 10), date: new Date(parseInt(x.timestamp, 10) * 1000).toISOString().slice(0, 10) })).reverse();
+  }
+
+  const signalList = [
+    { status: liquidityStatus, bullish: liquidityStatus === 'NORMAL' },
+    { status: flowStatus, bullish: flowStatus === 'ALIGNED' },
+    { status: regimeStatus, bullish: regimeStatus === 'RISK-ON' },
+    { status: trendStatus, bullish: trendStatus === 'BULLISH' },
+    { status: hashStatus, bullish: hashStatus === 'GROWING' },
+    { status: momentumStatus, bullish: momentumStatus === 'STRONG' },
+    { status: fgLabel, bullish: fgValue !== undefined && fgValue > 50 },
+  ];
+  let bullishCount = 0, totalCount = 0;
+  for (const s of signalList) {
+    if (s.status !== 'UNKNOWN') { totalCount++; if (s.bullish) bullishCount++; }
+  }
+  const verdict = totalCount === 0 ? 'UNKNOWN' : (bullishCount / totalCount >= 0.57 ? 'BUY' : 'CASH');
+
+  return {
+    timestamp: new Date().toISOString(),
+    verdict,
+    bullishCount,
+    totalCount,
+    signals: {
+      liquidity: { status: liquidityStatus, value: jpyRoc30 !== null ? +jpyRoc30.toFixed(2) : undefined, sparkline: jpyPrices.slice(-30) },
+      flowStructure: { status: flowStatus, btcReturn5: btcReturn5 !== null ? +btcReturn5.toFixed(2) : undefined, qqqReturn5: qqqReturn5 !== null ? +qqqReturn5.toFixed(2) : undefined },
+      macroRegime: { status: regimeStatus, qqqRoc20: qqqRoc20 !== null ? +qqqRoc20.toFixed(2) : undefined, xlpRoc20: xlpRoc20 !== null ? +xlpRoc20.toFixed(2) : undefined },
+      technicalTrend: { status: trendStatus, btcPrice: btcCurrent ?? undefined, sma50: btcSma50 ? +btcSma50.toFixed(0) : undefined, sma200: btcSma200 ? +btcSma200.toFixed(0) : undefined, vwap30d: btcVwap ?? undefined, mayerMultiple: mayerMultiple ?? undefined, sparkline: btcPrices.slice(-30) },
+      hashRate: { status: hashStatus, change30d: hashChange ?? undefined },
+      priceMomentum: { status: momentumStatus },
+      fearGreed: { status: fgLabel, value: fgValue, history: fgHistory },
+    },
+    meta: { qqqSparkline: qqqPrices.slice(-30) },
+    unavailable: false,
+  };
+}
+
+// --- fetchStrategicRisk: ACLED + composite scoring ---
+const TIER1_COUNTRIES = { US: 'US', RU: 'RU', CN: 'CN', UA: 'UA', IR: 'IR', IL: 'IL', TW: 'TW', KP: 'KP', SA: 'SA', TR: 'TR', PL: 'PL', DE: 'DE', FR: 'FR', GB: 'GB', IN: 'IN', PK: 'PK', SY: 'SY', YE: 'YE', MM: 'MM', VE: 'VE' };
+const BASELINE_RISK = { US: 5, RU: 35, CN: 25, UA: 50, IR: 40, IL: 45, TW: 30, KP: 45, SA: 20, TR: 25, PL: 10, DE: 5, FR: 10, GB: 5, IN: 20, PK: 35, SY: 50, YE: 50, MM: 45, VE: 40 };
+const EVENT_MULTIPLIER = { US: 0.3, RU: 2.0, CN: 2.5, UA: 0.8, IR: 2.0, IL: 0.7, TW: 1.5, KP: 3.0, SA: 2.0, TR: 1.2, PL: 0.8, DE: 0.5, FR: 0.6, GB: 0.5, IN: 0.8, PK: 1.5, SY: 0.7, YE: 0.7, MM: 1.8, VE: 1.8 };
+const COUNTRY_KEYWORDS = { US: ['united states', 'usa', 'america'], RU: ['russia', 'moscow'], CN: ['china', 'beijing'], UA: ['ukraine', 'kyiv'], IR: ['iran', 'tehran'], IL: ['israel', 'tel aviv'], TW: ['taiwan'], KP: ['north korea'], SA: ['saudi arabia'], TR: ['turkey'], PL: ['poland'], DE: ['germany'], FR: ['france'], GB: ['britain', 'uk'], IN: ['india'], PK: ['pakistan'], SY: ['syria'], YE: ['yemen'], MM: ['myanmar'], VE: ['venezuela'] };
+
+function normalizeCountryName(text) {
+  const lower = (text || '').toLowerCase();
+  for (const [code, keywords] of Object.entries(COUNTRY_KEYWORDS)) {
+    if (keywords.some((kw) => lower.includes(kw))) return code;
+  }
+  return null;
+}
+
+async function fetchStrategicRisk() {
+  const token = process.env.ACLED_ACCESS_TOKEN;
+  if (!token) {
+    console.warn('[relay] ACLED_ACCESS_TOKEN not set — strategic-risk channel disabled');
+    return null;
+  }
+  const endDate = new Date().toISOString().slice(0, 10);
+  const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const params = new URLSearchParams({ event_type: 'Protests|Riots', event_date: `${startDate}|${endDate}`, event_date_where: 'BETWEEN', limit: '500', _format: 'json' });
+  let protests = [];
+  try {
+    const resp = await fetch(`https://acleddata.com/api/acled/read?${params}`, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}`, 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(PHASE3C_TIMEOUT_MS),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    protests = (data.data || []).map((e) => ({ country: e.country || '', event_type: e.event_type || '' }));
+  } catch { return null; }
+
+  const countryEvents = new Map();
+  for (const e of protests) {
+    const code = normalizeCountryName(e.country);
+    if (code && TIER1_COUNTRIES[code]) {
+      const c = countryEvents.get(code) || { protests: 0, riots: 0 };
+      if (e.event_type === 'Riots') c.riots++; else c.protests++;
+      countryEvents.set(code, c);
+    }
+  }
+
+  const ciiScores = [];
+  for (const [code] of Object.entries(TIER1_COUNTRIES)) {
+    const events = countryEvents.get(code) || { protests: 0, riots: 0 };
+    const baseline = BASELINE_RISK[code] || 20;
+    const mult = EVENT_MULTIPLIER[code] || 1.0;
+    const unrest = Math.min(100, Math.round((events.protests + events.riots * 2) * mult * 2));
+    const security = Math.min(100, baseline + events.riots * mult * 5);
+    const information = Math.min(100, (events.protests + events.riots) * mult * 3);
+    const composite = Math.min(100, Math.round(baseline + (unrest * 0.4 + security * 0.35 + information * 0.25) * 0.5));
+    ciiScores.push({ region: code, staticBaseline: baseline, dynamicScore: composite - baseline, combinedScore: composite, trend: 'TREND_DIRECTION_STABLE', components: { newsActivity: information, ciiContribution: unrest, geoConvergence: 0, militaryActivity: 0 }, computedAt: Date.now() });
+  }
+  ciiScores.sort((a, b) => b.combinedScore - a.combinedScore);
+
+  const top5 = ciiScores.slice(0, 5);
+  const weights = top5.map((_, i) => 1 - i * 0.15);
+  const totalWeight = weights.reduce((s, w) => s + w, 0);
+  const weightedSum = top5.reduce((s, sc, i) => s + sc.combinedScore * weights[i], 0);
+  const overallScore = Math.min(100, Math.round((weightedSum / totalWeight) * 0.7 + 15));
+  const strategicRisks = [{
+    region: 'global',
+    level: overallScore >= 70 ? 'SEVERITY_LEVEL_HIGH' : overallScore >= 40 ? 'SEVERITY_LEVEL_MEDIUM' : 'SEVERITY_LEVEL_LOW',
+    score: overallScore,
+    factors: top5.map((s) => s.region),
+    trend: 'TREND_DIRECTION_STABLE',
+  }];
+
+  return { ciiScores, strategicRisks };
+}
+
+// --- fetchPredictions: Polymarket Gamma API ---
+async function fetchPredictions() {
+  const GAMMA_BASE = 'https://gamma-api.polymarket.com';
+  const params = new URLSearchParams({ closed: 'false', active: 'true', archived: 'false', end_date_min: new Date().toISOString(), order: 'volume', ascending: 'false', limit: '50' });
+  try {
+    const resp = await fetch(`${GAMMA_BASE}/markets?${params}`, {
+      headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const markets = (data || []).map((m) => {
+      let yesPrice = 0.5;
+      try {
+        const prices = m.outcomePrices ? JSON.parse(m.outcomePrices) : [];
+        if (prices.length >= 1) yesPrice = parseFloat(prices[0]) || 0.5;
+      } catch {}
+      const closesAtMs = m.endDate ? Date.parse(m.endDate) : 0;
+      return {
+        id: m.slug || '',
+        title: m.question || '',
+        yesPrice,
+        volume: (m.volumeNum ?? (m.volume ? parseFloat(m.volume) : 0)) || 0,
+        url: `https://polymarket.com/market/${m.slug}`,
+        closesAt: Number.isFinite(closesAtMs) ? closesAtMs : 0,
+        category: '',
+      };
+    });
+    return markets.length > 0 ? { markets, pagination: undefined } : null;
+  } catch { return null; }
+}
+
+// --- fetchSupplyChain: NGA warnings + relay AIS disruptions ---
+const SUPPLY_CHAIN_CHOKEPOINTS = [
+  { id: 'suez', name: 'Suez Canal', lat: 30.45, lon: 32.35, areaKeywords: ['suez', 'red sea'], routes: ['China-Europe (Suez)', 'Gulf-Europe Oil', 'Qatar LNG-Europe'] },
+  { id: 'malacca', name: 'Malacca Strait', lat: 1.43, lon: 103.5, areaKeywords: ['malacca', 'singapore strait'], routes: ['China-Middle East Oil', 'China-Europe (via Suez)', 'Japan-Middle East Oil'] },
+  { id: 'hormuz', name: 'Strait of Hormuz', lat: 26.56, lon: 56.25, areaKeywords: ['hormuz', 'persian gulf', 'arabian gulf'], routes: ['Gulf Oil Exports', 'Qatar LNG', 'Iran Exports'] },
+  { id: 'bab_el_mandeb', name: 'Bab el-Mandeb', lat: 12.58, lon: 43.33, areaKeywords: ['bab el-mandeb', 'bab al-mandab', 'mandeb', 'aden'], routes: ['Suez-Indian Ocean', 'Gulf-Europe Oil', 'Red Sea Transit'] },
+  { id: 'panama', name: 'Panama Canal', lat: 9.08, lon: -79.68, areaKeywords: ['panama'], routes: ['US East Coast-Asia', 'US East Coast-South America', 'Atlantic-Pacific Bulk'] },
+  { id: 'taiwan', name: 'Taiwan Strait', lat: 24.0, lon: 119.5, areaKeywords: ['taiwan strait', 'formosa'], routes: ['China-Japan Trade', 'Korea-Southeast Asia', 'Pacific Semiconductor'] },
+];
+const SEVERITY_SCORE = { AIS_DISRUPTION_SEVERITY_LOW: 1, AIS_DISRUPTION_SEVERITY_ELEVATED: 2, AIS_DISRUPTION_SEVERITY_HIGH: 3 };
+
+function computeDisruptionScore(warningCount, congestionSeverity) {
+  return Math.min(100, warningCount * 15 + congestionSeverity * 30);
+}
+function scoreToStatus(score) {
+  if (score < 20) return 'green';
+  if (score < 50) return 'yellow';
+  return 'red';
+}
+
+async function fetchSupplyChain() {
+  let warnings = [];
+  try {
+    const resp = await fetch('https://msi.nga.mil/api/publications/broadcast-warn?output=json&status=A', {
+      headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const raw = Array.isArray(data) ? data : (data?.broadcast_warn || []);
+      warnings = raw.map((w) => ({ id: `${w.navArea || ''}-${w.msgYear || ''}-${w.msgNumber || ''}`, text: w.text || '', area: `${w.navArea || ''}${w.subregion || ''}` }));
+    }
+  } catch {}
+
+  buildSnapshot();
+  const disruptions = lastSnapshot?.disruptions || [];
+  const disruptionsMapped = disruptions.map((d) => ({
+    ...d,
+    type: d.type === 'chokepoint_congestion' ? 'AIS_DISRUPTION_TYPE_CHOKEPOINT_CONGESTION' : d.type,
+    severity: d.severity === 'high' ? 'AIS_DISRUPTION_SEVERITY_HIGH' : d.severity === 'elevated' ? 'AIS_DISRUPTION_SEVERITY_ELEVATED' : d.severity === 'low' ? 'AIS_DISRUPTION_SEVERITY_LOW' : 'AIS_DISRUPTION_SEVERITY_UNSPECIFIED',
+  }));
+
+  const chokepoints = SUPPLY_CHAIN_CHOKEPOINTS.map((cp) => {
+    const matchedWarnings = warnings.filter((w) => cp.areaKeywords.some((kw) => (w.text || '').toLowerCase().includes(kw) || (w.area || '').toLowerCase().includes(kw)));
+    const matchedDisruptions = disruptionsMapped.filter((d) => d.type === 'AIS_DISRUPTION_TYPE_CHOKEPOINT_CONGESTION' && cp.areaKeywords.some((kw) => (d.region || '').toLowerCase().includes(kw) || (d.name || '').toLowerCase().includes(kw)));
+    const maxSeverity = matchedDisruptions.reduce((max, d) => Math.max(max, SEVERITY_SCORE[d.severity] ?? 0), 0);
+    const disruptionScore = computeDisruptionScore(matchedWarnings.length, maxSeverity);
+    const status = scoreToStatus(disruptionScore);
+    const congestionLevel = maxSeverity >= 3 ? 'high' : maxSeverity >= 2 ? 'elevated' : maxSeverity >= 1 ? 'low' : 'normal';
+    const descriptions = [];
+    if (matchedWarnings.length > 0) descriptions.push(`${matchedWarnings.length} active navigational warning(s)`);
+    if (matchedDisruptions.length > 0) descriptions.push('AIS congestion detected');
+    if (descriptions.length === 0) descriptions.push('No active disruptions');
+    return { id: cp.id, name: cp.name, lat: cp.lat, lon: cp.lon, disruptionScore, status, activeWarnings: matchedWarnings.length, congestionLevel, affectedRoutes: cp.routes, description: descriptions.join('; ') };
+  });
+
+  return { chokepoints, fetchedAt: new Date().toISOString(), upstreamUnavailable: false };
+}
+
+// --- fetchStrategicPosture: OpenSky + Wingbits (via relay /opensky) ---
+const THEATER_QUERY_REGIONS = [
+  { name: 'WESTERN', lamin: 10, lamax: 66, lomin: 9, lomax: 66 },
+  { name: 'PACIFIC', lamin: 4, lamax: 44, lomin: 104, lomax: 133 },
+];
+const POSTURE_THEATERS = [
+  { id: 'baltic', bounds: { north: 66, south: 54, east: 30, west: 9 }, thresholds: { critical: 15, elevated: 8 }, strikeIndicators: { minTankers: 2, minAwacs: 1, minFighters: 4 } },
+  { id: 'eastern_med', bounds: { north: 42, south: 30, east: 40, west: 18 }, thresholds: { critical: 12, elevated: 6 }, strikeIndicators: { minTankers: 1, minAwacs: 1, minFighters: 3 } },
+  { id: 'persian_gulf', bounds: { north: 30, south: 24, east: 60, west: 48 }, thresholds: { critical: 10, elevated: 5 }, strikeIndicators: { minTankers: 1, minAwacs: 0, minFighters: 2 } },
+  { id: 'red_sea', bounds: { north: 30, south: 12, east: 44, west: 32 }, thresholds: { critical: 8, elevated: 4 }, strikeIndicators: { minTankers: 1, minAwacs: 0, minFighters: 2 } },
+  { id: 'scs', bounds: { north: 25, south: 4, east: 122, west: 104 }, thresholds: { critical: 12, elevated: 6 }, strikeIndicators: { minTankers: 2, minAwacs: 1, minFighters: 4 } },
+  { id: 'korea', bounds: { north: 44, south: 33, east: 133, west: 124 }, thresholds: { critical: 10, elevated: 5 }, strikeIndicators: { minTankers: 2, minAwacs: 1, minFighters: 4 } },
+];
+
+function isMilitaryCallsign(cs) {
+  const c = (cs || '').trim().toUpperCase();
+  return /^(RCH|EVAC|VALOR|SPAR|NAF|REACH|DUKE|VIPER|BLUE|COBRA|SNAKE|HAWK|EAGLE|WOLF|TIGER|BONE|HAMMER|SABRE|STRIKE|WILD|BULL|VIP|AF\d|NAVY|NAVY\d|MARINE|ARMY|ARMY\d)\d*$/.test(c) || /^[A-Z]{2}\d{2,}$/.test(c);
+}
+function isMilitaryHex(icao) {
+  const h = (icao || '').toUpperCase();
+  return /^[0-9A-F]{6}$/.test(h) && (h.startsWith('AE') || h.startsWith('AD') || h.startsWith('AC') || h.startsWith('43') || h.startsWith('48') || h.startsWith('39'));
+}
+
+async function fetchStrategicPosture() {
+  const relayBase = process.env.WS_RELAY_URL ? process.env.WS_RELAY_URL.replace(/^wss?:\/\//, 'https://').replace(/\/$/, '') : null;
+  const headers = { Accept: 'application/json', 'User-Agent': CHROME_UA };
+  if (process.env.RELAY_SHARED_SECRET) {
+    const h = (process.env.RELAY_AUTH_HEADER || 'x-relay-key').toLowerCase();
+    headers[h] = process.env.RELAY_SHARED_SECRET;
+    headers.Authorization = `Bearer ${process.env.RELAY_SHARED_SECRET}`;
+  }
+
+  let flights = [];
+  const openskyUrl = relayBase ? `${relayBase}/opensky` : 'https://opensky-network.org/api/states/all';
+
+  for (const region of THEATER_QUERY_REGIONS) {
+    const params = `lamin=${region.lamin}&lamax=${region.lamax}&lomin=${region.lomin}&lomax=${region.lomax}`;
+    try {
+      const resp = await fetch(`${openskyUrl}?${params}`, { headers, signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const states = data.states || [];
+      for (const s of states) {
+        const [icao24, callsign, , , , lon, lat, altitude, onGround, velocity, heading] = s;
+        if (lat == null || lon == null || onGround) continue;
+        if (!isMilitaryCallsign(callsign) && !isMilitaryHex(icao24)) continue;
+        flights.push({ id: icao24, callsign: (callsign || '').trim(), lat, lon, altitude: altitude ?? 0, heading: heading ?? 0, speed: velocity ?? 0 });
+      }
+    } catch {}
+  }
+
+  const seen = new Set();
+  flights = flights.filter((f) => !seen.has(f.id) && seen.add(f.id));
+
+  const theaters = POSTURE_THEATERS.map((t) => {
+    const theaterFlights = flights.filter((f) => f.lat >= t.bounds.south && f.lat <= t.bounds.north && f.lon >= t.bounds.west && f.lon <= t.bounds.east);
+    const total = theaterFlights.length;
+    const byType = { tankers: 0, awacs: 0, fighters: 0 };
+    for (const f of theaterFlights) {
+      const c = (f.callsign || '').toUpperCase();
+      if (/RCH|TANK|KC|KC\d/.test(c)) byType.tankers++;
+      else if (/E3|AWACS|E-\d/.test(c)) byType.awacs++;
+      else byType.fighters++;
+    }
+    const postureLevel = total >= t.thresholds.critical ? 'critical' : total >= t.thresholds.elevated ? 'elevated' : 'normal';
+    const strikeCapable = byType.tankers >= t.strikeIndicators.minTankers && byType.awacs >= t.strikeIndicators.minAwacs && byType.fighters >= t.strikeIndicators.minFighters;
+    const ops = [];
+    if (strikeCapable) ops.push('strike_capable');
+    if (byType.tankers > 0) ops.push('aerial_refueling');
+    if (byType.awacs > 0) ops.push('airborne_early_warning');
+    return { theater: t.id, postureLevel, activeFlights: total, trackedVessels: 0, activeOperations: ops, assessedAt: Date.now() };
+  });
+
+  return { theaters };
+}
+
+// --- fetchPizzint: PizzINT API + GDELT ---
+async function fetchPizzint() {
+  const PIZZINT_API = 'https://www.pizzint.watch/api/dashboard-data';
+  const GDELT_URL = 'https://www.pizzint.watch/api/gdelt/batch?pairs=usa_russia,russia_ukraine,usa_china,china_taiwan,usa_iran,usa_venezuela&method=gpr';
+  try {
+    const resp = await fetch(PIZZINT_API, { headers: { Accept: 'application/json', 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(PHASE3C_TIMEOUT_MS) });
+    if (!resp.ok) return null;
+    const raw = await resp.json();
+    if (!raw.success || !raw.data) return null;
+    const locs = raw.data.map((d) => ({
+      placeId: d.place_id, name: d.name, address: d.address, currentPopularity: d.current_popularity,
+      percentageOfUsual: d.percentage_of_usual ?? 0, isSpike: d.is_spike, spikeMagnitude: d.spike_magnitude ?? 0,
+      dataSource: d.data_source, recordedAt: d.recorded_at, dataFreshness: d.data_freshness === 'fresh' ? 'DATA_FRESHNESS_FRESH' : 'DATA_FRESHNESS_STALE',
+      isClosedNow: d.is_closed_now ?? false, lat: d.lat ?? 0, lng: d.lng ?? 0,
+    }));
+    const openLocs = locs.filter((l) => !l.isClosedNow);
+    const activeSpikes = locs.filter((l) => l.isSpike).length;
+    const avgPop = openLocs.length > 0 ? openLocs.reduce((s, l) => s + l.currentPopularity, 0) / openLocs.length : 0;
+    let adjusted = avgPop + activeSpikes * 10;
+    adjusted = Math.min(100, adjusted);
+    let defconLevel = 5, defconLabel = 'Normal Activity';
+    if (adjusted >= 85) { defconLevel = 1; defconLabel = 'Maximum Activity'; }
+    else if (adjusted >= 70) { defconLevel = 2; defconLabel = 'High Activity'; }
+    else if (adjusted >= 50) { defconLevel = 3; defconLabel = 'Elevated Activity'; }
+    else if (adjusted >= 25) { defconLevel = 4; defconLabel = 'Above Normal'; }
+    const hasFresh = locs.some((l) => l.dataFreshness === 'DATA_FRESHNESS_FRESH');
+    const pizzint = { defconLevel, defconLabel, aggregateActivity: Math.round(avgPop), activeSpikes, locationsMonitored: locs.length, locationsOpen: openLocs.length, updatedAt: Date.now(), dataFreshness: hasFresh ? 'DATA_FRESHNESS_FRESH' : 'DATA_FRESHNESS_STALE', locations: locs };
+
+    let tensionPairs = [];
+    try {
+      const gResp = await fetch(GDELT_URL, { headers: { Accept: 'application/json', 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(PHASE3C_TIMEOUT_MS) });
+      if (gResp.ok) {
+        const gRaw = await gResp.json();
+        tensionPairs = Object.entries(gRaw || {}).map(([pairKey, dataPoints]) => {
+          const countries = pairKey.split('_');
+          const arr = Array.isArray(dataPoints) ? dataPoints : [];
+          const latest = arr[arr.length - 1];
+          const prev = arr.length > 1 ? arr[arr.length - 2] : latest;
+          const change = prev?.v > 0 ? ((latest?.v ?? 0) - prev.v) / prev.v * 100 : 0;
+          const trend = change > 5 ? 'TREND_DIRECTION_RISING' : change < -5 ? 'TREND_DIRECTION_FALLING' : 'TREND_DIRECTION_STABLE';
+          return { id: pairKey, countries, label: countries.map((c) => c.toUpperCase()).join(' - '), score: latest?.v ?? 0, trend, changePercent: Math.round(change * 10) / 10, region: 'global' };
+        });
+      }
+    } catch {}
+
+    return { pizzint, tensionPairs };
+  } catch { return null; }
+}
+
+// --- fetchIranEvents: Redis read (populated by seed script) ---
+async function fetchIranEvents() {
+  const val = await redisGet('conflict:iran-events:v1');
+  if (val && typeof val === 'object' && Array.isArray(val.events)) return val;
+  return { events: [], scrapedAt: '0' };
+}
+
+// --- fetchNewsDigest: RSS + Supabase sources + keyword classification ---
+const NEWS_LEVEL_TO_PROTO = { critical: 'THREAT_LEVEL_CRITICAL', high: 'THREAT_LEVEL_HIGH', medium: 'THREAT_LEVEL_MEDIUM', low: 'THREAT_LEVEL_LOW', info: 'THREAT_LEVEL_UNSPECIFIED' };
+const NEWS_CRITICAL_KW = { 'nuclear strike': 'military', 'nuclear attack': 'military', 'invasion': 'conflict', 'coup': 'military', 'genocide': 'conflict', 'mass casualty': 'conflict' };
+const NEWS_HIGH_KW = { 'war': 'conflict', 'airstrike': 'conflict', 'missile': 'military', 'bombing': 'conflict', 'hostage': 'terrorism', 'cyber attack': 'cyber', 'earthquake': 'disaster' };
+const NEWS_MEDIUM_KW = { 'protest': 'protest', 'riot': 'protest', 'military exercise': 'military', 'trade war': 'economic', 'recession': 'economic', 'flood': 'disaster' };
+const NEWS_LOW_KW = { 'election': 'diplomatic', 'summit': 'diplomatic', 'treaty': 'diplomatic', 'ceasefire': 'diplomatic' };
+const NEWS_EXCLUSIONS = ['protein', 'couples', 'dating', 'recipe', 'celebrity', 'sports', 'movie', 'vacation'];
+
+function classifyNewsTitle(title, variant) {
+  const lower = (title || '').toLowerCase();
+  if (NEWS_EXCLUSIONS.some((ex) => lower.includes(ex))) return { level: 'info', category: 'general', confidence: 0.3 };
+  for (const [kw, cat] of Object.entries(NEWS_CRITICAL_KW)) { if (lower.includes(kw)) return { level: 'critical', category: cat, confidence: 0.9 }; }
+  for (const [kw, cat] of Object.entries(NEWS_HIGH_KW)) { if (lower.includes(kw)) return { level: 'high', category: cat, confidence: 0.8 }; }
+  for (const [kw, cat] of Object.entries(NEWS_MEDIUM_KW)) { if (lower.includes(kw)) return { level: 'medium', category: cat, confidence: 0.7 }; }
+  for (const [kw, cat] of Object.entries(NEWS_LOW_KW)) { if (lower.includes(kw)) return { level: 'low', category: cat, confidence: 0.6 }; }
+  return { level: 'info', category: 'general', confidence: 0.3 };
+}
+
+async function fetchNewsSourcesForVariant(variant, lang) {
+  if (!supabase) return {};
+  try {
+    const { data, error } = await supabase.rpc('get_public_news_sources', { p_variant: variant });
+    if (error || !data) return {};
+    const grouped = {};
+    for (const row of data) {
+      const url = typeof row.url === 'string' ? row.url : (row.url?.[lang] || row.url?.en || Object.values(row.url || {})[0] || '');
+      if (!url) continue;
+      const cat = row.category || 'general';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push({ name: row.name, url, category: cat });
+    }
+    return grouped;
+  } catch { return {}; }
+}
+
+function parseRssItems(xml, variant) {
+  const items = [];
+  const itemRe = /<item[\s>]([\s\S]*?)<\/item>/gi;
+  const entryRe = /<entry[\s>]([\s\S]*?)<\/entry>/gi;
+  let matches = [...xml.matchAll(itemRe)];
+  if (matches.length === 0) matches = [...xml.matchAll(entryRe)];
+  const isAtom = matches.length > 0 && matches[0][0].includes('<entry');
+  const extractTag = (block, tag) => {
+    const cdata = new RegExp(`<${tag}[^>]*>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*<\\/${tag}>`, 'i');
+    const plain = new RegExp(`<${tag}[^>]*>([^<]*)<\\/${tag}>`, 'i');
+    const m = block.match(cdata) || block.match(plain);
+    return m ? m[1].trim().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>') : '';
+  };
+  for (const m of matches.slice(0, 5)) {
+    const block = m[1] || '';
+    const title = extractTag(block, 'title');
+    if (!title) continue;
+    const link = isAtom ? (block.match(/<link[^>]+href=["']([^"']+)["']/) || [])[1] || '' : extractTag(block, 'link');
+    const pubStr = isAtom ? (extractTag(block, 'published') || extractTag(block, 'updated')) : extractTag(block, 'pubDate');
+    const publishedAt = pubStr ? (Date.parse(pubStr) || Date.now()) : Date.now();
+    const threat = classifyNewsTitle(title, variant);
+    items.push({ source: (block.match(/<dc:creator[^>]*>([^<]*)<\/dc:creator>/i) || [])[1] || 'RSS', title, link, publishedAt, isAlert: threat.level === 'critical' || threat.level === 'high', threat, category: threat.category });
+  }
+  return items;
+}
+
+async function fetchNewsDigest(variant, lang) {
+  const feedsByCategory = await fetchNewsSourcesForVariant(variant, lang);
+  const categories = {};
+  const feedStatuses = {};
+  const allFeeds = [];
+  for (const [cat, feeds] of Object.entries(feedsByCategory)) {
+    for (const f of feeds) allFeeds.push({ category: cat, feed: f });
+  }
+
+  const results = new Map();
+  for (let i = 0; i < allFeeds.length; i += 15) {
+    const batch = allFeeds.slice(i, i + 15);
+    const settled = await Promise.allSettled(batch.map(async ({ category, feed }) => {
+      try {
+        const resp = await fetch(feed.url, { headers: { 'User-Agent': CHROME_UA, Accept: 'application/rss+xml, application/xml, text/xml, */*' }, signal: AbortSignal.timeout(8000) });
+        if (!resp.ok) return { category, items: [] };
+        const text = await resp.text();
+        const items = parseRssItems(text, variant).map((it) => ({ ...it, source: feed.name }));
+        feedStatuses[feed.name] = items.length > 0 ? 'ok' : 'empty';
+        return { category, items };
+      } catch {
+        feedStatuses[feed.name] = 'timeout';
+        return { category, items: [] };
+      }
+    }));
+    for (const r of settled) {
+      if (r.status === 'fulfilled') {
+        const { category, items } = r.value;
+        const existing = results.get(category) || [];
+        existing.push(...items);
+        results.set(category, existing);
+      }
+    }
+  }
+
+  for (const [cat, items] of results) {
+    items.sort((a, b) => b.publishedAt - a.publishedAt);
+    categories[cat] = { items: items.slice(0, 20).map((it) => ({ source: it.source, title: it.title, link: it.link, publishedAt: it.publishedAt, isAlert: it.isAlert, threat: { level: NEWS_LEVEL_TO_PROTO[it.threat?.level] || 'THREAT_LEVEL_UNSPECIFIED', category: it.threat?.category || 'general', confidence: it.threat?.confidence ?? 0.3, source: 'keyword' }, locationName: '' })) };
+  }
+  return { categories, feedStatuses, generatedAt: new Date().toISOString() };
+}
+
 // Phase 3A cron schedules
 cron.schedule('1-59/5 * * * *', async () => {
   try {
@@ -5471,25 +6204,45 @@ cron.schedule('*/15 * * * *', async () => {
   }
 });
 
-// Every 5 min — market data (staggered: :00, :01, :02, :03)
-scheduleWarmAndBroadcast('*/5 * * * *',     'markets',        '/api/market/v1/get-market-dashboard',       'market:dashboard:v1');
-scheduleWarmAndBroadcast('3-59/5 * * * *',  'macro-signals',  '/api/economic/v1/get-macro-signals',       'economic:macro-signals:v1');
-// stablecoins, etf-flows, trade — now direct fetch (Phase 3A)
-scheduleWarmAndBroadcast('*/5 * * * *',     'strategic-risk', '/api/intelligence/v1/get-risk-scores');
-scheduleWarmAndBroadcast('1-59/5 * * * *',  'predictions',    '/api/prediction/v1/list-prediction-markets');
+// Phase 3C: markets, macro-signals, strategic-risk, predictions, news, supply-chain, strategic-posture, pizzint — now direct fetch
+cron.schedule('*/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('markets', 'market:dashboard:v1', 480, fetchMarkets); } catch (err) { console.error('[relay] markets cron error:', err?.message ?? err); }
+});
+cron.schedule('3-59/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('macro-signals', 'economic:macro-signals:v1', 900, fetchMacroSignals); } catch (err) { console.error('[relay] macro-signals cron error:', err?.message ?? err); }
+});
+cron.schedule('*/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('strategic-risk', 'risk:scores:sebuf:v1', 600, fetchStrategicRisk); } catch (err) { console.error('[relay] strategic-risk cron error:', err?.message ?? err); }
+});
+cron.schedule('1-59/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('predictions', 'relay:predictions:v1', 600, fetchPredictions); } catch (err) { console.error('[relay] predictions cron error:', err?.message ?? err); }
+});
 
-// Every 5 min — news digest (all variants)
-scheduleWarmAndBroadcast('*/5 * * * *',     'news:full',    '/api/news/v1/list-feed-digest?variant=full&lang=en',    'news:digest:v1:full:en');
-scheduleWarmAndBroadcast('1-59/5 * * * *',  'news:tech',    '/api/news/v1/list-feed-digest?variant=tech&lang=en',    'news:digest:v1:tech:en');
-scheduleWarmAndBroadcast('2-59/5 * * * *',  'news:finance', '/api/news/v1/list-feed-digest?variant=finance&lang=en', 'news:digest:v1:finance:en');
-scheduleWarmAndBroadcast('3-59/5 * * * *',  'news:happy',   '/api/news/v1/list-feed-digest?variant=happy&lang=en',   'news:digest:v1:happy:en');
+cron.schedule('*/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('news:full', 'news:digest:v1:full:en', 900, () => fetchNewsDigest('full', 'en')); } catch (err) { console.error('[relay] news:full cron error:', err?.message ?? err); }
+});
+cron.schedule('1-59/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('news:tech', 'news:digest:v1:tech:en', 900, () => fetchNewsDigest('tech', 'en')); } catch (err) { console.error('[relay] news:tech cron error:', err?.message ?? err); }
+});
+cron.schedule('2-59/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('news:finance', 'news:digest:v1:finance:en', 900, () => fetchNewsDigest('finance', 'en')); } catch (err) { console.error('[relay] news:finance cron error:', err?.message ?? err); }
+});
+cron.schedule('3-59/5 * * * *', async () => {
+  try { await directFetchAndBroadcast('news:happy', 'news:digest:v1:happy:en', 900, () => fetchNewsDigest('happy', 'en')); } catch (err) { console.error('[relay] news:happy cron error:', err?.message ?? err); }
+});
 
-// Every 10 min — intelligence / conflict / trade (staggered: :00, :01, :02, ...)
-scheduleWarmAndBroadcast('*/10 * * * *',    'intelligence',      '/api/intelligence/v1/get-global-intel-digest', 'digest:global:v1');
-// trade — now direct fetch (Phase 3A)
-scheduleWarmAndBroadcast('2-59/10 * * * *', 'supply-chain',      '/api/supply-chain/v1/get-chokepoint-status',   'supply_chain:chokepoints:v1');
-scheduleWarmAndBroadcast('3-59/10 * * * *', 'strategic-posture', '/api/military/v1/get-theater-posture');
-scheduleWarmAndBroadcast('4-59/10 * * * *', 'pizzint',           '/api/intelligence/v1/get-pizzint-status');
+// intelligence — LLM route, stays on Vercel (scheduleWarmAndBroadcast)
+scheduleWarmAndBroadcast('*/10 * * * *', 'intelligence', '/api/intelligence/v1/get-global-intel-digest', 'digest:global:v1');
+
+cron.schedule('2-59/10 * * * *', async () => {
+  try { await directFetchAndBroadcast('supply-chain', 'supply_chain:chokepoints:v1', 900, fetchSupplyChain); } catch (err) { console.error('[relay] supply-chain cron error:', err?.message ?? err); }
+});
+cron.schedule('3-59/10 * * * *', async () => {
+  try { await directFetchAndBroadcast('strategic-posture', 'theater-posture:sebuf:v1', 900, fetchStrategicPosture); } catch (err) { console.error('[relay] strategic-posture cron error:', err?.message ?? err); }
+});
+cron.schedule('4-59/10 * * * *', async () => {
+  try { await directFetchAndBroadcast('pizzint', 'intel:pizzint:v1', 600, fetchPizzint); } catch (err) { console.error('[relay] pizzint cron error:', err?.message ?? err); }
+});
 // cyber — now direct fetch (Phase 3B)
 
 // Phase 3B: fred, oil, bis, flights, weather, natural, eonet, gdacs, gps-interference, cables, cyber, service-status — now direct fetch
@@ -5635,7 +6388,9 @@ cron.schedule('*/5 * * * *', () => {
     ...(orefState.lastError ? { error: orefState.lastError } : {}),
   });
 });
-scheduleWarmAndBroadcast('*/10 * * * *', 'iran-events',       '/api/conflict/v1/list-iran-events');
+cron.schedule('*/10 * * * *', async () => {
+  try { await directFetchAndBroadcast('iran-events', 'conflict:iran-events:v1', 600, fetchIranEvents); } catch (err) { console.error('[relay] iran-events cron error:', err?.message ?? err); }
+});
 // gps-interference, eonet, gdacs, weather — now direct fetch (Phase 3B)
 
 // ── AIS direct broadcast (relay already has this data) ──────────────────────
