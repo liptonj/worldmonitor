@@ -159,6 +159,19 @@ validate_numeric_if_set() {
   log "${key} looks valid."
 }
 
+load_env_file() {
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    die ".env file not found at ${ENV_FILE}"
+  fi
+  # Export all keys from .env into current shell so pm2 --update-env
+  # receives them on restart/start.
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+  log "Loaded environment from ${ENV_FILE}"
+}
+
 # ── 1. Check and validate required .env values ───────────────────────────────
 log "Checking required .env values..."
 if [[ "${VERIFY_ONLY}" == "false" ]]; then
@@ -230,6 +243,9 @@ if [[ "${VERIFY_ONLY}" == "true" ]]; then
   log "--verify-only set; skipping git pull and restart."
   exit 0
 fi
+
+# Ensure process manager commands inherit .env values.
+load_env_file
 
 # ── 2. Pull latest code ──────────────────────────────────────────────────────
 cd "${ROOT_DIR}"
