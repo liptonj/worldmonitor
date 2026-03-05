@@ -10000,6 +10000,7 @@ a.prediction-link:hover {
   .header {
     flex-wrap: wrap;
     padding: 8px;
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
   }
 
   .header-left,
