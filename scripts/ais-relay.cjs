@@ -276,7 +276,7 @@ function sendCachedPayloads(ws, channels) {
 // ── Relay warm-and-broadcast helpers ─────────────────────────────────────────
 
 const VERCEL_APP_URL = process.env.VERCEL_APP_URL || 'https://worldmonitor.app';
-const RELAY_WARMER_API_KEY = process.env.RELAY_WARMER_API_KEY || process.env.RELAY_SHARED_SECRET || '';
+const RELAY_WARMER_API_KEY = process.env.RELAY_SHARED_SECRET || '';
 
 const ALLOWED_WARM_HOSTS = ['worldmonitor.app'];
 
@@ -288,7 +288,7 @@ function isAllowedWarmHost(url) {
 }
 
 if (UPSTASH_ENABLED && !RELAY_WARMER_API_KEY) {
-  console.error('[relay] RELAY_WARMER_API_KEY or RELAY_SHARED_SECRET required for warm-and-broadcast');
+  console.error('[relay] RELAY_SHARED_SECRET required for warm-and-broadcast');
 }
 
 /**
