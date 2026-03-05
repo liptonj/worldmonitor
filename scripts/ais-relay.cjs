@@ -219,7 +219,7 @@ function subscribeClient(ws, channel) {
     channelSubscribers.set(channel, new Set());
   }
   const subs = channelSubscribers.get(channel);
-  if (subs.has(ws)) return false; // already subscribed — don't count again
+  if (subs.has(ws)) return false;
   subs.add(ws);
   clientChannelCount.set(ws, count + 1);
   return true;
