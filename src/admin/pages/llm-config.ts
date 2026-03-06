@@ -19,6 +19,14 @@ type LlmPrompt = {
   description: string | null;
 };
 
+type LlmFunctionConfig = {
+  function_key: string;
+  provider_chain: string[];
+  timeout_ms: number;
+  max_retries: number;
+  description: string | null;
+};
+
 const PLACEHOLDERS_BY_KEY: Record<string, string[]> = {
   news_summary:   ['{dateContext}', '{langInstruction}', '{headlineText}', '{intelSection}', '{targetLang}'],
   intel_brief:    ['{date}', '{countryName}', '{countryCode}', '{contextSnapshot}', '{recentHeadlines}'],
@@ -111,6 +119,16 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
       <div id="add-prompt-form" style="display:none;margin-bottom:20px"></div>
       <div id="llm-prompt-tabs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px"></div>
       <div id="llm-prompts">Loading…</div>
+    </section>
+
+    <section style="margin-top:40px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div>
+          <h3 style="margin:0 0 4px;font-size:15px;font-weight:600">Function Provider Config</h3>
+          <p style="margin:0;color:var(--text-muted);font-size:12px">Per-function LLM provider fallback chains, timeouts, and retry settings.</p>
+        </div>
+      </div>
+      <div id="llm-function-configs">Loading…</div>
     </section>
   `;
 
@@ -489,6 +507,170 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
     renderPrompts();
   }
 
+  // ─── Function Provider Config ───────────────────────────────────────────────
+  let functionConfigs: LlmFunctionConfig[] = [];
+  let enabledProviders: LlmProvider[] = [];
+
+  async function loadFunctionConfigs(): Promise<void> {
+    const el = container.querySelector<HTMLElement>('#llm-function-configs')!;
+    el.innerHTML = 'Loading…';
+
+    const [cfgRes, provRes] = await Promise.all([
+      fetch('/api/admin/llm-function-configs', { headers: { Authorization: `Bearer ${token}` } }),
+      fetch('/api/admin/llm-providers', { headers: { Authorization: `Bearer ${token}` } }),
+    ]);
+
+    const cfgJson = (await cfgRes.json()) as { configs?: LlmFunctionConfig[]; error?: string };
+    const provJson = (await provRes.json()) as { providers?: LlmProvider[] };
+
+    if (!cfgRes.ok || cfgJson.error) {
+      el.innerHTML = `<p style="color:var(--danger,#e53e3e);font-size:13px">Failed to load function configs: ${escHtml(cfgJson.error ?? cfgRes.statusText)}</p>`;
+      return;
+    }
+
+    functionConfigs = cfgJson.configs ?? [];
+    enabledProviders = (provJson.providers ?? []).filter(p => p.enabled);
+
+    if (!functionConfigs.length) {
+      el.innerHTML = '<p style="color:var(--text-muted);font-size:13px">No function configs found.</p>';
+      return;
+    }
+
+    renderFunctionConfigs();
+  }
+
+  function renderFunctionConfigs(): void {
+    const el = container.querySelector<HTMLElement>('#llm-function-configs')!;
+
+    el.innerHTML = functionConfigs.map(cfg => {
+      const chainChips = cfg.provider_chain.map((name, idx) => `
+        <span data-chain-item style="
+          display:inline-flex;align-items:center;gap:4px;
+          padding:3px 8px;border-radius:12px;
+          background:var(--surface);border:1px solid var(--border);
+          color:var(--text);font-size:12px;font-weight:500
+        ">
+          <span style="color:var(--text-muted);font-size:11px">${idx + 1}.</span>
+          ${escHtml(name)}
+          <button data-remove-chain="${escHtml(cfg.function_key)}" data-provider-name="${escHtml(name)}"
+            style="background:none;border:none;color:var(--danger,#e53e3e);cursor:pointer;font-size:14px;line-height:1;padding:0 2px"
+            title="Remove ${escHtml(name)} from chain"
+          >×</button>
+        </span>
+      `).join('');
+
+      const availableOptions = enabledProviders
+        .filter(p => !cfg.provider_chain.includes(p.name))
+        .map(p => `<option value="${escHtml(p.name)}">${escHtml(p.name)}</option>`)
+        .join('');
+
+      return `
+        <div data-fn-key="${escHtml(cfg.function_key)}"
+          style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+            <span style="font-size:15px;font-weight:600;font-family:monospace">${escHtml(cfg.function_key)}</span>
+            ${cfg.description ? `<span style="font-size:12px;color:var(--text-muted)">${escHtml(cfg.description)}</span>` : ''}
+          </div>
+
+          <div style="margin-bottom:12px">
+            <label style="display:block;color:var(--text-muted);font-size:12px;font-weight:600;margin-bottom:6px">Provider Chain (ordered fallback)</label>
+            <div data-chain-chips="${escHtml(cfg.function_key)}"
+              style="display:flex;flex-wrap:wrap;gap:6px;min-height:32px;align-items:center">
+              ${chainChips || '<span style="color:var(--text-muted);font-size:12px;font-style:italic">No providers — add one below</span>'}
+            </div>
+            ${availableOptions ? `
+            <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+              <select data-add-provider-select="${escHtml(cfg.function_key)}"
+                style="padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px">
+                <option value="">— add provider —</option>
+                ${availableOptions}
+              </select>
+              <button data-add-provider-btn="${escHtml(cfg.function_key)}"
+                style="padding:5px 12px;background:transparent;color:var(--accent);border:1px solid var(--accent);border-radius:var(--radius);cursor:pointer;font-size:12px"
+              >+ Add</button>
+            </div>` : '<p style="font-size:12px;color:var(--text-muted);margin:6px 0 0">All enabled providers already in chain.</p>'}
+          </div>
+
+          ${fieldRow('Timeout (ms)', numInput('timeout_ms', cfg.timeout_ms))}
+          ${fieldRow('Max Retries', numInput('max_retries', cfg.max_retries))}
+
+          <div style="display:flex;gap:8px;margin-top:8px">
+            ${primaryBtn('Save', `data-save-fn="${escHtml(cfg.function_key)}"`)}
+            <span data-fn-msg="${escHtml(cfg.function_key)}" style="font-size:12px;padding:7px 0"></span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Remove provider from chain
+    el.querySelectorAll('button[data-remove-chain]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = (btn as HTMLElement).dataset['removeChain']!;
+        const providerName = (btn as HTMLElement).dataset['providerName']!;
+        const cfg = functionConfigs.find(c => c.function_key === key);
+        if (!cfg) return;
+        cfg.provider_chain = cfg.provider_chain.filter(n => n !== providerName);
+        renderFunctionConfigs();
+      });
+    });
+
+    // Add provider to chain
+    el.querySelectorAll('button[data-add-provider-btn]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = (btn as HTMLElement).dataset['addProviderBtn']!;
+        const select = el.querySelector<HTMLSelectElement>(`[data-add-provider-select="${key}"]`);
+        const name = select?.value;
+        if (!name) return;
+        const cfg = functionConfigs.find(c => c.function_key === key);
+        if (!cfg) return;
+        if (!cfg.provider_chain.includes(name)) {
+          cfg.provider_chain = [...cfg.provider_chain, name];
+        }
+        renderFunctionConfigs();
+      });
+    });
+
+    // Save function config
+    el.querySelectorAll('button[data-save-fn]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const key = (btn as HTMLElement).dataset['saveFn']!;
+        const row = el.querySelector<HTMLElement>(`[data-fn-key="${key}"]`)!;
+        const msgEl = el.querySelector<HTMLElement>(`[data-fn-msg="${key}"]`)!;
+        const cfg = functionConfigs.find(c => c.function_key === key);
+        if (!cfg) return;
+
+        const getNum = (field: string): number => {
+          const inp = row.querySelector<HTMLInputElement>(`input[data-field="${field}"]`);
+          return inp ? Number(inp.value) : 0;
+        };
+
+        const body = {
+          provider_chain: cfg.provider_chain,
+          timeout_ms: getNum('timeout_ms'),
+          max_retries: getNum('max_retries'),
+        };
+
+        const res = await fetch(`/api/admin/llm-function-configs?function_key=${encodeURIComponent(key)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
+        });
+
+        msgEl.textContent = res.ok ? 'Saved!' : 'Error saving';
+        msgEl.style.color = res.ok ? 'var(--success,#38a169)' : 'var(--danger,#e53e3e)';
+        if (res.ok) {
+          const cfg2 = functionConfigs.find(c => c.function_key === key);
+          if (cfg2) {
+            cfg2.timeout_ms = body.timeout_ms;
+            cfg2.max_retries = body.max_retries;
+          }
+          setTimeout(() => { msgEl.textContent = ''; }, 2500);
+        }
+      });
+    });
+  }
+
   void loadProviders();
   void loadPrompts();
+  void loadFunctionConfigs();
 }

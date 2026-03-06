@@ -328,6 +328,10 @@ export class CountryIntelManager implements AppModule {
   }
 
   private async fetchCountryIntelBrief(code: string, contextSnapshot: string): Promise<string> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const relayBriefs = (this.ctx as any).countryBriefs as Record<string, { brief?: string }> | undefined;
+    if (relayBriefs?.[code]?.brief) return relayBriefs[code].brief as string;
+
     const params = new URLSearchParams({ country_code: code });
     const trimmed = contextSnapshot.trim();
     if (trimmed.length > 0) {

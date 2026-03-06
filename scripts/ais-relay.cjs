@@ -274,12 +274,936 @@ async function auditStaleTTLs() {
   }
 }
 
+// ── Multi-Provider LLM Client ───────────────────────────────────────────────
+
+const providerRegistry = new Map();  // name → { apiUrl, model, headers, maxTokens, maxTokensSummary, type }
+let functionConfigMap = new Map();   // functionKey → { provider_chain, timeout_ms, max_retries }
+let providersExpiresAt = 0;
+const PROVIDER_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const DEFAULT_TIMEOUT_MS = 120_000;
+
+async function resolveAllProviders() {
+  if (providerRegistry.size > 0 && Date.now() < providersExpiresAt) return;
+  if (!supabase) {
+    console.error('[llm] Supabase client not configured — cannot resolve providers');
+    return;
+  }
+
+  try {
+    const { data: ollamaData, error: ollamaErr } = await supabase.rpc('get_ollama_credentials');
+    if (!ollamaErr && Array.isArray(ollamaData) && ollamaData.length > 0) {
+      const row = ollamaData[0];
+      if (row.api_url) {
+        providerRegistry.set('ollama', {
+          apiUrl: row.api_url.replace(/\/+$/, ''),
+          model: row.model || 'qwen3:8b',
+          type: (row.model || '').toLowerCase().startsWith('qwen3') ? 'qwen3' : 'openai-compat',
+          maxTokens: row.max_tokens || 3000,
+          maxTokensSummary: row.max_tokens_summary || 400,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(row.cf_access_client_id && { 'CF-Access-Client-Id': row.cf_access_client_id }),
+            ...(row.cf_access_client_secret && { 'CF-Access-Client-Secret': row.cf_access_client_secret }),
+          },
+        });
+        console.log(`[llm] registered ollama: model=${row.model} url=${row.api_url}`);
+      }
+    } else if (ollamaErr) {
+      console.error('[llm] get_ollama_credentials RPC error:', ollamaErr.message);
+    }
+
+    const { data: providers, error: provErr } = await supabase.rpc('get_all_enabled_providers');
+    if (!provErr && Array.isArray(providers)) {
+      for (const p of providers) {
+        if (p.name === 'ollama') continue; // already resolved above with full credentials
+        let apiKey = null;
+        if (p.api_key_secret_name) {
+          const { data: secretData, error: secretErr } = await supabase.rpc('get_secret_value', {
+            p_name: p.api_key_secret_name,
+          });
+          if (secretErr) {
+            console.warn(`[llm] could not resolve API key for ${p.name}: ${secretErr.message}`);
+          }
+          apiKey = secretData?.[0]?.decrypted_secret || null;
+        }
+        providerRegistry.set(p.name, {
+          apiUrl: p.api_url.replace(/\/+$/, ''),
+          model: p.default_model,
+          type: 'openai-compat',
+          maxTokens: p.max_tokens || 3000,
+          maxTokensSummary: p.max_tokens_summary || 400,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey && { 'Authorization': `Bearer ${apiKey}` }),
+            ...(p.name === 'openrouter' && {
+              'HTTP-Referer': 'https://worldmonitor.app',
+              'X-Title': 'WorldMonitor',
+            }),
+          },
+        });
+        console.log(`[llm] registered ${p.name}: model=${p.default_model}`);
+      }
+    } else if (provErr) {
+      console.error('[llm] get_all_enabled_providers RPC error:', provErr.message);
+    }
+
+    const { data: funcData, error: funcErr } = await supabase.rpc('get_llm_function_config');
+    if (!funcErr && Array.isArray(funcData)) {
+      const newMap = new Map();
+      for (const row of funcData) {
+        newMap.set(row.function_key, {
+          providerChain: row.provider_chain || ['ollama'],
+          timeoutMs: row.timeout_ms || DEFAULT_TIMEOUT_MS,
+          maxRetries: row.max_retries || 1,
+        });
+      }
+      functionConfigMap = newMap;
+      console.log(`[llm] loaded ${newMap.size} function configs`);
+    } else if (funcErr) {
+      console.error('[llm] get_llm_function_config RPC error:', funcErr.message);
+    }
+
+    providersExpiresAt = Date.now() + PROVIDER_TTL_MS;
+    console.log(`[llm] ${providerRegistry.size} providers ready`);
+  } catch (err) {
+    console.error('[llm] resolveAllProviders exception:', err?.message ?? err);
+  }
+}
+
+function getFunctionConfig(functionKey) {
+  return functionConfigMap.get(functionKey) || { providerChain: ['ollama'], timeoutMs: DEFAULT_TIMEOUT_MS, maxRetries: 1 };
+}
+
+// ── Strip thinking blocks from model output ──
+
+function stripThinkingBlocks(text) {
+  return text
+    .replace(/<\|begin_of_thought\|>[\s\S]*?<\|end_of_thought\|>/g, '')
+    .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/g, '')
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/g, '')
+    .replace(/<reflection>[\s\S]*?<\/reflection>/g, '')
+    .trim();
+}
+
+// ── Call a specific named provider ──
+
+async function callLlmWithProvider(providerName, messages, opts = {}) {
+  await resolveAllProviders();
+  const provider = providerRegistry.get(providerName);
+  if (!provider) {
+    console.error(`[llm] unknown provider: ${providerName}`);
+    return null;
+  }
+
+  const maxTokens = opts.maxTokens ?? provider.maxTokens;
+  const temperature = opts.temperature ?? 0.4;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  let url, body;
+
+  if (provider.type === 'qwen3') {
+    url = `${provider.apiUrl}/api/chat`;
+    body = JSON.stringify({
+      model: provider.model,
+      messages,
+      think: false,
+      stream: false,
+      options: { num_predict: maxTokens },
+    });
+  } else {
+    url = `${provider.apiUrl}/v1/chat/completions`;
+    body = JSON.stringify({
+      model: provider.model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+      stream: false,
+    });
+  }
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: provider.headers,
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      console.error(`[llm:${providerName}] HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+      return null;
+    }
+
+    const data = await resp.json();
+
+    let content;
+    if (provider.type === 'qwen3') {
+      content = data?.message?.content ?? '';
+    } else {
+      content = data?.choices?.[0]?.message?.content
+        ?? data?.choices?.[0]?.message?.reasoning
+        ?? '';
+    }
+
+    content = stripThinkingBlocks(content);
+
+    if (!content) {
+      console.warn(`[llm:${providerName}] empty response after stripping think blocks`);
+      return null;
+    }
+
+    return content;
+  } catch (err) {
+    console.error(`[llm:${providerName}] call error: ${err?.message ?? err}`);
+    return null;
+  }
+}
+
+// ── Call LLM for a function with fallback chain ──
+
+async function callLlmForFunction(functionKey, messages, opts = {}) {
+  const config = getFunctionConfig(functionKey);
+  const { providerChain } = config;
+  const timeoutMs = opts.timeoutMs ?? config.timeoutMs;
+
+  for (let i = 0; i < providerChain.length; i++) {
+    const providerName = providerChain[i];
+    console.log(`[llm] trying ${providerName} for ${functionKey} (${i + 1}/${providerChain.length})`);
+
+    const result = await callLlmWithProvider(providerName, messages, { ...opts, timeoutMs });
+    if (result) {
+      if (i > 0) console.log(`[llm] ${functionKey} succeeded on fallback provider ${providerName}`);
+      return result;
+    }
+
+    if (i < providerChain.length - 1) {
+      console.warn(`[llm] ${providerName} failed for ${functionKey}, falling back to ${providerChain[i + 1]}`);
+    } else {
+      console.error(`[llm] all providers exhausted for ${functionKey}`);
+    }
+  }
+
+  return null;
+}
+
+// ── Prompt Loader ────────────────────────────────────────────────────────────
+
+const PROMPT_CACHE_TTL = 900; // 15 min
+const promptCache = new Map();
+
+async function loadLlmPrompt(promptKey, variant = null, mode = null) {
+  const model = providerRegistry.get('ollama')?.model ?? null;
+  const cacheKey = `${promptKey}:${variant ?? 'null'}:${mode ?? 'null'}:${model ?? 'null'}`;
+
+  const cached = promptCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) return cached.prompt;
+
+  const redisKey = `wm:llm:prompt:v1:${cacheKey}`;
+  const redisCached = await redisGet(redisKey);
+  if (redisCached) {
+    promptCache.set(cacheKey, { prompt: redisCached, expiresAt: Date.now() + PROMPT_CACHE_TTL * 1000 });
+    return redisCached;
+  }
+
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase.rpc('get_llm_prompt', {
+      p_key: promptKey,
+      p_variant: variant,
+      p_mode: mode,
+      p_model: model,
+    });
+    if (error) {
+      console.error(`[llm] get_llm_prompt error for ${promptKey}:`, error.message);
+      return null;
+    }
+    const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+    if (!row) {
+      console.warn(`[llm] no prompt found for key=${promptKey}`);
+      return null;
+    }
+    const prompt = {
+      systemPrompt: row.system_prompt || '',
+      userPrompt: row.user_prompt || '',
+    };
+    promptCache.set(cacheKey, { prompt, expiresAt: Date.now() + PROMPT_CACHE_TTL * 1000 });
+    await redisSetex(redisKey, PROMPT_CACHE_TTL, prompt);
+    return prompt;
+  } catch (err) {
+    console.error(`[llm] loadLlmPrompt exception for ${promptKey}:`, err?.message ?? err);
+    return null;
+  }
+}
+
+function buildPromptFromTemplate(template, vars) {
+  return template.replace(/\{(\w+)\}/g, (match, key) => vars[key] ?? match);
+}
+
+void resolveAllProviders();
+
+cron.schedule('*/15 * * * *', () => {
+  providersExpiresAt = 0;
+  void resolveAllProviders();
+  promptCache.clear();
+});
+
+// ── AI: Global Intel Digest ──────────────────────────────────────────────────
+
+const AI_DIGEST_CACHE_KEY = 'ai:digest:global:v1';
+const AI_DIGEST_TTL = 14400; // 4 hours
+
+async function generateIntelDigest() {
+  const prompt = await loadLlmPrompt('intel_digest');
+  if (!prompt) {
+    console.warn('[ai-cron] no intel_digest prompt found — skipping');
+    return;
+  }
+
+  const newsData = await redisGet('relay:news:full:v1');
+  const headlines = [];
+  if (newsData?.items && Array.isArray(newsData.items)) {
+    for (const item of newsData.items.slice(0, 30)) {
+      if (item.title) headlines.push(item.title);
+    }
+  }
+  for (const key of ['relay:intelligence:v1']) {
+    const data = await redisGet(key);
+    if (data?.headlines && Array.isArray(data.headlines)) {
+      for (const h of data.headlines.slice(0, 10)) {
+        if (typeof h === 'string') headlines.push(h);
+        else if (h?.title) headlines.push(h.title);
+      }
+    }
+  }
+
+  if (headlines.length === 0) {
+    console.warn('[ai-cron] no headlines available for intel digest — skipping');
+    return;
+  }
+
+  const dedupedHeadlines = [...new Set(headlines)].slice(0, 30);
+  const headlineText = dedupedHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n');
+  const dateStr = new Date().toISOString().slice(0, 10);
+
+  const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, {
+    date: dateStr,
+    dateContext: `Current date: ${dateStr}. Provide geopolitical context appropriate for the current date.`,
+  });
+  const userPrompt = buildPromptFromTemplate(prompt.userPrompt, {
+    recentHeadlines: headlineText,
+    classificationSummary: `${dedupedHeadlines.length} recent events across monitored scopes`,
+    countrySignals: 'Monitoring active in all TIER1 regions',
+  });
+
+  const content = await callLlmForFunction('intel_digest',
+    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+    { maxTokens: 2000, temperature: 0.4 },
+  );
+
+  if (!content) return;
+
+  const payload = {
+    digest: content,
+    model: providerRegistry.get('ollama')?.model ?? 'multi-provider',
+    generatedAt: new Date().toISOString(),
+    headlineCount: dedupedHeadlines.length,
+  };
+
+  await redisSetex(AI_DIGEST_CACHE_KEY, AI_DIGEST_TTL, payload);
+  broadcastToChannel('ai:intel-digest', payload);
+  console.log(`[ai-cron] intel digest generated (${content.length} chars), broadcast to ${channelSubscribers.get('ai:intel-digest')?.size ?? 0} subs`);
+}
+
+cron.schedule('*/10 * * * *', async () => {
+  try { await generateIntelDigest(); }
+  catch (err) { console.error('[ai-cron] intel digest error:', err?.message ?? err); }
+});
+
 cron.schedule('0 * * * *', async () => {
   try {
     await auditStaleTTLs();
   } catch (err) {
     console.error('[redis-audit] error:', err?.message ?? err);
   }
+});
+
+// ── AI: Full Panel Summary (Two-Model Consensus) ─────────────────────────────
+
+const AI_PANEL_SUMMARY_CACHE_KEY = 'ai:panel-summary:v1';
+const AI_PANEL_SUMMARY_TTL = 900; // 15 min
+
+function extractNewsContext(newsData) {
+  if (!newsData?.items || !Array.isArray(newsData.items)) return '';
+  return newsData.items.slice(0, 40).map((item, i) => {
+    const parts = [`${i + 1}. ${item.title || 'Untitled'}`];
+    if (item.description) parts.push(`   ${item.description.slice(0, 300)}`);
+    if (item.source) parts.push(`   Source: ${item.source}`);
+    if (item.pubDate) parts.push(`   Published: ${item.pubDate}`);
+    return parts.join('\n');
+  }).join('\n\n');
+}
+
+function extractTelegramContext(telegramData) {
+  if (!telegramData) return '';
+  const items = Array.isArray(telegramData) ? telegramData
+    : telegramData.items ? telegramData.items : [];
+  return items.slice(0, 30).map((msg, i) => {
+    const channel = msg.channel || msg.chatTitle || 'Unknown';
+    const text = (msg.text || msg.message || '').slice(0, 500);
+    const ts = msg.date || msg.timestamp || '';
+    return `${i + 1}. [${channel}] ${text}${ts ? ` (${ts})` : ''}`;
+  }).join('\n');
+}
+
+function extractMarketContext(marketData) {
+  if (!marketData) return '';
+  const sections = [];
+  if (marketData.indices) {
+    sections.push('Indices: ' + marketData.indices.slice(0, 10).map(i =>
+      `${i.symbol || i.name}: ${i.price ?? i.value ?? '?'} (${i.changePercent ?? i.change ?? '?'}%)`
+    ).join(', '));
+  }
+  if (marketData.commodities) {
+    sections.push('Commodities: ' + marketData.commodities.slice(0, 5).map(c =>
+      `${c.name || c.symbol}: $${c.price ?? '?'}`
+    ).join(', '));
+  }
+  if (marketData.crypto) {
+    sections.push('Crypto: ' + marketData.crypto.slice(0, 5).map(c =>
+      `${c.symbol || c.name}: $${c.price ?? '?'} (${c.changePercent ?? '?'}%)`
+    ).join(', '));
+  }
+  return sections.join('\n');
+}
+
+async function generatePanelSummary() {
+  const viewPrompt = await loadLlmPrompt('view_summary');
+  const arbiterPrompt = await loadLlmPrompt('view_summary_arbiter');
+  if (!viewPrompt) {
+    console.warn('[ai-cron] no view_summary prompt found — skipping');
+    return;
+  }
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const contextSections = [];
+
+  // News: full headlines + descriptions + sources
+  const newsData = await redisGet('relay:news:full:v1');
+  const newsContext = extractNewsContext(newsData);
+  if (newsContext) contextSections.push(`## NEWS & HEADLINES\n${newsContext}`);
+
+  // Telegram: raw OSINT channel messages
+  const telegramData = await redisGet('relay:telegram:v1');
+  const telegramContext = extractTelegramContext(telegramData);
+  if (telegramContext) contextSections.push(`## TELEGRAM INTELLIGENCE (OSINT)\n${telegramContext}`);
+
+  // Markets: indices, commodities, crypto
+  const marketData = await redisGet('relay:markets:v1');
+  const marketContext = extractMarketContext(marketData);
+  if (marketContext) contextSections.push(`## MARKET DATA\n${marketContext}`);
+
+  // Structured data panels — summarize as key metrics
+  const dataKeys = [
+    { key: 'relay:strategic-risk:v1', label: 'STRATEGIC RISK SCORES' },
+    { key: 'relay:strategic-posture:v1', label: 'MILITARY THEATER POSTURE' },
+    { key: 'relay:intelligence:v1', label: 'INTELLIGENCE DIGEST' },
+    { key: 'relay:cyber:v1', label: 'CYBER THREATS' },
+    { key: 'relay:supply-chain:v1', label: 'SUPPLY CHAIN STATUS' },
+    { key: 'relay:predictions:v1', label: 'PREDICTION MARKETS' },
+    { key: 'relay:trade:v1', label: 'TRADE POLICY' },
+    { key: 'relay:weather:v1', label: 'WEATHER ALERTS' },
+    { key: 'relay:cables:v1', label: 'UNDERSEA CABLE HEALTH' },
+    { key: 'relay:conflict:v1', label: 'CONFLICT EVENTS' },
+    { key: 'relay:natural:v1', label: 'NATURAL DISASTERS / WILDFIRES' },
+    { key: 'relay:eonet:v1', label: 'NASA EARTH EVENTS' },
+    { key: 'relay:gdacs:v1', label: 'GDACS DISASTER ALERTS' },
+  ];
+
+  for (const { key, label } of dataKeys) {
+    const data = await redisGet(key);
+    if (data) {
+      contextSections.push(`## ${label}\n${JSON.stringify(data).slice(0, 2500)}`);
+    }
+  }
+
+  if (contextSections.length < 5) {
+    console.warn(`[ai-cron] only ${contextSections.length} data sources available — skipping panel summary`);
+    return;
+  }
+
+  const panelData = contextSections.join('\n\n');
+  const systemPrompt = buildPromptFromTemplate(viewPrompt.systemPrompt, { date: dateStr });
+  const userPrompt = buildPromptFromTemplate(viewPrompt.userPrompt, { panelData, date: dateStr });
+  const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
+
+  const funcConfig = getFunctionConfig('panel_summary');
+  const providerChain = funcConfig?.providerChain || ['ollama'];
+
+  // Model A: first provider in chain
+  const summaryAPromise = callLlmForFunction('panel_summary', messages, { maxTokens: 1500, temperature: 0.4 });
+
+  // Model B: second provider in chain (or same provider if only one)
+  let summaryBPromise;
+  if (providerChain.length >= 2) {
+    summaryBPromise = callLlmWithProvider(providerChain[1], messages, { maxTokens: 1500, temperature: 0.4 });
+  } else {
+    // Same model, different temperature for diversity
+    summaryBPromise = callLlmForFunction('panel_summary', messages, { maxTokens: 1500, temperature: 0.7 });
+  }
+
+  const [summaryA, summaryB] = await Promise.all([summaryAPromise, summaryBPromise]);
+
+  if (!summaryA && !summaryB) {
+    console.warn('[ai-cron] both model calls failed for panel summary');
+    return;
+  }
+
+  let finalSummary;
+  const modelsUsed = [];
+
+  if (summaryA && summaryB && arbiterPrompt) {
+    const arbiterSystem = buildPromptFromTemplate(arbiterPrompt.systemPrompt, { date: dateStr });
+    const arbiterUser = buildPromptFromTemplate(arbiterPrompt.userPrompt, {
+      summaryA: summaryA,
+      summaryB: summaryB,
+    });
+
+    finalSummary = await callLlmForFunction('panel_summary_arbiter',
+      [{ role: 'system', content: arbiterSystem }, { role: 'user', content: arbiterUser }],
+      { maxTokens: 1500, temperature: 0.3 },
+    );
+    modelsUsed.push('model_a', 'model_b', 'arbiter');
+
+    if (!finalSummary) {
+      finalSummary = summaryA; // fallback to model A if arbiter fails
+      modelsUsed.length = 0;
+      modelsUsed.push('model_a_fallback');
+    }
+  } else {
+    if (summaryA && summaryB && !arbiterPrompt) {
+      console.warn('[ai-cron] panel summary: arbiter prompt missing, using model A output');
+    }
+    finalSummary = summaryA || summaryB;
+    modelsUsed.push(summaryA ? 'model_a_only' : 'model_b_only');
+  }
+
+  if (!finalSummary) return;
+
+  const payload = {
+    summary: finalSummary,
+    approach: modelsUsed.join('+'),
+    generatedAt: new Date().toISOString(),
+    contextSources: contextSections.length,
+    dataSources: {
+      newsHeadlines: newsData?.items?.length ?? 0,
+      telegramMessages: (Array.isArray(telegramData) ? telegramData : telegramData?.items || []).length,
+      panelCount: dataKeys.filter(k => contextSections.some(s => s.includes(k.label))).length,
+    },
+  };
+
+  await redisSetex(AI_PANEL_SUMMARY_CACHE_KEY, AI_PANEL_SUMMARY_TTL, payload);
+  broadcastToChannel('ai:panel-summary', payload);
+  console.log(`[ai-cron] panel summary generated via ${payload.approach} (${finalSummary.length} chars, ${contextSections.length} sources)`);
+}
+
+cron.schedule('*/15 * * * *', async () => {
+  try { await generatePanelSummary(); }
+  catch (err) { console.error('[ai-cron] panel summary error:', err?.message ?? err); }
+});
+
+// ── AI: Article Summarization + Event Classification ─────────────────────────
+
+const AI_SUMMARIES_CACHE_KEY = 'ai:article-summaries:v1';
+const AI_CLASSIFICATIONS_CACHE_KEY = 'ai:classifications:v1';
+const AI_ARTICLE_TTL = 86400; // 24 hours
+const AI_MAX_CONCURRENT = 3;  // max parallel Ollama calls
+
+async function summarizeAndClassifyHeadlines() {
+  const newsData = await redisGet('relay:news:full:v1');
+  if (!newsData?.items || !Array.isArray(newsData.items) || newsData.items.length === 0) {
+    console.warn('[ai-cron] no news items for article summarization — skipping');
+    return;
+  }
+
+  const summaryPrompt = await loadLlmPrompt('news_summary', null, 'brief');
+  const classifyPrompt = await loadLlmPrompt('classify_event');
+
+  if (!summaryPrompt && !classifyPrompt) {
+    console.warn('[ai-cron] no prompts found for summary or classify — skipping');
+    return;
+  }
+
+  // Load existing caches to skip already-processed headlines
+  const existingSummaries = (await redisGet(AI_SUMMARIES_CACHE_KEY)) || {};
+  const existingClassifications = (await redisGet(AI_CLASSIFICATIONS_CACHE_KEY)) || {};
+
+  const headlines = newsData.items.slice(0, 100); // cap at 100 per run
+  const summaries = { ...existingSummaries };
+  const classifications = { ...existingClassifications };
+  const dateStr = new Date().toISOString().slice(0, 10);
+
+  // Process in batches with concurrency limiting
+  const queue = [];
+  for (const item of headlines) {
+    const title = item.title || '';
+    if (!title || title.length < 10) continue;
+    const hash = simpleHash(title.toLowerCase());
+
+    // Skip if already processed
+    if (summaries[hash] && classifications[hash]) continue;
+
+    queue.push({ title, hash, item });
+  }
+
+  console.log(`[ai-cron] ${queue.length} new headlines to summarize/classify out of ${headlines.length}`);
+
+  // Process with concurrency limit
+  for (let i = 0; i < queue.length; i += AI_MAX_CONCURRENT) {
+    const batch = queue.slice(i, i + AI_MAX_CONCURRENT);
+    await Promise.all(batch.map(async ({ title, hash }) => {
+      // Summarize
+      if (summaryPrompt && !summaries[hash]) {
+        const sysPrompt = buildPromptFromTemplate(summaryPrompt.systemPrompt, {
+          dateContext: `Current date: ${dateStr}.`,
+          langInstruction: '',
+        });
+        const usrPrompt = buildPromptFromTemplate(summaryPrompt.userPrompt, {
+          headlineText: title,
+          intelSection: '',
+        });
+        const summary = await callLlmForFunction('news_summary',
+          [{ role: 'system', content: sysPrompt }, { role: 'user', content: usrPrompt }],
+          { maxTokens: 400, temperature: 0.3 },
+        );
+        if (summary && summary.length >= 20) {
+          summaries[hash] = { text: summary, title, generatedAt: dateStr };
+        }
+      }
+
+      // Classify
+      if (classifyPrompt && !classifications[hash]) {
+        const sysPrompt = classifyPrompt.systemPrompt;
+        const usrPrompt = buildPromptFromTemplate(classifyPrompt.userPrompt, {
+          title: title.slice(0, 500),
+        });
+        const raw = await callLlmForFunction('classify_event',
+          [{ role: 'system', content: sysPrompt }, { role: 'user', content: usrPrompt }],
+          { maxTokens: 50, temperature: 0 },
+        );
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed.level && parsed.category) {
+              classifications[hash] = { ...parsed, title, generatedAt: dateStr };
+            }
+          } catch { /* not valid JSON — skip */ }
+        }
+      }
+    }));
+  }
+
+  await redisSetex(AI_SUMMARIES_CACHE_KEY, AI_ARTICLE_TTL, summaries);
+  await redisSetex(AI_CLASSIFICATIONS_CACHE_KEY, AI_ARTICLE_TTL, classifications);
+  broadcastToChannel('ai:article-summaries', summaries);
+  broadcastToChannel('ai:classifications', classifications);
+  console.log(`[ai-cron] article AI complete: ${Object.keys(summaries).length} summaries, ${Object.keys(classifications).length} classifications`);
+}
+
+// Utility: simple FNV-1a hash for headline dedup
+function simpleHash(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+// Run after news digest updates (every 5 min, staggered by 2 min)
+cron.schedule('2-59/5 * * * *', async () => {
+  try { await summarizeAndClassifyHeadlines(); }
+  catch (err) { console.error('[ai-cron] article summarize/classify error:', err?.message ?? err); }
+});
+
+// ── AI: Country Intel Briefs ─────────────────────────────────────────────────
+
+const AI_COUNTRY_BRIEFS_CACHE_KEY = 'ai:country-briefs:v1';
+const AI_COUNTRY_BRIEF_TTL = 7200; // 2 hours
+
+const AI_TIER1_COUNTRIES = {
+  US: 'United States', RU: 'Russia', CN: 'China', UA: 'Ukraine',
+  IR: 'Iran', IL: 'Israel', TW: 'Taiwan', KP: 'North Korea',
+  SA: 'Saudi Arabia', TR: 'Turkey', PL: 'Poland', DE: 'Germany',
+  FR: 'France', GB: 'United Kingdom', IN: 'India', PK: 'Pakistan',
+  SY: 'Syria', YE: 'Yemen', MM: 'Myanmar', VE: 'Venezuela',
+};
+
+const COUNTRY_KEYWORDS = {
+  US: ['united states', 'usa', 'america', 'washington', 'biden', 'trump', 'pentagon'],
+  RU: ['russia', 'moscow', 'kremlin', 'putin'],
+  CN: ['china', 'beijing', 'xi jinping', 'prc'],
+  UA: ['ukraine', 'kyiv', 'zelensky', 'donbas'],
+  IR: ['iran', 'tehran', 'khamenei', 'irgc'],
+  IL: ['israel', 'tel aviv', 'netanyahu', 'idf', 'gaza'],
+  TW: ['taiwan', 'taipei'],
+  KP: ['north korea', 'pyongyang', 'kim jong'],
+  SA: ['saudi arabia', 'riyadh'],
+  TR: ['turkey', 'ankara', 'erdogan'],
+  PL: ['poland', 'warsaw'],
+  DE: ['germany', 'berlin'],
+  FR: ['france', 'paris', 'macron'],
+  GB: ['britain', 'uk', 'london'],
+  IN: ['india', 'delhi', 'modi'],
+  PK: ['pakistan', 'islamabad'],
+  SY: ['syria', 'damascus'],
+  YE: ['yemen', 'sanaa', 'houthi'],
+  MM: ['myanmar', 'burma'],
+  VE: ['venezuela', 'caracas', 'maduro'],
+};
+
+function detectActiveCountries(headlines) {
+  const mentions = {};
+  for (const [code] of Object.entries(AI_TIER1_COUNTRIES)) mentions[code] = 0;
+
+  for (const title of headlines) {
+    const lower = title.toLowerCase();
+    for (const [code, keywords] of Object.entries(COUNTRY_KEYWORDS)) {
+      if (keywords.some(kw => lower.includes(kw))) {
+        mentions[code] = (mentions[code] || 0) + 1;
+      }
+    }
+  }
+
+  return Object.entries(mentions)
+    .filter(([, count]) => count > 0)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 15)
+    .map(([code]) => code);
+}
+
+async function generateCountryBriefs() {
+  const prompt = await loadLlmPrompt('intel_brief');
+  if (!prompt) {
+    console.warn('[ai-cron] no intel_brief prompt found — skipping');
+    return;
+  }
+
+  // Gather all headlines
+  const newsData = await redisGet('relay:news:full:v1');
+  const headlines = [];
+  if (newsData?.items && Array.isArray(newsData.items)) {
+    for (const item of newsData.items.slice(0, 50)) {
+      if (item.title) headlines.push(item.title);
+    }
+  }
+
+  if (headlines.length === 0) {
+    console.warn('[ai-cron] no headlines for country briefs — skipping');
+    return;
+  }
+
+  const topCountries = detectActiveCountries(headlines);
+  if (topCountries.length === 0) return;
+
+  const existingBriefs = (await redisGet(AI_COUNTRY_BRIEFS_CACHE_KEY)) || {};
+  const briefs = { ...existingBriefs };
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const headlineText = headlines.map((h, i) => `${i + 1}. ${h}`).join('\n');
+
+  // Process countries sequentially (to avoid overloading Ollama)
+  for (const code of topCountries) {
+    const countryName = AI_TIER1_COUNTRIES[code] || code;
+    const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, { date: dateStr });
+    const userPrompt = buildPromptFromTemplate(prompt.userPrompt, {
+      date: dateStr,
+      countryName,
+      countryCode: code,
+      contextSnapshot: '',
+      recentHeadlines: headlineText,
+    });
+
+    const content = await callLlmForFunction('country_brief',
+      [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+      { maxTokens: 900, temperature: 0.4 },
+    );
+
+    if (content) {
+      briefs[code] = {
+        brief: content,
+        countryName,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  await redisSetex(AI_COUNTRY_BRIEFS_CACHE_KEY, AI_COUNTRY_BRIEF_TTL, briefs);
+  broadcastToChannel('ai:country-briefs', briefs);
+  console.log(`[ai-cron] generated ${topCountries.length} country briefs`);
+}
+
+cron.schedule('*/30 * * * *', async () => {
+  try { await generateCountryBriefs(); }
+  catch (err) { console.error('[ai-cron] country briefs error:', err?.message ?? err); }
+});
+
+// ── AI: Strategic Posture Analysis ──────────────────────────────────────────
+
+async function generatePostureAnalysis() {
+  const prompt = await loadLlmPrompt('strategic_posture_analysis');
+  if (!prompt) return;
+
+  const postureData = await redisGet('relay:strategic-posture:v1');
+  if (!postureData?.theaters || postureData.theaters.length === 0) return;
+
+  const elevated = postureData.theaters.filter(t =>
+    t.postureLevel === 'elevated' || t.postureLevel === 'critical'
+  );
+  if (elevated.length === 0) return; // only analyze elevated+ theaters
+
+  const theaterText = postureData.theaters.map(t =>
+    `${t.theater}: ${t.postureLevel} (${t.activeFlights} flights, ${t.trackedVessels ?? 0} vessels, ops: ${(t.activeOperations || []).join(', ') || 'none'})`
+  ).join('\n');
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, { date: dateStr });
+  const userPrompt = buildPromptFromTemplate(prompt.userPrompt, { theaterData: theaterText });
+
+  const content = await callLlmForFunction('posture_analysis',
+    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+    { maxTokens: 1000, temperature: 0.3 },
+  );
+  if (!content) return;
+
+  const payload = { analysis: content, generatedAt: new Date().toISOString(), theaterCount: postureData.theaters.length };
+  await redisSetex('ai:posture-analysis:v1', 900, payload);
+  broadcastToChannel('ai:posture-analysis', payload);
+  console.log(`[ai-cron] posture analysis generated (${content.length} chars)`);
+}
+
+// ── AI: Country Instability Analysis ────────────────────────────────────────
+
+async function generateInstabilityAnalysis() {
+  const prompt = await loadLlmPrompt('country_instability_analysis');
+  if (!prompt) return;
+
+  const riskData = await redisGet('relay:strategic-risk:v1');
+  if (!riskData?.ciiScores || riskData.ciiScores.length === 0) return;
+
+  const topScores = riskData.ciiScores
+    .filter(s => s.combinedScore >= 30)
+    .slice(0, 10);
+  if (topScores.length === 0) return;
+
+  const COUNTRIES = {
+    US: 'United States', RU: 'Russia', CN: 'China', UA: 'Ukraine',
+    IR: 'Iran', IL: 'Israel', TW: 'Taiwan', KP: 'North Korea',
+    SA: 'Saudi Arabia', TR: 'Turkey', PL: 'Poland', DE: 'Germany',
+    FR: 'France', GB: 'United Kingdom', IN: 'India', PK: 'Pakistan',
+    SY: 'Syria', YE: 'Yemen', MM: 'Myanmar', VE: 'Venezuela',
+  };
+
+  const countryText = topScores.map(s =>
+    `${s.region} (${COUNTRIES[s.region] || s.region}): score=${s.combinedScore}, trend=${s.trend}, components: unrest=${s.components?.ciiContribution ?? 0}, news=${s.components?.newsActivity ?? 0}, military=${s.components?.militaryActivity ?? 0}`
+  ).join('\n');
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, { date: dateStr });
+  const userPrompt = buildPromptFromTemplate(prompt.userPrompt, { countryData: countryText });
+
+  const content = await callLlmForFunction('instability_analysis',
+    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+    { maxTokens: 1000, temperature: 0.3 },
+  );
+  if (!content) return;
+
+  const payload = { analysis: content, generatedAt: new Date().toISOString(), countryCount: topScores.length };
+  await redisSetex('ai:instability-analysis:v1', 7200, payload);
+  broadcastToChannel('ai:instability-analysis', payload);
+  console.log(`[ai-cron] instability analysis generated (${content.length} chars)`);
+}
+
+// ── AI: Strategic Risk Overview ─────────────────────────────────────────────
+
+async function generateRiskOverview() {
+  const prompt = await loadLlmPrompt('strategic_risk_overview');
+  if (!prompt) return;
+
+  const riskData = await redisGet('relay:strategic-risk:v1');
+  const postureData = await redisGet('relay:strategic-posture:v1');
+  const newsData = await redisGet('relay:news:full:v1');
+
+  if (!riskData?.strategicRisks || riskData.strategicRisks.length === 0) return;
+
+  const COUNTRIES = {
+    US: 'United States', RU: 'Russia', CN: 'China', UA: 'Ukraine',
+    IR: 'Iran', IL: 'Israel', TW: 'Taiwan', KP: 'North Korea',
+    SA: 'Saudi Arabia', TR: 'Turkey', PL: 'Poland', DE: 'Germany',
+    FR: 'France', GB: 'United Kingdom', IN: 'India', PK: 'Pakistan',
+    SY: 'Syria', YE: 'Yemen', MM: 'Myanmar', VE: 'Venezuela',
+  };
+
+  const globalRisk = riskData.strategicRisks[0];
+  const riskScore = globalRisk?.score ?? 0;
+  const riskLevel = globalRisk?.level?.replace('SEVERITY_LEVEL_', '') ?? 'UNKNOWN';
+  const topFactors = (globalRisk?.factors || []).map(f => COUNTRIES[f] || f).join(', ');
+
+  const postureSummary = (postureData?.theaters || [])
+    .filter(t => t.postureLevel !== 'normal')
+    .map(t => `${t.theater}: ${t.postureLevel}`)
+    .join(', ') || 'All theaters normal';
+
+  const instabilitySummary = (riskData?.ciiScores || [])
+    .slice(0, 5)
+    .map(s => `${COUNTRIES[s.region] || s.region}: ${s.combinedScore}`)
+    .join(', ');
+
+  const headlines = (newsData?.items || []).slice(0, 10).map(i => i.title).filter(Boolean).join('\n');
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, { date: dateStr });
+  const userPrompt = buildPromptFromTemplate(prompt.userPrompt, {
+    riskScore: String(riskScore),
+    riskLevel,
+    topFactors,
+    postureSummary,
+    instabilitySummary,
+    headlines,
+  });
+
+  const content = await callLlmForFunction('risk_overview',
+    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+    { maxTokens: 800, temperature: 0.3 },
+  );
+  if (!content) return;
+
+  const payload = {
+    overview: content,
+    riskScore,
+    riskLevel,
+    model: 'multi-provider',
+    generatedAt: new Date().toISOString(),
+  };
+  await redisSetex('ai:risk-overview:v1', 900, payload);
+  broadcastToChannel('ai:risk-overview', payload);
+  console.log(`[ai-cron] risk overview generated (${content.length} chars)`);
+}
+
+cron.schedule('3-59/15 * * * *', async () => {
+  try { await generatePostureAnalysis(); }
+  catch (err) { console.error('[ai-cron] posture analysis error:', err?.message ?? err); }
+});
+
+cron.schedule('5-59/30 * * * *', async () => {
+  try { await generateInstabilityAnalysis(); }
+  catch (err) { console.error('[ai-cron] instability analysis error:', err?.message ?? err); }
+});
+
+cron.schedule('4-59/15 * * * *', async () => {
+  try { await generateRiskOverview(); }
+  catch (err) { console.error('[ai-cron] risk overview error:', err?.message ?? err); }
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -303,6 +1227,9 @@ const ALLOWED_CHANNELS = new Set([
   'telegram', 'gulf-quotes', 'tech-events', 'oref', 'iran-events',
   'gps-interference', 'eonet', 'gdacs', 'config:news-sources',
   'config:feature-flags', 'climate', 'conflict', 'ucdp-events',
+  'ai:intel-digest', 'ai:panel-summary', 'ai:article-summaries',
+  'ai:classifications', 'ai:country-briefs', 'ai:posture-analysis',
+  'ai:instability-analysis', 'ai:risk-overview',
 ]);
 const CHANNEL_PATTERN = /^[a-z0-9:_-]{1,63}$/;
 const MAX_CHANNELS_PER_CLIENT = 50;
@@ -414,6 +1341,8 @@ function isAllowedWarmHost(url) {
   } catch { return false; }
 }
 
+/* @deprecated — replaced by generateIntelDigest */
+/*
 async function warmIntelligenceAndBroadcast() {
   if (!UPSTASH_ENABLED || !RELAY_SHARED_SECRET) return;
   const channel = 'intelligence';
@@ -455,6 +1384,7 @@ async function warmIntelligenceAndBroadcast() {
     console.warn('[relay-cron] intelligence warm error:', err?.message ?? err);
   }
 }
+*/
 
 let messageCount = 0;
 let droppedMessages = 0;
@@ -3327,6 +4257,14 @@ const PHASE4_CHANNEL_KEYS = {
   telegram: 'relay:telegram:v1',
   oref: 'relay:oref:v1',
   ais: 'relay:ais-snapshot:v1',
+  'ai:intel-digest': 'ai:digest:global:v1',
+  'ai:panel-summary': 'ai:panel-summary:v1',
+  'ai:article-summaries': 'ai:article-summaries:v1',
+  'ai:classifications': 'ai:classifications:v1',
+  'ai:country-briefs': 'ai:country-briefs:v1',
+  'ai:posture-analysis': 'ai:posture-analysis:v1',
+  'ai:instability-analysis': 'ai:instability-analysis:v1',
+  'ai:risk-overview': 'ai:risk-overview:v1',
 };
 
 // Map relay channel keys to frontend hydration keys (bootstrap.ts, getHydratedData, etc.)
@@ -3991,6 +4929,75 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify({ error: err?.message ?? 'fetch failed', articles: [] }));
     }
+  } else if (req.method === 'POST' && pathname === '/api/deduct') {
+    // ── HTTP: Deduction endpoint ──────────────────────────────────────────────
+    // POST /api/deduct — user-triggered situation analysis via Ollama
+    // Auth is already checked above for all non-public routes; reach here only if authorized.
+    let body = '';
+    req.on('data', chunk => { body += chunk; if (body.length > 10_000) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const parsed = JSON.parse(body);
+        const query = typeof parsed.query === 'string' ? parsed.query.slice(0, 500) : '';
+        const geoContext = typeof parsed.geoContext === 'string' ? parsed.geoContext.slice(0, 2000) : '';
+
+        if (!query) {
+          safeEnd(res, 400, { 'Content-Type': 'application/json' },
+            JSON.stringify({ error: 'query is required' }));
+          return;
+        }
+
+        const cacheKey = `ai:deduct:v1:${simpleHash((query + '|' + geoContext).toLowerCase())}`;
+        const cached = await redisGet(cacheKey);
+        if (cached) {
+          sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(cached));
+          return;
+        }
+
+        const prompt = await loadLlmPrompt('deduction');
+        if (!prompt) {
+          safeEnd(res, 503, { 'Content-Type': 'application/json' },
+            JSON.stringify({ error: 'Deduction prompt not configured' }));
+          return;
+        }
+
+        const newsData = await redisGet('relay:news:full:v1');
+        const headlines = (newsData?.items || []).slice(0, 15)
+          .map(i => i.title).filter(Boolean)
+          .map((h, idx) => `${idx + 1}. ${h}`).join('\n');
+
+        const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, {});
+        const userPrompt = buildPromptFromTemplate(prompt.userPrompt, {
+          query,
+          geoContext,
+          recentHeadlines: headlines,
+        });
+
+        const content = await callLlmForFunction('deduction',
+          [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+          { maxTokens: 1500, temperature: 0.3 },
+        );
+
+        if (!content) {
+          safeEnd(res, 503, { 'Content-Type': 'application/json' },
+            JSON.stringify({ error: 'LLM generation failed' }));
+          return;
+        }
+
+        const result = {
+          analysis: content,
+          model: 'multi-provider',
+          generatedAt: new Date().toISOString(),
+        };
+
+        await redisSetex(cacheKey, 3600, result);
+        sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(result));
+      } catch (err) {
+        console.error('[relay] /api/deduct error:', err?.message ?? err);
+        safeEnd(res, 500, { 'Content-Type': 'application/json' },
+          JSON.stringify({ error: 'Internal error' }));
+      }
+    });
   } else {
     res.writeHead(404);
     res.end();
@@ -6491,10 +7498,10 @@ cron.schedule('3-59/5 * * * *', async () => {
   try { await directFetchAndBroadcast('news:happy', 'news:digest:v1:happy:en', 900, () => fetchNewsDigest('happy', 'en')); } catch (err) { console.error('[relay] news:happy cron error:', err?.message ?? err); }
 });
 
-// intelligence — LLM route, stays on Vercel (warmIntelligenceAndBroadcast)
-cron.schedule('*/10 * * * *', () => {
-  void warmIntelligenceAndBroadcast().catch(err => console.error('[relay-cron] intelligence unhandled error:', err));
-});
+// intelligence — LLM route, replaced by generateIntelDigest (ai:intel-digest)
+// cron.schedule('*/10 * * * *', () => {
+//   void warmIntelligenceAndBroadcast().catch(err => console.error('[relay-cron] intelligence unhandled error:', err));
+// });
 
 cron.schedule('2-59/10 * * * *', async () => {
   try { await directFetchAndBroadcast('supply-chain', 'supply_chain:chokepoints:v1', 900, fetchSupplyChain); } catch (err) { console.error('[relay] supply-chain cron error:', err?.message ?? err); }

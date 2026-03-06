@@ -354,138 +354,43 @@ export function classifyByKeyword(title: string, variant = 'full'): ThreatClassi
   return { level: 'info', category: 'general', confidence: 0.3, source: 'keyword' };
 }
 
-// Batched AI classification — collects headlines then fires parallel classifyEvent RPCs
-import {
-  IntelligenceServiceClient,
-  ApiError,
-  type ClassifyEventResponse,
-} from '@/generated/client/worldmonitor/intelligence/v1/service_client';
-
-const classifyClient = new IntelligenceServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-
 const VALID_LEVELS: Record<string, ThreatLevel> = {
   critical: 'critical', high: 'high', medium: 'medium', low: 'low', info: 'info',
 };
 
-function toThreat(resp: ClassifyEventResponse): ThreatClassification | null {
-  const c = resp.classification;
-  if (!c) return null;
-  // Raw level preserved in subcategory by the handler
-  const level = VALID_LEVELS[c.subcategory] ?? VALID_LEVELS[c.category] ?? null;
-  if (!level) return null;
-  return {
-    level,
-    category: c.category as EventCategory,
-    confidence: c.confidence || 0.9,
-    source: 'llm',
-  };
+// FNV-1a — matches simpleHash() in ais-relay.cjs
+function fnv1aHash(str: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
 }
 
-type BatchJob = {
-  title: string;
-  variant: string;
-  resolve: (v: ThreatClassification | null) => void;
-  attempts?: number;
+type RelayClassification = {
+  level: string;
+  category: string;
+  title?: string;
+  generatedAt?: string;
 };
 
-const BATCH_SIZE = 20;
-const BATCH_DELAY_MS = 500;
-const STAGGER_BASE_MS = 2100;
-const STAGGER_JITTER_MS = 200;
-const MIN_GAP_MS = 2000;
-const MAX_RETRIES = 2;
-const MAX_QUEUE_LENGTH = 100;
-let batchPaused = false;
-let batchInFlight = false;
-let batchTimer: ReturnType<typeof setTimeout> | null = null;
-let lastRequestAt = 0;
-const batchQueue: BatchJob[] = [];
-
-async function waitForGap(): Promise<void> {
-  const elapsed = Date.now() - lastRequestAt;
-  if (elapsed < MIN_GAP_MS) {
-    await new Promise<void>(r => setTimeout(r, MIN_GAP_MS - elapsed));
-  }
-  const jitter = Math.floor(Math.random() * STAGGER_JITTER_MS * 2) - STAGGER_JITTER_MS;
-  const extra = Math.max(0, STAGGER_BASE_MS - MIN_GAP_MS + jitter);
-  if (extra > 0) await new Promise<void>(r => setTimeout(r, extra));
-  lastRequestAt = Date.now();
+function getRelayClassifications(): Record<string, RelayClassification> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (window as any).__wmRelayClassifications as Record<string, RelayClassification> ?? {};
 }
 
-function flushBatch(): void {
-  batchTimer = null;
-  if (batchPaused || batchInFlight || batchQueue.length === 0) return;
-  batchInFlight = true;
-
-  const batch = batchQueue.splice(0, BATCH_SIZE);
-  if (batch.length === 0) { batchInFlight = false; return; }
-
-  (async () => {
-    try {
-      for (let i = 0; i < batch.length; i++) {
-        const job = batch[i]!;
-        if (batchPaused) { job.resolve(null); continue; }
-
-        await waitForGap();
-
-        try {
-          const resp = await classifyClient.classifyEvent({
-            title: job.title, description: '', source: '', country: '',
-          });
-          job.resolve(toThreat(resp));
-        } catch (err) {
-          if (err instanceof ApiError && (err.statusCode === 401 || err.statusCode === 429 || err.statusCode >= 500)) {
-            batchPaused = true;
-            const delay = err.statusCode === 401 ? 120_000 : err.statusCode === 429 ? 60_000 : 30_000;
-            console.warn(`[Classify] ${err.statusCode} — pausing AI classification for ${delay / 1000}s`);
-            const remaining = batch.slice(i + 1);
-            // Failed job: increment attempts, requeue if under limit
-            if ((job.attempts ?? 0) < MAX_RETRIES) {
-              job.attempts = (job.attempts ?? 0) + 1;
-              batchQueue.unshift(job);
-            } else {
-              job.resolve(null);
-            }
-            // Remaining jobs never hit the API — requeue without burning attempts
-            for (let j = remaining.length - 1; j >= 0; j--) {
-              batchQueue.unshift(remaining[j]!);
-            }
-            batchInFlight = false;
-            setTimeout(() => { batchPaused = false; scheduleBatch(); }, delay);
-            return;
-          }
-          job.resolve(null);
-        }
-      }
-    } finally {
-      if (batchInFlight) {
-        batchInFlight = false;
-        scheduleBatch();
-      }
-    }
-  })();
-}
-
-function scheduleBatch(): void {
-  if (batchTimer || batchPaused || batchInFlight || batchQueue.length === 0) return;
-  if (batchQueue.length >= BATCH_SIZE) {
-    flushBatch();
-  } else {
-    batchTimer = setTimeout(flushBatch, BATCH_DELAY_MS);
-  }
+function lookupRelayClassification(title: string): ThreatClassification | null {
+  const entry = getRelayClassifications()[fnv1aHash(title.toLowerCase())];
+  if (!entry) return null;
+  const level = VALID_LEVELS[entry.level] ?? null;
+  if (!level) return null;
+  return { level, category: entry.category as EventCategory, confidence: 0.9, source: 'llm' };
 }
 
 export function classifyWithAI(
   title: string,
-  variant: string
+  _variant: string
 ): Promise<ThreatClassification | null> {
-  return new Promise((resolve) => {
-    if (batchQueue.length >= MAX_QUEUE_LENGTH) {
-      console.warn(`[Classify] Queue full (${MAX_QUEUE_LENGTH}), dropping classification for: ${title.slice(0, 60)}`);
-      resolve(null);
-      return;
-    }
-    batchQueue.push({ title, variant, resolve });
-    scheduleBatch();
-  });
+  return Promise.resolve(lookupRelayClassification(title));
 }

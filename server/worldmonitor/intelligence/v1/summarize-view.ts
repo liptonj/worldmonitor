@@ -1,6 +1,10 @@
+/**
+ * @deprecated Migrated to relay-native AI (2026-03-06).
+ * AI functions now run on the relay server via Ollama cron jobs.
+ * This endpoint is no longer called. Kept for rollback reference.
+ */
+
 import type { ServerContext } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
-import { getActiveLlmProvider, getLlmPrompt, buildPrompt } from '../../../_shared/llm';
-import { CHROME_UA } from '../../../_shared/constants';
 
 const SUMMARIZE_VIEW_TIMEOUT_MS = 25_000;
 const MIN_PANEL_LENGTH = 20;
