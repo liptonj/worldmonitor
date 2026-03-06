@@ -195,6 +195,7 @@ const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY
   : null;
 
 async function redisGet(key) {
+  if (redis.status !== 'ready') return null;
   try {
     const val = await redis.get(key);
     return val ? JSON.parse(val) : null;
@@ -205,6 +206,7 @@ async function redisGet(key) {
 }
 
 async function redisSetex(key, ttlSec, value) {
+  if (redis.status !== 'ready') return;
   try {
     await redis.setex(key, ttlSec, JSON.stringify(value));
   } catch (err) {
@@ -213,6 +215,7 @@ async function redisSetex(key, ttlSec, value) {
 }
 
 async function redisDel(key) {
+  if (redis.status !== 'ready') return;
   try {
     await redis.del(key);
   } catch (err) {
