@@ -377,14 +377,25 @@ function broadcastToChannel(channel, payload) {
 
 /**
  * Send cached payloads for all requested channels to a newly subscribed client.
- * Called after subscribe so the client gets data immediately without waiting for next cron.
+ * Tries in-memory cache first, falls back to Redis for channels with a known key.
  */
-function sendCachedPayloads(ws, channels) {
+async function sendCachedPayloads(ws, channels) {
   for (const ch of channels) {
-    const cached = latestPayloads.get(ch);
-    if (cached && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < WS_BUFFERED_AMOUNT_THRESHOLD) {
-      ws.send(cached);
-    }
+    if (ws.readyState !== WebSocket.OPEN || ws.bufferedAmount >= WS_BUFFERED_AMOUNT_THRESHOLD) return;
+    const mem = latestPayloads.get(ch);
+    if (mem) { ws.send(mem); continue; }
+    const redisKey = PHASE4_CHANNEL_KEYS[ch];
+    if (!redisKey) continue;
+    try {
+      const data = await redisGet(redisKey);
+      if (data && ws.readyState === WebSocket.OPEN) {
+        const msg = JSON.stringify({ type: 'wm-push', channel: ch, payload: data, ts: Date.now() });
+        if (Buffer.byteLength(msg) <= MAX_PUSH_PAYLOAD_BYTES) {
+          latestPayloads.set(ch, msg);
+          ws.send(msg);
+        }
+      }
+    } catch { /* Redis unavailable — skip */ }
   }
 }
 
@@ -6294,20 +6305,31 @@ function classifyNewsTitle(title, variant) {
 }
 
 async function fetchNewsSourcesForVariant(variant, lang) {
-  if (!supabase) return {};
-  try {
-    const { data, error } = await supabase.rpc('get_public_news_sources', { p_variant: variant });
-    if (error || !data) return {};
-    const grouped = {};
-    for (const row of data) {
-      const url = typeof row.url === 'string' ? row.url : (row.url?.[lang] || row.url?.en || Object.values(row.url || {})[0] || '');
-      if (!url) continue;
-      const cat = row.category || 'general';
-      if (!grouped[cat]) grouped[cat] = [];
-      grouped[cat].push({ name: row.name, url, category: cat });
-    }
-    return grouped;
-  } catch { return {}; }
+  // Prefer the Redis-cached sources (written by config:news-sources cron) to avoid
+  // a redundant Supabase query on every news digest fetch.
+  let rows = await redisGet('relay:config:news-sources');
+  if (!rows && supabase) {
+    try {
+      const { data, error } = await supabase.rpc('get_public_news_sources', { p_variant: variant });
+      if (!error && data) rows = data;
+    } catch { /* fall through to empty */ }
+  }
+  if (!rows || !Array.isArray(rows)) {
+    console.warn(`[relay] fetchNewsSourcesForVariant(${variant}) — no rows from Redis or Supabase`);
+    return {};
+  }
+  const grouped = {};
+  for (const row of rows) {
+    if (Array.isArray(row.variants) && !row.variants.includes(variant)) continue;
+    const url = typeof row.url === 'string' ? row.url : (row.url?.[lang] || row.url?.en || Object.values(row.url || {})[0] || '');
+    if (!url) continue;
+    const cat = row.category || 'general';
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push({ name: row.name, url, category: cat });
+  }
+  const total = Object.values(grouped).reduce((s, a) => s + a.length, 0);
+  if (total === 0) console.warn(`[relay] fetchNewsSourcesForVariant(${variant}) — ${rows.length} rows but 0 feeds after filtering`);
+  return grouped;
 }
 
 function parseRssItems(xml, variant) {
@@ -6343,6 +6365,11 @@ async function fetchNewsDigest(variant, lang) {
   const allFeeds = [];
   for (const [cat, feeds] of Object.entries(feedsByCategory)) {
     for (const f of feeds) allFeeds.push({ category: cat, feed: f });
+  }
+
+  if (allFeeds.length === 0) {
+    console.warn(`[relay] fetchNewsDigest(${variant}) — no feed sources, skipping`);
+    return null;
   }
 
   const results = new Map();
@@ -6563,6 +6590,21 @@ cron.schedule('0 0 * * *', async () => {
 // Broadcast giving on startup so subscribers get data immediately
 void directFetchAndBroadcast('giving', 'giving:summary:v1', 86400, fetchGivingSummary).catch(() => {});
 
+// Prime config:news-sources cache first, then kick off news digest fetches.
+void (async () => {
+  try {
+    await directFetchAndBroadcast('config:news-sources', 'relay:config:news-sources', 300, fetchNewsSourcesConfig);
+    console.log('[relay-startup] config:news-sources cached');
+  } catch (err) {
+    console.warn('[relay-startup] config:news-sources failed:', err?.message ?? err);
+  }
+  for (const v of ['full', 'tech', 'finance', 'happy']) {
+    directFetchAndBroadcast(`news:${v}`, `news:digest:v1:${v}:en`, 900, () => fetchNewsDigest(v, 'en'))
+      .then(() => console.log(`[relay-startup] news:${v} ready`))
+      .catch((e) => console.warn(`[relay-startup] news:${v} failed:`, e?.message ?? e));
+  }
+})();
+
 // Every 1 min — telegram intel (direct broadcast from in-memory state)
 cron.schedule('* * * * *', () => {
   const items = Array.isArray(telegramState.items) ? telegramState.items : [];
@@ -6579,9 +6621,22 @@ cron.schedule('* * * * *', () => {
 // Every 5 min — config channels (direct Supabase fetch, no Vercel round-trip)
 async function fetchNewsSourcesConfig() {
   if (!supabase) throw new Error('Supabase client not configured');
-  const { data, error } = await supabase.rpc('get_public_news_sources', { p_variant: 'full' });
-  if (error) throw new Error(error.message);
-  return data;
+  const all = [];
+  for (const v of ['full', 'tech', 'finance', 'happy']) {
+    const { data, error } = await supabase.rpc('get_public_news_sources', { p_variant: v });
+    if (error) throw new Error(error.message);
+    if (data) all.push(...data);
+  }
+  // Dedupe by name+url (a source in multiple variants appears in multiple RPC calls)
+  const seen = new Set();
+  const deduped = [];
+  for (const row of all) {
+    const key = `${row.name}||${typeof row.url === 'string' ? row.url : JSON.stringify(row.url)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(row);
+  }
+  return deduped;
 }
 cron.schedule('*/5 * * * *', async () => {
   try {
