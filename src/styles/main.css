@@ -9972,6 +9972,47 @@ a.prediction-link:hover {
     height: calc(100vh - 80px) !important;
     height: calc(100dvh - 80px) !important;
   }
+
+  /* === Header: hide non-active variant labels to reduce clutter === */
+  .variant-option:not(.active) .variant-label {
+    display: none;
+  }
+  .variant-option:not(.active) .variant-icon {
+    font-size: 14px;
+  }
+  .variant-option.active .variant-label {
+    display: inline;
+  }
+
+  /* === Header clock: hide on mobile to avoid overlap with map title === */
+  .header-clock {
+    display: none;
+  }
+
+  /* === Loading states: reduce padding and spinner size on mobile === */
+  .panel-loading {
+    padding: 16px 8px;
+    min-height: 80px;
+  }
+  .panel-loading-radar {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 8px;
+  }
+  .panel-unavailable {
+    padding: 12px 8px;
+    gap: 6px;
+  }
+  .panel-unavailable svg,
+  .panel-unavailable .panel-unavailable-icon {
+    font-size: 24px;
+  }
+
+  /* === Panel title: keep consistent with base size on mobile === */
+  .panel-title {
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
 }
 
 /* Extra small screens */
