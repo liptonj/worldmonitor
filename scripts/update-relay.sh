@@ -404,6 +404,14 @@ setup_pm2_startup() {
 
 restart_pm2() {
   log "Restarting via pm2 (process: ${RELAY_PROCESS_NAME})..."
+
+  if command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet "${RELAY_SERVICE_NAME}" 2>/dev/null; then
+    log "Stopping systemd service '${RELAY_SERVICE_NAME}' to avoid port conflict..."
+    sudo systemctl stop "${RELAY_SERVICE_NAME}" 2>/dev/null || true
+    sudo systemctl disable "${RELAY_SERVICE_NAME}" 2>/dev/null || true
+    log "systemd service stopped and disabled — pm2 takes over."
+  fi
+
   if pm2 describe "${RELAY_PROCESS_NAME}" > /dev/null 2>&1; then
     if pm2 restart "${RELAY_PROCESS_NAME}" --update-env --kill-timeout 8000; then
       pm2 save
@@ -477,10 +485,10 @@ restart_none() {
 
 MANAGER="${RELAY_MANAGER:-}"
 if [[ -z "${MANAGER}" ]]; then
-  if command -v systemctl > /dev/null 2>&1 && systemctl list-units --type=service 2>/dev/null | awk -v svc="${RELAY_SERVICE_NAME}" '$0 ~ svc {found=1} END{exit !found}'; then
-    MANAGER="systemd"
-  elif command -v pm2 > /dev/null 2>&1; then
+  if command -v pm2 > /dev/null 2>&1; then
     MANAGER="pm2"
+  elif command -v systemctl > /dev/null 2>&1 && systemctl list-units --type=service 2>/dev/null | awk -v svc="${RELAY_SERVICE_NAME}" '$0 ~ svc {found=1} END{exit !found}'; then
+    MANAGER="systemd"
   else
     MANAGER="none"
   fi
