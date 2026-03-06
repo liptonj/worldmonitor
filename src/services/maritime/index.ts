@@ -379,7 +379,6 @@ if (isClientRuntime) {
 
 export function registerAisCallback(callback: AisCallback): void {
   positionCallbacks.add(callback);
-  startPolling();
 }
 
 export function unregisterAisCallback(callback: AisCallback): void {
