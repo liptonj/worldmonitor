@@ -5,9 +5,8 @@ import { t } from '@/services/i18n';
 const PROGRESS_STEPS = [
   { delay: 0, text: 'Collecting panel data…' },
   { delay: 3_000, text: 'Connecting to AI model…' },
-  { delay: 8_000, text: 'Generating summary — this may take up to a minute…' },
-  { delay: 30_000, text: 'Still working — large dashboards take longer…' },
-  { delay: 60_000, text: 'Almost there — finalizing summary…' },
+  { delay: 8_000, text: 'Generating summary…' },
+  { delay: 18_000, text: 'Almost there…' },
 ];
 
 export class SummarizeViewModal {
@@ -94,6 +93,11 @@ export class SummarizeViewModal {
     }, 1000);
   }
 
+  updateStatus(text: string): void {
+    const statusEl = this.contentEl.querySelector('.summarize-view-status');
+    if (statusEl) statusEl.textContent = text;
+  }
+
   setError(message: string): void {
     this.clearProgress();
     this.contentEl.innerHTML = '';
@@ -118,14 +122,41 @@ export class SummarizeViewModal {
     contentDiv.innerHTML = html;
     this.contentEl.innerHTML = '';
     this.contentEl.appendChild(contentDiv);
+    this.setFooter(model, generatedAt);
+  }
 
-    const footerParts: string[] = [];
-    if (model) footerParts.push(model);
+  startStreaming(): void {
+    this.clearProgress();
+    this.contentEl.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'summarize-view-body summarize-view-streaming';
+    this.contentEl.appendChild(div);
+    this.footerEl.innerHTML = '';
+  }
+
+  appendStreamChunk(text: string): void {
+    const div = this.contentEl.querySelector('.summarize-view-streaming');
+    if (div) div.textContent += text;
+  }
+
+  async finalizeStream(model?: string, generatedAt?: string): Promise<void> {
+    const div = this.contentEl.querySelector('.summarize-view-streaming');
+    if (!div) return;
+    const raw = div.textContent ?? '';
+    const html = DOMPurify.sanitize(await marked.parse(raw));
+    div.innerHTML = html;
+    div.classList.remove('summarize-view-streaming');
+    this.setFooter(model, generatedAt);
+  }
+
+  private setFooter(model?: string, generatedAt?: string): void {
+    const parts: string[] = [];
+    if (model) parts.push(model);
     if (generatedAt) {
       const ts = new Date(generatedAt).toLocaleString();
-      footerParts.push(ts);
+      parts.push(ts);
     }
-    this.footerEl.textContent = footerParts.join(' · ');
+    this.footerEl.textContent = parts.join(' · ');
   }
 
   private clearProgress(): void {

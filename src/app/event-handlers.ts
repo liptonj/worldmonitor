@@ -575,7 +575,7 @@ export class EventHandlerManager implements AppModule {
       this.summarizeViewModal!.setLoading();
 
       try {
-        const resp = await fetch('/api/intelligence/v1/summarize-view', {
+        const resp = await fetch('/api/intelligence/v1/summarize-view-stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ panelSnapshots: snapshotText }),
@@ -590,32 +590,33 @@ export class EventHandlerManager implements AppModule {
           return;
         }
 
-        const data = (await resp.json()) as {
-          summary?: string;
-          model?: string;
-          generatedAt?: string;
-          errorCode?: string;
-          provider?: string;
-        };
+        const contentType = resp.headers.get('content-type') ?? '';
 
-        if (data.errorCode) {
-          const msgKey = data.errorCode === 'provider_missing' ? 'errorProviderMissing'
-            : data.errorCode === 'prompt_missing' ? 'errorPromptMissing'
-            : data.errorCode === 'timeout' ? 'errorTimeout'
-            : 'errorRetry';
-          console.error('[SummarizeView] errorCode=%s provider=%s model=%s', data.errorCode, data.provider ?? 'unknown', data.model ?? 'unknown');
-          this.summarizeViewModal!.setError(t(`modals.summarizeView.${msgKey}`));
-          return;
+        if (contentType.includes('text/event-stream') && resp.body) {
+          await this.handleSseStream(resp.body);
+        } else {
+          const data = (await resp.json()) as {
+            summary?: string; model?: string; generatedAt?: string;
+            errorCode?: string; provider?: string; event?: string;
+          };
+
+          if (data.errorCode || data.event === 'error') {
+            const msgKey = data.errorCode === 'provider_missing' ? 'errorProviderMissing'
+              : data.errorCode === 'prompt_missing' ? 'errorPromptMissing'
+              : data.errorCode === 'timeout' ? 'errorTimeout'
+              : 'errorRetry';
+            console.error('[SummarizeView] errorCode=%s', data.errorCode);
+            this.summarizeViewModal!.setError(t(`modals.summarizeView.${msgKey}`));
+            return;
+          }
+
+          const summary = data.summary?.trim();
+          if (!summary) {
+            this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
+            return;
+          }
+          await this.summarizeViewModal!.setContent(summary, data.model, data.generatedAt);
         }
-
-        const summary = data.summary?.trim();
-        if (!summary) {
-          console.warn('[SummarizeView] empty_summary provider=%s model=%s', data.provider ?? 'unknown', data.model ?? 'unknown');
-          this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
-          return;
-        }
-
-        await this.summarizeViewModal!.setContent(summary, data.model, data.generatedAt);
       } catch (err) {
         console.error('[SummarizeView] request_failed', err);
         const isNetwork = err instanceof TypeError;
@@ -624,6 +625,81 @@ export class EventHandlerManager implements AppModule {
         );
       }
     });
+  }
+
+  private async handleSseStream(body: ReadableStream<Uint8Array>): Promise<void> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let streaming = false;
+    let model: string | undefined;
+    let generatedAt: string | undefined;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let parsed: Record<string, string>;
+          try {
+            parsed = JSON.parse(line.slice(6));
+          } catch { continue; }
+
+          const event = parsed.event;
+
+          if (event === 'error') {
+            const msgKey = parsed.errorCode === 'provider_missing' ? 'errorProviderMissing'
+              : parsed.errorCode === 'prompt_missing' ? 'errorPromptMissing'
+              : parsed.errorCode === 'timeout' ? 'errorTimeout'
+              : 'errorRetry';
+            this.summarizeViewModal!.setError(t(`modals.summarizeView.${msgKey}`));
+            return;
+          }
+
+          if (event === 'status') {
+            this.summarizeViewModal!.updateStatus(parsed.text ?? '');
+          }
+
+          if (event === 'meta') {
+            model = parsed.model;
+          }
+
+          if (event === 'chunk') {
+            if (!streaming) {
+              streaming = true;
+              this.summarizeViewModal!.startStreaming();
+            }
+            this.summarizeViewModal!.appendStreamChunk(parsed.text ?? '');
+          }
+
+          if (event === 'done') {
+            model = parsed.model ?? model;
+            generatedAt = parsed.generatedAt;
+            if (!streaming && parsed.summary) {
+              await this.summarizeViewModal!.setContent(parsed.summary, model, generatedAt);
+            } else if (streaming) {
+              await this.summarizeViewModal!.finalizeStream(model, generatedAt);
+            } else {
+              this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
+            }
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[SummarizeView] SSE stream error:', err);
+      this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
+    }
+
+    if (streaming) {
+      await this.summarizeViewModal!.finalizeStream(model, generatedAt);
+    }
   }
 
   setupPlaybackControl(): void {
