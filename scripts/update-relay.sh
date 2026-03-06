@@ -4,11 +4,15 @@
 # Run this on the relay host after deploying a new version:
 #   bash scripts/update-relay.sh
 #   bash scripts/update-relay.sh --verify-only
+#   bash scripts/update-relay.sh --status
 #
 # The script will:
 #   1. Check required .env values and prompt for any that are missing
 #   2. Validate env values used by scripts/ais-relay.cjs
 #   3. Pull latest code and restart relay process (unless --verify-only)
+#   4. Configure pm2 startup on boot and log rotation
+#   5. Run a post-deploy health check
+#   6. Record deployment metadata (git SHA, timestamp)
 #
 # Environment:
 #   RELAY_PROCESS_NAME   pm2 process name (default: worldmonitor-relay)
@@ -17,16 +21,21 @@
 #
 # Flags:
 #   --verify-only        Validate env and exit (no pull/restart)
+#   --status             Show relay process status and recent deploy info, then exit
+#   --logs               Tail relay logs (last 100 lines + follow)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
+DEPLOY_LOG="${ROOT_DIR}/.deploy-history.log"
 
 RELAY_PROCESS_NAME="${RELAY_PROCESS_NAME:-worldmonitor-relay}"
 RELAY_SERVICE_NAME="${RELAY_SERVICE_NAME:-worldmonitor-relay}"
 VERIFY_ONLY=false
+SHOW_STATUS=false
+SHOW_LOGS=false
 VALIDATION_ERRORS=0
 
 log()  { echo "[update-relay] $*"; }
@@ -39,14 +48,18 @@ for arg in "$@"; do
   case "${arg}" in
     --verify-only) VERIFY_ONLY=true ;;
     --cleanup-srh) CLEANUP_SRH=true ;;
+    --status)      SHOW_STATUS=true ;;
+    --logs)        SHOW_LOGS=true ;;
     -h|--help)
       cat <<'EOF'
 Usage:
-  bash scripts/update-relay.sh [--verify-only] [--cleanup-srh]
+  bash scripts/update-relay.sh [--verify-only] [--cleanup-srh] [--status] [--logs]
 
 Options:
   --verify-only   Validate relay env settings and exit without pull/restart.
   --cleanup-srh   Stop and remove SRH Docker container if present (Phase 6 cleanup).
+  --status        Show relay process status and recent deployments.
+  --logs          Tail relay logs (last 100 lines + follow).
 EOF
       exit 0
       ;;
@@ -55,6 +68,41 @@ EOF
       ;;
   esac
 done
+
+# ── Quick actions (--status, --logs) ─────────────────────────────────────────
+if [[ "${SHOW_STATUS}" == "true" ]]; then
+  echo ""
+  echo "=== Relay Process Status ==="
+  if command -v pm2 > /dev/null 2>&1 && pm2 describe "${RELAY_PROCESS_NAME}" > /dev/null 2>&1; then
+    pm2 describe "${RELAY_PROCESS_NAME}"
+  elif command -v systemctl > /dev/null 2>&1; then
+    systemctl status "${RELAY_SERVICE_NAME}" --no-pager -l 2>/dev/null || echo "systemd service not found."
+  else
+    echo "No process manager detected."
+  fi
+  echo ""
+  echo "=== Recent Deployments ==="
+  if [[ -f "${DEPLOY_LOG}" ]]; then
+    tail -10 "${DEPLOY_LOG}"
+  else
+    echo "No deployment history found."
+  fi
+  echo ""
+  echo "=== Current Git SHA ==="
+  cd "${ROOT_DIR}" && git log --oneline -1 2>/dev/null || echo "Not a git repo."
+  exit 0
+fi
+
+if [[ "${SHOW_LOGS}" == "true" ]]; then
+  if command -v pm2 > /dev/null 2>&1 && pm2 describe "${RELAY_PROCESS_NAME}" > /dev/null 2>&1; then
+    pm2 logs "${RELAY_PROCESS_NAME}" --lines 100
+  elif command -v journalctl > /dev/null 2>&1; then
+    sudo journalctl -u "${RELAY_SERVICE_NAME}" -n 100 -f --no-pager
+  else
+    die "No log source found — relay not managed by pm2 or systemd."
+  fi
+  exit 0
+fi
 
 # env_get KEY — read current value from .env (empty string if missing/unset)
 env_get() {
@@ -308,36 +356,80 @@ stop_srh() {
 }
 
 # ── 4. Detect process manager and restart ──────────────────────────────────────
+
+PM2_START_ARGS=(
+  --name "${RELAY_PROCESS_NAME}"
+  --interpreter node
+  --restart-delay 3000
+  --max-restarts 10
+  --kill-timeout 8000
+  --merge-logs
+  --time
+  --log-date-format "YYYY-MM-DD HH:mm:ss.SSS"
+)
+
+setup_pm2_log_rotation() {
+  if pm2 describe pm2-logrotate > /dev/null 2>&1; then
+    log "pm2-logrotate already installed."
+  else
+    log "Installing pm2-logrotate..."
+    pm2 install pm2-logrotate || { warn "pm2-logrotate install failed — logs may grow unbounded."; return; }
+  fi
+  pm2 set pm2-logrotate:max_size 50M 2>/dev/null || true
+  pm2 set pm2-logrotate:retain 7 2>/dev/null || true
+  pm2 set pm2-logrotate:compress true 2>/dev/null || true
+  pm2 set pm2-logrotate:dateFormat "YYYY-MM-DD" 2>/dev/null || true
+  log "pm2-logrotate configured: 50M max, 7 files retained, compressed."
+}
+
+setup_pm2_startup() {
+  local startup_output
+  startup_output="$(pm2 startup 2>&1 || true)"
+
+  if echo "${startup_output}" | grep -q "already been setup"; then
+    log "pm2 startup already configured — relay will start on boot."
+    return
+  fi
+
+  local sudo_cmd
+  sudo_cmd="$(echo "${startup_output}" | grep -oP 'sudo .*' | head -1 || true)"
+  if [[ -n "${sudo_cmd}" ]]; then
+    log "Configuring pm2 startup on boot..."
+    eval "${sudo_cmd}" || warn "pm2 startup command failed — run it manually: ${sudo_cmd}"
+    log "pm2 startup configured — relay will auto-start on reboot."
+  else
+    warn "Could not extract pm2 startup command. Run 'pm2 startup' manually and follow instructions."
+  fi
+}
+
 restart_pm2() {
   log "Restarting via pm2 (process: ${RELAY_PROCESS_NAME})..."
   if pm2 describe "${RELAY_PROCESS_NAME}" > /dev/null 2>&1; then
     if pm2 restart "${RELAY_PROCESS_NAME}" --update-env --kill-timeout 8000; then
       pm2 save
       log "pm2 restart done."
-      return
+    else
+      warn "pm2 restart failed for '${RELAY_PROCESS_NAME}' (possibly stale process entry)."
+      warn "Cleaning stale pm2 entry and starting relay fresh..."
+      pm2 delete "${RELAY_PROCESS_NAME}" > /dev/null 2>&1 || true
+      pm2 start "${SCRIPT_DIR}/ais-relay.cjs" "${PM2_START_ARGS[@]}"
+      pm2 save
+      log "pm2 process re-created."
     fi
-    warn "pm2 restart failed for '${RELAY_PROCESS_NAME}' (possibly stale process entry)."
-    warn "Cleaning stale pm2 entry and starting relay fresh..."
-    pm2 delete "${RELAY_PROCESS_NAME}" > /dev/null 2>&1 || true
-    pm2 start "${SCRIPT_DIR}/ais-relay.cjs" \
-      --name "${RELAY_PROCESS_NAME}" \
-      --interpreter node \
-      --restart-delay 3000 \
-      --max-restarts 10 \
-      --kill-timeout 8000
-    pm2 save
-    log "pm2 process re-created."
   else
-    warn "pm2 process '${RELAY_PROCESS_NAME}' not found — starting it fresh..."
-    pm2 start "${SCRIPT_DIR}/ais-relay.cjs" \
-      --name "${RELAY_PROCESS_NAME}" \
-      --interpreter node \
-      --restart-delay 3000 \
-      --max-restarts 10 \
-      --kill-timeout 8000
+    log "pm2 process '${RELAY_PROCESS_NAME}' not found — starting it fresh..."
+    pm2 start "${SCRIPT_DIR}/ais-relay.cjs" "${PM2_START_ARGS[@]}"
     pm2 save
     log "pm2 process started."
   fi
+
+  setup_pm2_log_rotation
+  setup_pm2_startup
+
+  log ""
+  log "=== pm2 Process Info ==="
+  pm2 describe "${RELAY_PROCESS_NAME}" | head -25 || true
+  log ""
 }
 
 restart_systemd() {
@@ -418,4 +510,53 @@ case "${MANAGER}" in
   *)       die "Unknown RELAY_MANAGER value: '${MANAGER}'. Use pm2, systemd, or none." ;;
 esac
 
-log "Relay update complete."
+# ── 5. Post-deploy health check ─────────────────────────────────────────────
+DEPLOY_SHA="$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+DEPLOY_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+DEPLOY_MSG="$(git -C "${ROOT_DIR}" log -1 --format='%s' 2>/dev/null || echo "")"
+
+health_check() {
+  local relay_port
+  relay_port="$(env_get PORT)"
+  relay_port="${relay_port:-3004}"
+  local url="http://localhost:${relay_port}/health"
+
+  log "Waiting for relay to become healthy..."
+  local attempt=0
+  local max_attempts=10
+  while [[ "${attempt}" -lt "${max_attempts}" ]]; do
+    attempt=$((attempt + 1))
+    if curl -sf --max-time 3 "${url}" > /dev/null 2>&1; then
+      log "Health check passed (attempt ${attempt}/${max_attempts})."
+      return 0
+    fi
+    sleep 2
+  done
+  warn "Health check failed after ${max_attempts} attempts (${url})."
+  warn "Check logs: bash scripts/update-relay.sh --logs"
+  return 1
+}
+
+health_check || true
+
+# ── 6. Record deployment ────────────────────────────────────────────────────
+record_deploy() {
+  local entry="${DEPLOY_TIME}  sha=${DEPLOY_SHA}  manager=${MANAGER}  msg=\"${DEPLOY_MSG}\""
+  echo "${entry}" >> "${DEPLOY_LOG}"
+  log "Deployment recorded: ${entry}"
+}
+
+record_deploy
+
+log ""
+log "════════════════════════════════════════════════════════════"
+log "  Deploy complete"
+log "  SHA:     ${DEPLOY_SHA}"
+log "  Time:    ${DEPLOY_TIME}"
+log "  Manager: ${MANAGER}"
+log "  Commit:  ${DEPLOY_MSG}"
+log ""
+log "  Quick commands:"
+log "    bash scripts/update-relay.sh --status   # process info + deploy history"
+log "    bash scripts/update-relay.sh --logs     # tail live logs"
+log "════════════════════════════════════════════════════════════"

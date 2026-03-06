@@ -49,3 +49,4 @@ redispdocker.md
 .pnpm-store/
 
 pnpm-lock.yaml
+.deploy-history.log
