@@ -6987,7 +6987,6 @@ async function fetchMacroSignals() {
 const TIER1_COUNTRIES = { US: 'US', RU: 'RU', CN: 'CN', UA: 'UA', IR: 'IR', IL: 'IL', TW: 'TW', KP: 'KP', SA: 'SA', TR: 'TR', PL: 'PL', DE: 'DE', FR: 'FR', GB: 'GB', IN: 'IN', PK: 'PK', SY: 'SY', YE: 'YE', MM: 'MM', VE: 'VE' };
 const BASELINE_RISK = { US: 5, RU: 35, CN: 25, UA: 50, IR: 40, IL: 45, TW: 30, KP: 45, SA: 20, TR: 25, PL: 10, DE: 5, FR: 10, GB: 5, IN: 20, PK: 35, SY: 50, YE: 50, MM: 45, VE: 40 };
 const EVENT_MULTIPLIER = { US: 0.3, RU: 2.0, CN: 2.5, UA: 0.8, IR: 2.0, IL: 0.7, TW: 1.5, KP: 3.0, SA: 2.0, TR: 1.2, PL: 0.8, DE: 0.5, FR: 0.6, GB: 0.5, IN: 0.8, PK: 1.5, SY: 0.7, YE: 0.7, MM: 1.8, VE: 1.8 };
-const COUNTRY_KEYWORDS = { US: ['united states', 'usa', 'america'], RU: ['russia', 'moscow'], CN: ['china', 'beijing'], UA: ['ukraine', 'kyiv'], IR: ['iran', 'tehran'], IL: ['israel', 'tel aviv'], TW: ['taiwan'], KP: ['north korea'], SA: ['saudi arabia'], TR: ['turkey'], PL: ['poland'], DE: ['germany'], FR: ['france'], GB: ['britain', 'uk'], IN: ['india'], PK: ['pakistan'], SY: ['syria'], YE: ['yemen'], MM: ['myanmar'], VE: ['venezuela'] };
 
 function normalizeCountryName(text) {
   const lower = (text || '').toLowerCase();
