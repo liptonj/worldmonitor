@@ -22,6 +22,27 @@ import { NewsServiceClient, type SummarizeArticleResponse } from '@/generated/cl
 import { createCircuitBreaker } from '@/utils';
 import { buildSummaryCacheKey } from '@/utils/summary-cache-key';
 
+// FNV-1a — matches simpleHash() in ais-relay.cjs
+function fnv1aHash(str: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function lookupRelaySummary(headlines: string[]): SummarizationResult | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cache = (window as any).__wmArticleSummaries as Record<string, { text?: string }> | undefined;
+  if (!cache) return null;
+  for (const title of headlines) {
+    const entry = cache[fnv1aHash(title.toLowerCase())];
+    if (entry?.text) return { summary: entry.text, provider: 'cache', model: 'relay', cached: true };
+  }
+  return null;
+}
+
 export type SummarizationProvider = 'ollama' | 'groq' | 'openrouter' | 'browser' | 'cache';
 
 export interface SummarizationResult {
@@ -166,6 +187,12 @@ export async function generateSummary(
 ): Promise<SummarizationResult | null> {
   if (!headlines || headlines.length < 2) {
     return null;
+  }
+
+  const relayResult = lookupRelaySummary(headlines);
+  if (relayResult) {
+    trackLLMUsage(relayResult.provider, relayResult.model, true);
+    return relayResult;
   }
 
   lastAttemptedProvider = 'none';

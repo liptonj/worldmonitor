@@ -651,6 +651,8 @@ export class App {
     subscribeRelayPush('ai:article-summaries', (payload) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (this.state as any).articleSummaries = payload;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__wmArticleSummaries = payload;
       document.dispatchEvent(new CustomEvent('wm:article-summaries-updated', { detail: payload }));
     });
     subscribeRelayPush('ai:classifications', (payload) => {
