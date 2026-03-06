@@ -17,7 +17,6 @@ import type { ParsedMapUrlState } from '@/utils';
 import { SignalModal, IntelligenceGapBadge, BreakingNewsBanner } from '@/components';
 import { initBreakingNewsAlerts, destroyBreakingNewsAlerts } from '@/services/breaking-news-alerts';
 import { isDesktopRuntime } from '@/services/runtime';
-import { BETA_MODE } from '@/config/beta';
 import { trackEvent, trackDeeplinkOpened } from '@/services/analytics';
 import { preloadCountryGeometry, getCountryNameByCode } from '@/services/country-geometry';
 import { initI18n } from '@/services/i18n';
@@ -336,9 +335,7 @@ export class App {
 
     const aiFlow = getAiFlowSettings();
     if (aiFlow.browserModel || isDesktopRuntime()) {
-      void mlWorker.init().then(() => {
-        if (BETA_MODE) mlWorker.loadModel('summarization-beta').catch(() => {});
-      }).catch(() => {});
+      void mlWorker.init().catch(() => {});
     }
     if (aiFlow.headlineMemory) {
       void mlWorker.init().then(ok => {

@@ -1,4 +1,10 @@
 /**
+ * @deprecated Migrated to relay-native AI (2026-03-06).
+ * AI functions now run on the relay server via Ollama cron jobs.
+ * This endpoint is no longer called. Kept for rollback reference.
+ */
+
+/**
  * Summarization Service with Fallback Chain
  * Server-side Redis caching handles cross-user deduplication
  * Fallback: Ollama -> Groq -> OpenRouter -> Browser T5
