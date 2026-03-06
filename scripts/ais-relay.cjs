@@ -659,38 +659,33 @@ function withTimeout(promise, ms, label) {
 }
 
 async function ingestTelegramHeadlines(messages) {
-  const secret = RELAY_SHARED_SECRET;
-  // VERCEL_APP_URL: Vercel deployment URL (relay → Vercel direction, opposite of WS_RELAY_URL)
-  const baseUrl = process.env.VERCEL_APP_URL;
-  if (!secret || !baseUrl || !messages || messages.length === 0) return;
+  if (redis.status !== 'ready' || !messages || messages.length === 0) return;
 
-  try {
-    const headlines = messages
-      .filter(m => m.text && m.text.trim())
-      .map(m => ({
-        title: m.text.trim().slice(0, 500),
-        pubDate: m.ts ? Math.floor(new Date(m.ts).getTime() / 1000) : Math.floor(Date.now() / 1000),
-        scopes: [...new Set([m.topic || 'global', 'global', 'telegram'])],
-      }));
+  const headlines = messages
+    .filter(m => m.text && m.text.trim())
+    .map(m => ({
+      title: m.text.trim().slice(0, 500),
+      pubDate: m.ts ? Math.floor(new Date(m.ts).getTime() / 1000) : Math.floor(Date.now() / 1000),
+      scopes: [...new Set([m.topic || 'global', 'global', 'telegram'])],
+    }));
 
-    if (headlines.length === 0) return;
+  if (headlines.length === 0) return;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    fetch(`${baseUrl}/api/cron/ingest-headlines`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [RELAY_AUTH_HEADER]: secret,
-      },
-      body: JSON.stringify({ headlines }),
-      signal: controller.signal,
-    }).then(() => clearTimeout(timeout))
-      .catch(err => console.error('[Relay] Failed to ingest headlines:', err.message));
-  } catch (err) {
-    console.error('[Relay] ingestTelegramHeadlines error:', err.message);
+  let ingested = 0;
+  for (const h of headlines) {
+    const item = JSON.stringify({ title: h.title, pubDate: h.pubDate });
+    for (const scope of h.scopes) {
+      if (!scope) continue;
+      try {
+        const key = `wm:headlines:${scope}`;
+        await redis.lpush(key, item);
+        await redis.ltrim(key, 0, 99);
+        await redis.expire(key, 86400);
+      } catch {}
+    }
+    ingested++;
   }
+  if (ingested > 0) console.log(`[Relay] Ingested ${ingested} telegram headlines directly`);
 }
 
 async function pollTelegramOnce() {
