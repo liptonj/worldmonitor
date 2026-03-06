@@ -3335,6 +3335,7 @@ const CHANNEL_TO_HYDRATION_KEY = {
   'news:tech': 'news:tech',
   'news:finance': 'news:finance',
   'news:happy': 'news:happy',
+  'strategic-risk': 'strategicRisk',
 };
 const PHASE4_MAP_KEYS = {
   'supply-chain': 'supply_chain:chokepoints:v1',

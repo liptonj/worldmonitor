@@ -1,22 +1,18 @@
 /**
  * Cached Risk Scores Service
- * Fetches pre-computed CII and Strategic Risk scores from backend via sebuf RPC.
- * Eliminates 15-minute learning mode for users.
+ * Scores arrive via bootstrap hydration and strategic-risk WS push.
+ * No direct HTTP fetch — Vercel /api/intelligence/v1/get-risk-scores is not called.
  */
 
 import type { CountryScore, ComponentScores } from './country-instability';
 import { setHasCachedScores } from './country-instability';
 import { getPersistentCache, setPersistentCache } from './persistent-cache';
-import {
-  IntelligenceServiceClient,
-  type GetRiskScoresResponse,
-  type CiiScore,
-  type StrategicRisk,
+import { getHydratedData } from '@/services/bootstrap';
+import type {
+  GetRiskScoresResponse,
+  CiiScore,
+  StrategicRisk,
 } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
-
-// ---- Sebuf client ----
-
-const client = new IntelligenceServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 
 // ---- Legacy types (preserved for consumer compatibility) ----
 
@@ -129,78 +125,36 @@ function toRiskScores(resp: GetRiskScoresResponse): CachedRiskScores {
   };
 }
 
-// ---- Caching / dedup logic (unchanged) ----
+// ---- Caching ----
 
 const RISK_CACHE_KEY = 'risk-scores:latest';
 let cachedScores: CachedRiskScores | null = null;
-let fetchPromise: Promise<CachedRiskScores | null> | null = null;
-let lastFetchTime = 0;
-const REFETCH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-
-function createAbortError(): DOMException {
-  return new DOMException('The operation was aborted.', 'AbortError');
-}
-
-function withCallerAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(createAbortError());
-
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      signal.removeEventListener('abort', onAbort);
-      reject(createAbortError());
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-
-    promise.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(value);
-      },
-      (error) => {
-        signal.removeEventListener('abort', onAbort);
-        reject(error);
-      },
-    );
-  });
-}
 
 async function loadPersistentRiskScores(): Promise<CachedRiskScores | null> {
   const entry = await getPersistentCache<CachedRiskScores>(RISK_CACHE_KEY);
   return entry?.data ?? null;
 }
 
-export async function fetchCachedRiskScores(signal?: AbortSignal): Promise<CachedRiskScores | null> {
-  if (signal?.aborted) throw createAbortError();
-  const now = Date.now();
-
-  if (cachedScores && now - lastFetchTime < REFETCH_INTERVAL_MS) {
-    return cachedScores;
+/**
+ * Returns risk scores from bootstrap hydration, in-memory cache, or IndexedDB.
+ * No HTTP fetch — data arrives via /bootstrap and strategic-risk WS push.
+ */
+export async function fetchCachedRiskScores(_signal?: AbortSignal): Promise<CachedRiskScores | null> {
+  // 1. Bootstrap hydration (first call after page load)
+  const hydrated = getHydratedData('strategicRisk');
+  if (hydrated && typeof hydrated === 'object' && 'ciiScores' in hydrated) {
+    const data = toRiskScores(hydrated as GetRiskScoresResponse);
+    cachedScores = data;
+    setHasCachedScores(true);
+    void setPersistentCache(RISK_CACHE_KEY, data);
+    return data;
   }
 
-  if (fetchPromise) {
-    return withCallerAbort(fetchPromise, signal);
-  }
+  // 2. In-memory cache (populated by WS push via ingestRiskScoresPayload)
+  if (cachedScores) return cachedScores;
 
-  fetchPromise = (async () => {
-    try {
-      const resp = await client.getRiskScores({ region: '' });
-      const data = toRiskScores(resp);
-      cachedScores = data;
-      lastFetchTime = now;
-      setHasCachedScores(true);
-      void setPersistentCache(RISK_CACHE_KEY, data);
-      return cachedScores;
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') throw error;
-      console.error('[CachedRiskScores] Fetch error:', error);
-      return cachedScores ?? await loadPersistentRiskScores();
-    } finally {
-      fetchPromise = null;
-    }
-  })();
-
-  return withCallerAbort(fetchPromise, signal);
+  // 3. IndexedDB (last good scores from a previous session)
+  return loadPersistentRiskScores();
 }
 
 export function getCachedScores(): CachedRiskScores | null {
@@ -208,8 +162,8 @@ export function getCachedScores(): CachedRiskScores | null {
 }
 
 /**
- * Ingest relay push payload (GetRiskScoresResponse) into cache.
- * Used by StrategicRiskPanel.applyPush when relay broadcasts get-risk-scores.
+ * Ingest relay push payload (GetRiskScoresResponse shape) into cache.
+ * Called by StrategicRiskPanel.applyPush when relay broadcasts strategic-risk.
  */
 export function ingestRiskScoresPayload(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object' || !('ciiScores' in payload) || !('strategicRisks' in payload)) {
@@ -218,7 +172,6 @@ export function ingestRiskScoresPayload(payload: unknown): boolean {
   try {
     const data = toRiskScores(payload as GetRiskScoresResponse);
     cachedScores = data;
-    lastFetchTime = Date.now();
     setHasCachedScores(true);
     void setPersistentCache(RISK_CACHE_KEY, data);
     return true;
