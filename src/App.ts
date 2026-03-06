@@ -607,6 +607,14 @@ export class App {
       'gps-interference',
       'eonet',
       'gdacs',
+      'ai:intel-digest',
+      'ai:panel-summary',
+      'ai:article-summaries',
+      'ai:classifications',
+      'ai:country-briefs',
+      'ai:posture-analysis',
+      'ai:instability-analysis',
+      'ai:risk-overview',
     ];
 
     initRelayPush(channels);
@@ -653,5 +661,48 @@ export class App {
     subscribeRelayPush('service-status',    (p) => panel('service-status')?.(p));
     subscribeRelayPush('config:news-sources',  (p) => applyNewsSources(p));
     subscribeRelayPush('config:feature-flags', (p) => applyFeatureFlags(p));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    subscribeRelayPush('ai:intel-digest', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const digestPanel = this.state.panels['global-digest'] as any;
+      digestPanel?.applyAiDigest?.(payload);
+    });
+    subscribeRelayPush('ai:panel-summary', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state as any).latestPanelSummary = payload;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__wmLatestPanelSummary = payload;
+      document.dispatchEvent(new CustomEvent('wm:panel-summary-updated', { detail: payload }));
+    });
+    subscribeRelayPush('ai:article-summaries', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state as any).articleSummaries = payload;
+      document.dispatchEvent(new CustomEvent('wm:article-summaries-updated', { detail: payload }));
+    });
+    subscribeRelayPush('ai:classifications', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state as any).classifications = payload;
+      document.dispatchEvent(new CustomEvent('wm:classifications-updated', { detail: payload }));
+    });
+    subscribeRelayPush('ai:country-briefs', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.state as any).countryBriefs = payload;
+    });
+    subscribeRelayPush('ai:posture-analysis', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const posturePanel = this.state.panels['strategic-posture'] as any;
+      posturePanel?.applyAiAnalysis?.(payload);
+    });
+    subscribeRelayPush('ai:instability-analysis', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const riskPanel = this.state.panels['strategic-risk'] as any;
+      riskPanel?.applyInstabilityAnalysis?.(payload);
+    });
+    subscribeRelayPush('ai:risk-overview', (payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const riskPanel = this.state.panels['strategic-risk'] as any;
+      riskPanel?.applyAiOverview?.(payload);
+    });
   }
 }

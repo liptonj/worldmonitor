@@ -1,12 +1,9 @@
 import { Panel } from './Panel';
-import { IntelligenceServiceClient } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { h, replaceChildren } from '@/utils/dom-utils';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import type { NewsItem, DeductContextDetail } from '@/types';
 import { buildNewsContext } from '@/utils/news-context';
-
-const client = new IntelligenceServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 
 const COOLDOWN_MS = 5_000;
 
@@ -136,10 +133,24 @@ export class DeductionPanel extends Panel {
         this.resultContainer.textContent = 'Analyzing timeline and impact...';
 
         try {
-            const resp = await client.deductSituation({
-                query,
-                geoContext,
+            const relayUrl = (import.meta.env.VITE_WS_RELAY_URL as string || '')
+                .replace('wss://', 'https://')
+                .replace('ws://', 'http://');
+
+            const response = await fetch(`${relayUrl}/api/deduct`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-relay-key': (import.meta.env.VITE_RELAY_SHARED_SECRET as string) || '',
+                },
+                body: JSON.stringify({ query, geoContext }),
             });
+
+            if (!response.ok) {
+                throw new Error(`Relay /api/deduct returned ${response.status}`);
+            }
+
+            const resp = await response.json() as { analysis?: string; provider?: string; model?: string };
 
             this.resultContainer.className = 'deduction-result';
             if (resp.analysis) {

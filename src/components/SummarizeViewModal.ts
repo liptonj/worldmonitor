@@ -58,6 +58,32 @@ export class SummarizeViewModal {
     document.addEventListener('keydown', this.escHandler);
   }
 
+  showRelayData(): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cached = (window as any).__wmLatestPanelSummary as { summary?: string; approach?: string; generatedAt?: string } | undefined;
+    if (cached?.summary) {
+      void this.setContent(cached.summary, cached.approach, cached.generatedAt);
+      return;
+    }
+
+    this.showWaiting();
+
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ summary?: string; approach?: string; generatedAt?: string }>).detail;
+      if (detail?.summary) {
+        void this.setContent(detail.summary, detail.approach, detail.generatedAt);
+        document.removeEventListener('wm:panel-summary-updated', handler);
+      }
+    };
+    document.addEventListener('wm:panel-summary-updated', handler);
+  }
+
+  private showWaiting(): void {
+    this.clearProgress();
+    this.contentEl.innerHTML = `<div class="summarize-view-loading"><div class="summarize-view-status">AI summary is being prepared\u2026</div></div>`;
+    this.footerEl.innerHTML = '';
+  }
+
   hide(): void {
     this.element.classList.remove('active');
     document.removeEventListener('keydown', this.escHandler);
