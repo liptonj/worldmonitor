@@ -565,6 +565,83 @@ cron.schedule('*/15 * * * *', () => {
 
 // ── End Multi-Provider LLM Client ────────────────────────────────────────────
 
+// ── AI: Global Intel Digest ─────────────────────────────────────────────────
+// Reads latest headlines from local Redis, calls Ollama for a narrative digest,
+// caches result, broadcasts to ai:intel-digest channel.
+
+const AI_DIGEST_CACHE_KEY = 'ai:digest:global:v1';
+const AI_DIGEST_TTL = 14400; // 4 hours
+
+async function generateIntelDigest() {
+  const prompt = await loadLlmPrompt('intel_digest');
+  if (!prompt) {
+    console.warn('[ai-cron] no intel_digest prompt found — skipping');
+    return;
+  }
+
+  // Gather headlines from the news digest cache
+  const newsData = await redisGet('relay:news:full:v1');
+  const headlines = [];
+  if (newsData?.items && Array.isArray(newsData.items)) {
+    for (const item of newsData.items.slice(0, 30)) {
+      if (item.title) headlines.push(item.title);
+    }
+  }
+  // Also check intelligence-specific headline sources
+  for (const key of ['relay:intelligence:v1']) {
+    const data = await redisGet(key);
+    if (data?.headlines && Array.isArray(data.headlines)) {
+      for (const h of data.headlines.slice(0, 10)) {
+        if (typeof h === 'string') headlines.push(h);
+        else if (h?.title) headlines.push(h.title);
+      }
+    }
+  }
+
+  if (headlines.length === 0) {
+    console.warn('[ai-cron] no headlines available for intel digest — skipping');
+    return;
+  }
+
+  const dedupedHeadlines = [...new Set(headlines)].slice(0, 30);
+  const headlineText = dedupedHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n');
+  const dateStr = new Date().toISOString().slice(0, 10);
+
+  const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, {
+    date: dateStr,
+    dateContext: `Current date: ${dateStr}. Provide geopolitical context appropriate for the current date.`,
+  });
+  const userPrompt = buildPromptFromTemplate(prompt.userPrompt, {
+    recentHeadlines: headlineText,
+    classificationSummary: `${dedupedHeadlines.length} recent events across monitored scopes`,
+    countrySignals: 'Monitoring active in all TIER1 regions',
+  });
+
+  const content = await callLlmForFunction('intel_digest',
+    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+    { maxTokens: 2000, temperature: 0.4 },
+  );
+
+  if (!content) return;
+
+  const payload = {
+    digest: content,
+    model: providerRegistry.get('ollama')?.model ?? 'multi-provider',
+    generatedAt: new Date().toISOString(),
+    headlineCount: dedupedHeadlines.length,
+  };
+
+  await redisSetex(AI_DIGEST_CACHE_KEY, AI_DIGEST_TTL, payload);
+  broadcastToChannel('ai:intel-digest', payload);
+  console.log(`[ai-cron] intel digest generated (${content.length} chars), broadcast to ${channelSubscribers.get('ai:intel-digest')?.size ?? 0} subs`);
+}
+
+// Register cron — every 10 minutes
+cron.schedule('*/10 * * * *', async () => {
+  try { await generateIntelDigest(); }
+  catch (err) { console.error('[ai-cron] intel digest error:', err?.message ?? err); }
+});
+
 cron.schedule('0 * * * *', async () => {
   try {
     await auditStaleTTLs();
@@ -708,6 +785,8 @@ function isAllowedWarmHost(url) {
   } catch { return false; }
 }
 
+/* @deprecated — replaced by generateIntelDigest */
+/*
 async function warmIntelligenceAndBroadcast() {
   if (!UPSTASH_ENABLED || !RELAY_SHARED_SECRET) return;
   const channel = 'intelligence';
@@ -749,6 +828,7 @@ async function warmIntelligenceAndBroadcast() {
     console.warn('[relay-cron] intelligence warm error:', err?.message ?? err);
   }
 }
+*/
 
 let messageCount = 0;
 let droppedMessages = 0;
@@ -6787,10 +6867,10 @@ cron.schedule('3-59/5 * * * *', async () => {
   try { await directFetchAndBroadcast('news:happy', 'news:digest:v1:happy:en', 900, () => fetchNewsDigest('happy', 'en')); } catch (err) { console.error('[relay] news:happy cron error:', err?.message ?? err); }
 });
 
-// intelligence — LLM route, stays on Vercel (warmIntelligenceAndBroadcast)
-cron.schedule('*/10 * * * *', () => {
-  void warmIntelligenceAndBroadcast().catch(err => console.error('[relay-cron] intelligence unhandled error:', err));
-});
+// intelligence — LLM route, replaced by generateIntelDigest (ai:intel-digest)
+// cron.schedule('*/10 * * * *', () => {
+//   void warmIntelligenceAndBroadcast().catch(err => console.error('[relay-cron] intelligence unhandled error:', err));
+// });
 
 cron.schedule('2-59/10 * * * *', async () => {
   try { await directFetchAndBroadcast('supply-chain', 'supply_chain:chokepoints:v1', 900, fetchSupplyChain); } catch (err) { console.error('[relay] supply-chain cron error:', err?.message ?? err); }
