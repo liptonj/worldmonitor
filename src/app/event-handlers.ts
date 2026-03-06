@@ -26,6 +26,7 @@ import {
   saveSnapshot,
   initAisStream,
   disconnectAisStream,
+  disconnectMilitaryVesselStream,
 } from '@/services';
 import { subscribeChannel, unsubscribeChannel } from '@/services/relay-push';
 import { CHANNEL_TO_LAYER } from '@/config';
@@ -805,6 +806,7 @@ export class EventHandlerManager implements AppModule {
           this.callbacks.waitForAisData();
         } else {
           disconnectAisStream();
+          disconnectMilitaryVesselStream();
         }
         return;
       }
