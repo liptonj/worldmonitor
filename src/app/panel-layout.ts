@@ -586,21 +586,20 @@ export class PanelLayoutManager implements AppModule {
       this.ctx.panels['gdelt-intel'] = gdeltIntelPanel;
 
       if (this.ctx.isDesktopApp) {
-        import('@/components/DeductionPanel').then(({ DeductionPanel }) => {
-          const deductionPanel = new DeductionPanel(() => this.ctx.allNews);
-          this.ctx.panels['deduction'] = deductionPanel;
-          const el = deductionPanel.getElement();
-          this.makeDraggable(el, 'deduction');
-          const grid = document.getElementById('panelsGrid');
-          if (grid) {
-            const gdeltEl = this.ctx.panels['gdelt-intel']?.getElement();
-            if (gdeltEl?.nextSibling) {
-              grid.insertBefore(el, gdeltEl.nextSibling);
-            } else {
-              grid.appendChild(el);
-            }
+        const { DeductionPanel } = await import('@/components/DeductionPanel');
+        const deductionPanel = new DeductionPanel(() => this.ctx.allNews);
+        this.ctx.panels['deduction'] = deductionPanel;
+        const el = deductionPanel.getElement();
+        this.makeDraggable(el, 'deduction');
+        const grid = document.getElementById('panelsGrid');
+        if (grid) {
+          const gdeltEl = this.ctx.panels['gdelt-intel']?.getElement();
+          if (gdeltEl?.nextSibling) {
+            grid.insertBefore(el, gdeltEl.nextSibling);
+          } else {
+            grid.appendChild(el);
           }
-        });
+        }
       }
 
       const { CIIPanel } = await import('@/components/CIIPanel');
@@ -673,6 +672,12 @@ export class PanelLayoutManager implements AppModule {
       this.ctx.panels['telegram-intel'] = telegramIntelPanel;
     }
 
+    let GulfEconomiesPanel: (typeof import('@/components/GulfEconomiesPanel'))['GulfEconomiesPanel'] | undefined;
+    if (SITE_VARIANT !== 'happy') {
+      const mod = await import('@/components/GulfEconomiesPanel');
+      GulfEconomiesPanel = mod.GulfEconomiesPanel;
+    }
+
     if (SITE_VARIANT === 'finance') {
       const { InvestmentsPanel } = await import('@/components/InvestmentsPanel');
       const investmentsPanel = new InvestmentsPanel((inv) => {
@@ -680,8 +685,7 @@ export class PanelLayoutManager implements AppModule {
       });
       this.ctx.panels['gcc-investments'] = investmentsPanel;
 
-      const { GulfEconomiesPanel } = await import('@/components/GulfEconomiesPanel');
-      const gulfEconomiesPanel = new GulfEconomiesPanel();
+      const gulfEconomiesPanel = new GulfEconomiesPanel!();
       this.ctx.panels['gulf-economies'] = gulfEconomiesPanel;
     }
 
@@ -690,8 +694,7 @@ export class PanelLayoutManager implements AppModule {
 
     if (SITE_VARIANT !== 'happy') {
       if (!this.ctx.panels['gulf-economies']) {
-        const { GulfEconomiesPanel } = await import('@/components/GulfEconomiesPanel');
-        const gulfEconomiesPanel = new GulfEconomiesPanel();
+        const gulfEconomiesPanel = new GulfEconomiesPanel!();
         this.ctx.panels['gulf-economies'] = gulfEconomiesPanel;
       }
 
