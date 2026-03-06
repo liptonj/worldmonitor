@@ -28,6 +28,7 @@ import {
   disconnectAisStream,
 } from '@/services';
 import { subscribeChannel, unsubscribeChannel } from '@/services/relay-push';
+import { CHANNEL_TO_LAYER } from '@/config';
 import {
   trackPanelView,
   trackVariantSwitch,
@@ -504,6 +505,18 @@ export class EventHandlerManager implements AppModule {
           trackPanelToggled(key, config.enabled);
           saveToStorage(STORAGE_KEYS.panels, this.ctx.panelSettings);
           this.applyPanelSettings();
+
+          if (config.channels) {
+            for (const ch of config.channels) {
+              if (config.enabled) {
+                subscribeChannel(ch);
+              } else {
+                const stillNeeded = Object.entries(this.ctx.panelSettings)
+                  .some(([k, c]) => k !== key && c.enabled && c.channels?.includes(ch));
+                if (!stillNeeded) unsubscribeChannel(ch);
+              }
+            }
+          }
         }
       },
       getDisabledSources: () => this.ctx.disabledSources,
@@ -777,14 +790,20 @@ export class EventHandlerManager implements AppModule {
         }
       }
 
+      const layerRelayChannels = Object.entries(CHANNEL_TO_LAYER)
+        .filter(([, l]) => l === layer)
+        .map(([ch]) => ch);
+      for (const ch of layerRelayChannels) {
+        if (enabled) subscribeChannel(ch);
+        else unsubscribeChannel(ch);
+      }
+
       if (layer === 'ais') {
         if (enabled) {
           this.ctx.map?.setLayerLoading('ais', true);
-          subscribeChannel('ais');
           initAisStream();
           this.callbacks.waitForAisData();
         } else {
-          unsubscribeChannel('ais');
           disconnectAisStream();
         }
         return;

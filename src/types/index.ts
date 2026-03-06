@@ -500,6 +500,7 @@ export interface PanelConfig {
   enabled: boolean;
   priority?: number;
   requiredFeature?: RuntimeFeatureId;
+  channels?: string[];
 }
 
 export interface MapLayers {

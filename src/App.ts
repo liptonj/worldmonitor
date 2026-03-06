@@ -6,6 +6,7 @@ import {
   MOBILE_DEFAULT_MAP_LAYERS,
   STORAGE_KEYS,
   SITE_VARIANT,
+  CHANNEL_TO_LAYER,
 } from '@/config';
 import { initDB, cleanOldSnapshots, isAisConfigured, initAisStream, isOutagesConfigured, disconnectAisStream } from '@/services';
 import { mlWorker } from '@/services/ml-worker';
@@ -33,7 +34,7 @@ import { DataLoaderManager } from '@/app/data-loader';
 import { EventHandlerManager } from '@/app/event-handlers';
 import { resolveUserRegion } from '@/utils/user-location';
 import { initDisplayPrefs } from '@/utils/display-prefs';
-import { initRelayPush, subscribe as subscribeRelayPush, destroyRelayPush, subscribeChannel } from '@/services/relay-push';
+import { initRelayPush, subscribe as subscribeRelayPush, destroyRelayPush } from '@/services/relay-push';
 
 const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
 
@@ -574,41 +575,26 @@ export class App {
 
   private setupRelayPush(): void {
     const variant = SITE_VARIANT || 'full';
-    const channels = [
-      `news:${variant}`,
-      'markets',
-      'predictions',
-      'pizzint',
-      'fred',
-      'oil',
-      'bis',
-      'trade',
-      'supply-chain',
-      'intelligence',
-      'stablecoins',
-      'etf-flows',
-      'macro-signals',
-      'strategic-posture',
-      'strategic-risk',
-      'service-status',
-      'cables',
-      'natural',
-      'cyber',
-      'flights',
-      'weather',
-      'spending',
-      'giving',
-      'telegram',
-      'oref',
-      'iran-events',
-      'tech-events',
-      'gulf-quotes',
-      'gps-interference',
-      'eonet',
-      'gdacs',
-    ];
 
-    initRelayPush(channels);
+    const alwaysOn = [
+      `news:${variant}`, 'markets', 'intelligence', 'conflict', 'climate',
+      'config:news-sources', 'config:feature-flags',
+    ];
+    if (variant === 'full') alwaysOn.push('pizzint');
+
+    const demandChannels: string[] = [];
+    for (const [ch, layer] of Object.entries(CHANNEL_TO_LAYER)) {
+      if (this.state.mapLayers[layer]) demandChannels.push(ch);
+    }
+    for (const config of Object.values(this.state.panelSettings)) {
+      if (config.enabled && config.channels) {
+        for (const ch of config.channels) {
+          if (!demandChannels.includes(ch)) demandChannels.push(ch);
+        }
+      }
+    }
+
+    initRelayPush([...alwaysOn, ...demandChannels]);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dl = this.dataLoader as any;
@@ -630,7 +616,6 @@ export class App {
     subscribeRelayPush('cables',         (p) => { void dl.applyCableHealth(p); });
     subscribeRelayPush('flights',        (p) => { void dl.applyFlightDelays(p); });
     subscribeRelayPush('ais',            (p) => { void dl.applyAisSignals(p); });
-    if (this.state.mapLayers.ais) subscribeChannel('ais');
     subscribeRelayPush('weather',        (p) => { void dl.applyWeatherAlerts(p); });
     subscribeRelayPush('spending',       (p) => { void dl.applySpending(p); });
     subscribeRelayPush('giving',         (p) => { void dl.applyGiving(p); });
