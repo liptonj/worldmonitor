@@ -1,7 +1,6 @@
 // src/services/feed-client.ts
 import type { Feed } from '@/types';
 import { getHydratedNewsSources } from '@/services/bootstrap';
-import { RELAY_HTTP_BASE } from '@/services/relay-http';
 
 // Static structural config — region keys to label keys and feed category keys
 export const SOURCE_REGION_MAP: Record<string, { labelKey: string; feedKeys: string[] }> = {
@@ -76,7 +75,6 @@ export interface NewsSourceRow {
   default_enabled: boolean;
 }
 
-const FETCH_TIMEOUT_MS = 5_000;
 let _sources: NewsSourceRow[] | null = null;
 let _feeds: Record<string, Feed[]> | null = null;
 let _intelSources: Feed[] | null = null;
@@ -99,28 +97,13 @@ function buildFeedsFromSources(): void {
   }
 }
 
-export async function loadNewsSources(): Promise<void> {
+export function loadNewsSources(): void {
   const hydrated = getHydratedNewsSources();
   if (hydrated) {
     _sources = hydrated;
     buildFeedsFromSources();
-    return;
   }
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch(`${RELAY_HTTP_BASE}/panel/config:news-sources`, {
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${import.meta.env.VITE_WS_RELAY_TOKEN ?? ''}` },
-    });
-    clearTimeout(timer);
-    if (!res.ok) return;
-    _sources = await res.json();
-    buildFeedsFromSources();
-  } catch {
-    /* fetch failed — features degrade */
-  }
+  // No HTTP fetch — relay pushes config:news-sources via WS; applyNewsSources handles updates
 }
 
 export function getFeeds(): Record<string, Feed[]> {
@@ -203,4 +186,11 @@ export function getTotalFeedCount(): number {
 
 export function areFeedsLoaded(): boolean {
   return _sources !== null;
+}
+
+/** Called when relay pushes a fresh config:news-sources payload via WS. */
+export function applyNewsSources(payload: unknown): void {
+  if (!Array.isArray(payload)) return;
+  _sources = payload as NewsSourceRow[];
+  buildFeedsFromSources();
 }

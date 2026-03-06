@@ -22,8 +22,8 @@ import { trackEvent, trackDeeplinkOpened } from '@/services/analytics';
 import { preloadCountryGeometry, getCountryNameByCode } from '@/services/country-geometry';
 import { initI18n } from '@/services/i18n';
 
-import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, loadNewsSources } from '@/services/feed-client';
-import { loadFeatureFlags } from '@/services/feature-flag-client';
+import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, loadNewsSources, applyNewsSources } from '@/services/feed-client';
+import { loadFeatureFlags, applyFeatureFlags } from '@/services/feature-flag-client';
 import { fetchBootstrapData } from '@/services/bootstrap';
 import { DesktopUpdater } from '@/app/desktop-updater';
 import { CountryIntelManager } from '@/app/country-intel';
@@ -457,7 +457,9 @@ export class App {
     // Fire sources and flags immediately — no await. loadNews() waits for them
     // internally (up to 3s) via the sourcesReady promise. Every other task
     // (markets, predictions, fred, bis, etc.) runs immediately without waiting.
-    const sourcesReady = Promise.all([loadNewsSources(), loadFeatureFlags()]);
+    loadNewsSources();
+    loadFeatureFlags();
+    const sourcesReady = Promise.resolve();
     this.dataLoader.setSourcesReady(sourcesReady);
 
     performance.mark('wm:bootstrap-done');
@@ -649,5 +651,7 @@ export class App {
     subscribeRelayPush('etf-flows',         (p) => panel('etf-flows')?.(p));
     subscribeRelayPush('macro-signals',     (p) => panel('macro-signals')?.(p));
     subscribeRelayPush('service-status',    (p) => panel('service-status')?.(p));
+    subscribeRelayPush('config:news-sources',  (p) => applyNewsSources(p));
+    subscribeRelayPush('config:feature-flags', (p) => applyFeatureFlags(p));
   }
 }

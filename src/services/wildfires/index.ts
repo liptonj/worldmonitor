@@ -1,12 +1,9 @@
 import {
-  WildfireServiceClient,
   type FireDetection,
   type FireConfidence,
   type ListFireDetectionsResponse,
 } from '@/generated/client/worldmonitor/wildfire/v1/service_client';
-import { createCircuitBreaker } from '@/utils';
 import { getHydratedData } from '@/services/bootstrap';
-import { fetchRelayPanel } from '@/services/relay-http';
 
 export type { FireDetection };
 
@@ -40,24 +37,14 @@ export interface MapFire {
 
 // -- Client --
 
-const client = new WildfireServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-const breaker = createCircuitBreaker<ListFireDetectionsResponse>({ name: 'Wildfires', cacheTtlMs: 30 * 60 * 1000, persistCache: true });
-
-const emptyFallback: ListFireDetectionsResponse = { fireDetections: [] };
-
 // -- Public API --
 
-export async function fetchAllFires(_days?: number): Promise<FetchResult> {
-  const hydrated = getHydratedData('wildfires') as ListFireDetectionsResponse | undefined;
-  const response = hydrated ?? await breaker.execute(async () => {
-    const relayData = await fetchRelayPanel<ListFireDetectionsResponse>('natural');
-    if (relayData?.fireDetections?.length) return relayData;
-    return client.listFireDetections({ start: 0, end: 0, pageSize: 0, cursor: '', neLat: 0, neLon: 0, swLat: 0, swLon: 0 });
-  }, emptyFallback);
-  const detections = response.fireDetections;
+export function fetchAllFires(_days?: number): FetchResult {
+  const hydrated = getHydratedData('natural') as ListFireDetectionsResponse | undefined;
+  const detections = hydrated?.fireDetections ?? [];
 
   if (detections.length === 0) {
-    return { regions: {}, totalCount: 0, skipped: true, reason: 'NASA_FIRMS_API_KEY not configured' };
+    return { regions: {}, totalCount: 0, skipped: true, reason: 'No fire data in relay cache' };
   }
 
   const regions: Record<string, FireDetection[]> = {};

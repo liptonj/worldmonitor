@@ -1,5 +1,4 @@
 import {
-  CyberServiceClient,
   type CyberThreat as ProtoCyberThreat,
   type ListCyberThreatsResponse,
 } from '@/generated/client/worldmonitor/cyber/v1/service_client';
@@ -10,15 +9,7 @@ import type {
   CyberThreatSeverity,
   CyberThreatIndicatorType,
 } from '@/types';
-import { createCircuitBreaker } from '@/utils';
-import { fetchRelayPanel } from '@/services/relay-http';
-
-// ---- Client + Circuit Breaker ----
-
-const client = new CyberServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-const breaker = createCircuitBreaker<ListCyberThreatsResponse>({ name: 'Cyber Threats', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
-
-const emptyFallback: ListCyberThreatsResponse = { threats: [], pagination: undefined };
+import { getHydratedData } from '@/services/bootstrap';
 
 // ---- Proto enum -> legacy string adapters ----
 
@@ -72,43 +63,12 @@ function toCyberThreat(proto: ProtoCyberThreat): CyberThreat {
 
 // ---- Exported Functions ----
 
-const DEFAULT_LIMIT = 500;
-const MAX_LIMIT = 1000;
-const DEFAULT_DAYS = 14;
-const MAX_DAYS = 90;
-
-function clampInt(rawValue: number | undefined, fallback: number, min: number, max: number): number {
-  if (!Number.isFinite(rawValue)) return fallback;
-  return Math.max(min, Math.min(max, Math.floor(rawValue as number)));
+export function fetchCyberThreats(_options: { limit?: number; days?: number } = {}): CyberThreat[] {
+  const hydrated = getHydratedData('cyber') as ListCyberThreatsResponse | undefined;
+  return hydrated?.threats?.map(toCyberThreat) ?? [];
 }
 
-export async function fetchCyberThreats(options: { limit?: number; days?: number } = {}): Promise<CyberThreat[]> {
-  const limit = clampInt(options.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
-  const days = clampInt(options.days, DEFAULT_DAYS, 1, MAX_DAYS);
-  const now = Date.now();
-
-  // Phase 5: try relay /panel/cyber first
-  const relayData = await fetchRelayPanel<ListCyberThreatsResponse>('cyber');
-  if (relayData?.threats?.length) {
-    return adaptCyberThreatsResponse(relayData);
-  }
-
-  const resp = await breaker.execute(async () => {
-    return client.listCyberThreats({
-      start: now - days * 24 * 60 * 60 * 1000,
-      end: now,
-      pageSize: limit,
-      cursor: '',
-      type: 'CYBER_THREAT_TYPE_UNSPECIFIED',
-      source: 'CYBER_THREAT_SOURCE_UNSPECIFIED',
-      minSeverity: 'CRITICALITY_LEVEL_UNSPECIFIED',
-    });
-  }, emptyFallback);
-
-  return resp.threats.map(toCyberThreat);
-}
-
-/** Convert proto ListCyberThreatsResponse to client CyberThreat[]. Used by relay applyCyberThreats. */
+/** Convert proto ListCyberThreatsResponse to client CyberThreat[]. Used by applyCyberThreats WS handler. */
 export function adaptCyberThreatsResponse(resp: ListCyberThreatsResponse): CyberThreat[] {
   return (resp.threats ?? []).map(toCyberThreat);
 }

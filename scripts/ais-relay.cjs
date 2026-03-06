@@ -3327,6 +3327,14 @@ const CHANNEL_TO_HYDRATION_KEY = {
   'giving': 'giving',
   climate: 'climateAnomalies',
   conflict: 'acledEvents',
+  natural: 'natural',
+  cyber: 'cyber',
+  cables: 'cables',
+  'gps-interference': 'gpsInterference',
+  'news:full': 'news:full',
+  'news:tech': 'news:tech',
+  'news:finance': 'news:finance',
+  'news:happy': 'news:happy',
 };
 const PHASE4_MAP_KEYS = {
   'supply-chain': 'supply_chain:chokepoints:v1',

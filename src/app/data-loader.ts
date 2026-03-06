@@ -176,9 +176,7 @@ export class DataLoaderManager implements AppModule {
 
   public updateSearchIndex: () => void = () => {};
 
-  private digestBreaker = { state: 'closed' as 'closed' | 'open' | 'half-open', failures: 0, cooldownUntil: 0 };
-  private readonly digestRequestTimeoutMs = 30000;
-  private readonly digestBreakerCooldownMs = 5 * 60 * 1000;
+
   private readonly persistedDigestMaxAgeMs = 6 * 60 * 60 * 1000;
   private readonly perFeedFallbackCategoryFeedLimit = 3;
   private readonly perFeedFallbackIntelFeedLimit = 6;
@@ -202,33 +200,13 @@ export class DataLoaderManager implements AppModule {
   }
 
   private async tryFetchDigest(): Promise<ListFeedDigestResponse | null> {
-    const now = Date.now();
-
-    if (this.digestBreaker.state === 'open') {
-      if (now < this.digestBreaker.cooldownUntil) {
-        return this.lastGoodDigest ?? await this.loadPersistedDigest();
-      }
-      this.digestBreaker.state = 'half-open';
-    }
-
-    try {
-      const data = await fetchNewsDigest(this.digestRequestTimeoutMs);
-      if (!data) throw new Error('No digest data');
-      const catCount = Object.keys(data.categories ?? {}).length;
-      console.info(`[News] Digest fetched: ${catCount} categories`);
+    const data = fetchNewsDigest(0);
+    if (data) {
       this.lastGoodDigest = data;
       this.persistDigest(data);
-      this.digestBreaker = { state: 'closed', failures: 0, cooldownUntil: 0 };
       return data;
-    } catch (e) {
-      console.warn('[News] Digest fetch failed, using fallback:', e);
-      this.digestBreaker.failures++;
-      if (this.digestBreaker.failures >= 2) {
-        this.digestBreaker.state = 'open';
-        this.digestBreaker.cooldownUntil = now + this.digestBreakerCooldownMs;
-      }
-      return this.lastGoodDigest ?? await this.loadPersistedDigest();
     }
+    return this.lastGoodDigest ?? await this.loadPersistedDigest();
   }
 
   private persistDigest(data: ListFeedDigestResponse): void {
@@ -1215,14 +1193,11 @@ export class DataLoaderManager implements AppModule {
       return;
     }
 
-    try {
-      const threats = await fetchCyberThreats({ limit: 500, days: 14 });
+    const threats = fetchCyberThreats();
+    if (threats.length > 0) {
       this.renderCyberThreats(threats);
-    } catch (error) {
+    } else {
       this.ctx.map?.setLayerReady('cyberThreats', false);
-      this.ctx.statusPanel?.updateFeed('Cyber Threats', { status: 'error', errorMessage: String(error) });
-      this.ctx.statusPanel?.updateApi('Cyber Threats API', { status: 'error' });
-      dataFreshness.recordError('cyber_threats', String(error));
     }
   }
 
@@ -1332,11 +1307,9 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadCableHealth(): Promise<void> {
-    try {
-      const healthData = await fetchCableHealth();
+    const healthData = fetchCableHealth();
+    if (Object.keys(healthData.cables).length > 0) {
       this.renderCableHealth(healthData.cables);
-    } catch {
-      this.ctx.statusPanel?.updateFeed('CableHealth', { status: 'error' });
     }
   }
 
@@ -1809,22 +1782,15 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadFirmsData(): Promise<void> {
-    try {
-      const fireResult = await fetchAllFires(1);
-      if (fireResult.skipped) {
-        this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
-        return;
-      }
-      const data: ListFireDetectionsResponse = {
-        fireDetections: flattenFires(fireResult.regions),
-      };
-      this.renderNatural(data);
-    } catch (e) {
-      console.warn('[App] FIRMS load failed:', e);
-      (this.ctx.panels['satellite-fires'] as SatelliteFiresPanel)?.update([], 0);
+    const fireResult = fetchAllFires(1);
+    if (fireResult.skipped) {
       this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
-      dataFreshness.recordError('firms', String(e));
+      return;
     }
+    const data: ListFireDetectionsResponse = {
+      fireDetections: flattenFires(fireResult.regions),
+    };
+    this.renderNatural(data);
   }
 
   private renderNatural(data: ListFireDetectionsResponse): void {

@@ -1,17 +1,8 @@
 import {
-  InfrastructureServiceClient,
-  type GetCableHealthResponse,
   type CableHealthRecord as ProtoCableHealthRecord,
 } from '@/generated/client/worldmonitor/infrastructure/v1/service_client';
 import type { CableHealthRecord, CableHealthResponse, CableHealthStatus } from '@/types';
-import { createCircuitBreaker } from '@/utils';
-import { fetchRelayPanel } from '@/services/relay-http';
-
-const client = new InfrastructureServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-const breaker = createCircuitBreaker<GetCableHealthResponse>({ name: 'Cable Health', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
-const emptyFallback: GetCableHealthResponse = { generatedAt: 0, cables: {} };
-
-// ---- Proto enum -> frontend string adapter ----
+import { getHydratedData } from '@/services/bootstrap';
 
 const STATUS_REVERSE: Record<string, CableHealthStatus> = {
   CABLE_HEALTH_STATUS_FAULT: 'fault',
@@ -34,45 +25,18 @@ function toRecord(proto: ProtoCableHealthRecord): CableHealthRecord {
   };
 }
 
-// ---- Local cache (1 minute) ----
+// ---- Local cache ----
 
 let cachedResponse: CableHealthResponse | null = null;
-let cacheExpiry = 0;
-const LOCAL_CACHE_MS = 60_000;
 
 // ---- Public API ----
 
-export async function fetchCableHealth(): Promise<CableHealthResponse> {
-  const now = Date.now();
-  if (cachedResponse && now < cacheExpiry) return cachedResponse;
-
-  // Phase 5: try relay /panel/cables first (web)
-  const relayData = await fetchRelayPanel<unknown>('cables');
-  const fromRelay = relayData ? parseCableHealthPayload(relayData) : null;
-  if (fromRelay) {
-    cachedResponse = fromRelay;
-    cacheExpiry = now + LOCAL_CACHE_MS;
-    return fromRelay;
-  }
-
-  const resp = await breaker.execute(async () => {
-    return client.getCableHealth({});
-  }, emptyFallback);
-
-  const cables: Record<string, CableHealthRecord> = {};
-  for (const [id, proto] of Object.entries(resp.cables)) {
-    cables[id] = toRecord(proto);
-  }
-
-  const result: CableHealthResponse = {
-    generatedAt: resp.generatedAt ? new Date(resp.generatedAt).toISOString() : new Date().toISOString(),
-    cables,
-  };
-
-  cachedResponse = result;
-  cacheExpiry = now + LOCAL_CACHE_MS;
-
-  return result;
+export function fetchCableHealth(): CableHealthResponse {
+  if (cachedResponse) return cachedResponse;
+  const hydrated = getHydratedData('cables');
+  const fromBootstrap = hydrated ? parseCableHealthPayload(hydrated) : null;
+  if (fromBootstrap) cachedResponse = fromBootstrap;
+  return fromBootstrap ?? { generatedAt: new Date().toISOString(), cables: {} };
 }
 
 export function getCableHealthRecord(cableId: string): CableHealthRecord | undefined {

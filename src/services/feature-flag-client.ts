@@ -1,32 +1,13 @@
 // src/services/feature-flag-client.ts
 import type { MlFeatureFlags, MlThresholds } from '@/config/ml-config';
 import { getHydratedFeatureFlags } from '@/services/bootstrap';
-import { RELAY_HTTP_BASE } from '@/services/relay-http';
 
-const FETCH_TIMEOUT_MS = 3_000;
 let _flags: Record<string, unknown> | null = null;
 
-export async function loadFeatureFlags(): Promise<void> {
+export function loadFeatureFlags(): void {
   const hydrated = getHydratedFeatureFlags();
-  if (hydrated) {
-    _flags = hydrated;
-    return;
-  }
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch(`${RELAY_HTTP_BASE}/panel/config:feature-flags`, {
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${import.meta.env.VITE_WS_RELAY_TOKEN ?? ''}` },
-    });
-    clearTimeout(timer);
-    if (res.ok) {
-      _flags = await res.json();
-    }
-  } catch {
-    _flags = null;
-  }
+  if (hydrated) _flags = hydrated;
+  // No HTTP fetch — relay pushes config:feature-flags via WS; applyFeatureFlags handles updates
 }
 
 function flag<T>(key: string): T | undefined {
@@ -63,4 +44,10 @@ export function isFeatureEnabled(key: string): boolean {
 
 export function areFlagsLoaded(): boolean {
   return _flags !== null;
+}
+
+/** Called when relay pushes a fresh config:feature-flags payload via WS. */
+export function applyFeatureFlags(payload: unknown): void {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+  _flags = payload as Record<string, unknown>;
 }
