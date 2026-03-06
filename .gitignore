@@ -46,3 +46,6 @@ scripts/data/osm-military-raw.json
 scripts/seed-iran-events.mjs
 scripts/data/iran-events-latest.json
 redispdocker.md
+.pnpm-store/
+
+pnpm-lock.yaml
