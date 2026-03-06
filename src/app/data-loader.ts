@@ -929,7 +929,7 @@ export class DataLoaderManager implements AppModule {
 
     tasks.push((async () => {
       try {
-        if (isMilitaryVesselTrackingConfigured()) {
+        if (isMilitaryVesselTrackingConfigured() && this.ctx.mapLayers.ais) {
           initMilitaryVesselStream();
         }
         const [flightData, vesselData] = await Promise.all([
@@ -1409,7 +1409,7 @@ export class DataLoaderManager implements AppModule {
       return;
     }
     try {
-      if (isMilitaryVesselTrackingConfigured()) {
+      if (isMilitaryVesselTrackingConfigured() && this.ctx.mapLayers.ais) {
         initMilitaryVesselStream();
       }
       const [flightData, vesselData] = await Promise.all([
