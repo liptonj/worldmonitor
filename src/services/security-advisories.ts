@@ -3,10 +3,11 @@ import { proxyUrl } from '@/utils';
 import { getPersistentCache, setPersistentCache } from './persistent-cache';
 import { dataFreshness } from './data-freshness';
 import { nameToCountryCode, matchCountryNamesInText } from './country-geometry';
+import { RELAY_HTTP_BASE, getRelayFetchHeaders } from '@/services/relay-http';
 
 function advisoryFeedUrl(feedUrl: string): string {
   if (isDesktopRuntime()) return proxyUrl(feedUrl);
-  return `/api/rss-proxy?url=${encodeURIComponent(feedUrl)}`;
+  return `${RELAY_HTTP_BASE}/rss?url=${encodeURIComponent(feedUrl)}`;
 }
 
 export interface SecurityAdvisory {
@@ -209,7 +210,10 @@ export async function fetchSecurityAdvisories(
     ADVISORY_FEEDS.map(async (feed) => {
       try {
         const response = await fetch(advisoryFeedUrl(feed.url), {
-          headers: { Accept: 'application/rss+xml, application/xml, text/xml, */*' },
+          headers: {
+            Accept: 'application/rss+xml, application/xml, text/xml, */*',
+            ...(!isDesktopRuntime() ? getRelayFetchHeaders() : {}),
+          },
           ...(signal ? { signal } : {}),
         });
         if (!response.ok) {

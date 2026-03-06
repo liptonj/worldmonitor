@@ -1237,6 +1237,8 @@ function isAuthorizedRequest(req) {
   if (!RELAY_SHARED_SECRET) return true;
   const provided = getRelaySecretFromRequest(req);
   if (!provided) return false;
+  // Accept either the shared secret (server-to-server) or the WS token (browser HTTP requests).
+  if (RELAY_WS_TOKEN && safeTokenEquals(provided, RELAY_WS_TOKEN)) return true;
   return safeTokenEquals(provided, RELAY_SHARED_SECRET);
 }
 
