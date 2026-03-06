@@ -274,6 +274,290 @@ async function auditStaleTTLs() {
   }
 }
 
+// ── Multi-Provider LLM Client ───────────────────────────────────────────────
+// Resolves ALL enabled providers from Supabase, supports per-function provider
+// assignment with priority-based fallback chains, handles qwen3 native API,
+// OpenAI-compat, and provider-specific auth (CF Access, Bearer token).
+
+const providerRegistry = new Map();  // name → { apiUrl, model, headers, maxTokens, maxTokensSummary, type }
+let functionConfigMap = new Map();   // functionKey → { provider_chain, timeout_ms, max_retries }
+let providersExpiresAt = 0;
+const PROVIDER_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const DEFAULT_TIMEOUT_MS = 120_000;
+
+// ── Resolve ALL providers from Supabase ──
+
+async function resolveAllProviders() {
+  if (providerRegistry.size > 0 && Date.now() < providersExpiresAt) return;
+  if (!supabase) {
+    console.error('[llm] Supabase client not configured — cannot resolve providers');
+    return;
+  }
+
+  try {
+    // 1. Load Ollama credentials (CF Access + model)
+    const { data: ollamaData, error: ollamaErr } = await supabase.rpc('get_ollama_credentials');
+    if (!ollamaErr && Array.isArray(ollamaData) && ollamaData.length > 0) {
+      const row = ollamaData[0];
+      if (row.api_url) {
+        providerRegistry.set('ollama', {
+          apiUrl: row.api_url.replace(/\/+$/, ''),
+          model: row.model || 'qwen3:8b',
+          type: (row.model || '').startsWith('qwen3') ? 'qwen3' : 'openai-compat',
+          maxTokens: row.max_tokens || 3000,
+          maxTokensSummary: row.max_tokens_summary || 400,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(row.cf_access_client_id && { 'CF-Access-Client-Id': row.cf_access_client_id }),
+            ...(row.cf_access_client_secret && { 'CF-Access-Client-Secret': row.cf_access_client_secret }),
+          },
+        });
+        console.log(`[llm] registered ollama: model=${row.model} url=${row.api_url}`);
+      }
+    } else if (ollamaErr) {
+      console.error('[llm] get_ollama_credentials RPC error:', ollamaErr.message);
+    }
+
+    // 2. Load all enabled providers from llm_providers table
+    const { data: providers, error: provErr } = await supabase.rpc('get_all_enabled_providers');
+    if (!provErr && Array.isArray(providers)) {
+      for (const p of providers) {
+        if (p.name === 'ollama') continue; // already resolved above with full credentials
+        // Resolve API key from vault
+        let apiKey = null;
+        if (p.api_key_secret_name) {
+          const { data: secretData } = await supabase.rpc('get_secret_value', {
+            p_name: p.api_key_secret_name,
+          });
+          apiKey = secretData?.[0]?.decrypted_secret || null;
+        }
+        providerRegistry.set(p.name, {
+          apiUrl: p.api_url.replace(/\/+$/, ''),
+          model: p.default_model,
+          type: 'openai-compat',
+          maxTokens: p.max_tokens || 3000,
+          maxTokensSummary: p.max_tokens_summary || 400,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey && { 'Authorization': `Bearer ${apiKey}` }),
+            ...(p.name === 'openrouter' && {
+              'HTTP-Referer': 'https://worldmonitor.app',
+              'X-Title': 'WorldMonitor',
+            }),
+          },
+        });
+        console.log(`[llm] registered ${p.name}: model=${p.default_model}`);
+      }
+    }
+
+    // 3. Load per-function provider config
+    const { data: funcData, error: funcErr } = await supabase.rpc('get_llm_function_config');
+    if (!funcErr && Array.isArray(funcData)) {
+      const newMap = new Map();
+      for (const row of funcData) {
+        newMap.set(row.function_key, {
+          providerChain: row.provider_chain || ['ollama'],
+          timeoutMs: row.timeout_ms || DEFAULT_TIMEOUT_MS,
+          maxRetries: row.max_retries || 1,
+        });
+      }
+      functionConfigMap = newMap;
+      console.log(`[llm] loaded ${newMap.size} function configs`);
+    }
+
+    providersExpiresAt = Date.now() + PROVIDER_TTL_MS;
+    console.log(`[llm] ${providerRegistry.size} providers ready`);
+  } catch (err) {
+    console.error('[llm] resolveAllProviders exception:', err?.message ?? err);
+  }
+}
+
+function getFunctionConfig(functionKey) {
+  return functionConfigMap.get(functionKey) || { providerChain: ['ollama'], timeoutMs: DEFAULT_TIMEOUT_MS, maxRetries: 1 };
+}
+
+// ── Strip thinking blocks from model output ──
+
+function stripThinkingBlocks(text) {
+  return text
+    .replace(/<\|begin_of_thought\|>[\s\S]*?<\|end_of_thought\|>/g, '')
+    .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/g, '')
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/g, '')
+    .replace(/<reflection>[\s\S]*?<\/reflection>/g, '')
+    .trim();
+}
+
+// ── Call a specific named provider ──
+
+async function callLlmWithProvider(providerName, messages, opts = {}) {
+  await resolveAllProviders();
+  const provider = providerRegistry.get(providerName);
+  if (!provider) {
+    console.error(`[llm] unknown provider: ${providerName}`);
+    return null;
+  }
+
+  const maxTokens = opts.maxTokens ?? provider.maxTokens;
+  const temperature = opts.temperature ?? 0.4;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  let url, body;
+
+  if (provider.type === 'qwen3') {
+    // Native Ollama API for qwen3 models
+    url = `${provider.apiUrl}/api/chat`;
+    body = JSON.stringify({
+      model: provider.model,
+      messages,
+      think: false,
+      stream: false,
+      options: { num_predict: maxTokens },
+    });
+  } else {
+    // OpenAI-compat: Groq, OpenRouter, non-qwen3 Ollama
+    url = `${provider.apiUrl}/v1/chat/completions`;
+    body = JSON.stringify({
+      model: provider.model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+      stream: false,
+    });
+  }
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: provider.headers,
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      console.error(`[llm:${providerName}] HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+      return null;
+    }
+
+    const data = await resp.json();
+
+    let content;
+    if (provider.type === 'qwen3') {
+      content = data?.message?.content ?? '';
+    } else {
+      content = data?.choices?.[0]?.message?.content
+        ?? data?.choices?.[0]?.message?.reasoning
+        ?? '';
+    }
+
+    content = stripThinkingBlocks(content);
+
+    if (!content) {
+      console.warn(`[llm:${providerName}] empty response after stripping think blocks`);
+      return null;
+    }
+
+    return content;
+  } catch (err) {
+    console.error(`[llm:${providerName}] call error: ${err?.message ?? err}`);
+    return null;
+  }
+}
+
+// ── Call LLM for a function with fallback chain ──
+
+async function callLlmForFunction(functionKey, messages, opts = {}) {
+  const config = getFunctionConfig(functionKey);
+  const { providerChain } = config;
+  const timeoutMs = opts.timeoutMs ?? config.timeoutMs;
+
+  for (let i = 0; i < providerChain.length; i++) {
+    const providerName = providerChain[i];
+    console.log(`[llm] trying ${providerName} for ${functionKey} (${i + 1}/${providerChain.length})`);
+
+    const result = await callLlmWithProvider(providerName, messages, { ...opts, timeoutMs });
+    if (result) {
+      if (i > 0) console.log(`[llm] ${functionKey} succeeded on fallback provider ${providerName}`);
+      return result;
+    }
+
+    if (i < providerChain.length - 1) {
+      console.warn(`[llm] ${providerName} failed for ${functionKey}, falling back to ${providerChain[i + 1]}`);
+    } else {
+      console.error(`[llm] all providers exhausted for ${functionKey}`);
+    }
+  }
+
+  return null;
+}
+
+// ── Prompt Loader ────────────────────────────────────────────────────────────
+
+const PROMPT_CACHE_TTL = 900; // 15 min
+const promptCache = new Map();
+
+async function loadLlmPrompt(promptKey, variant = null, mode = null) {
+  const model = providerRegistry.get('ollama')?.model ?? null;
+  const cacheKey = `${promptKey}:${variant ?? 'null'}:${mode ?? 'null'}:${model ?? 'null'}`;
+
+  const cached = promptCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) return cached.prompt;
+
+  const redisKey = `wm:llm:prompt:v1:${cacheKey}`;
+  const redisCached = await redisGet(redisKey);
+  if (redisCached) {
+    promptCache.set(cacheKey, { prompt: redisCached, expiresAt: Date.now() + PROMPT_CACHE_TTL * 1000 });
+    return redisCached;
+  }
+
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase.rpc('get_llm_prompt', {
+      p_key: promptKey,
+      p_variant: variant,
+      p_mode: mode,
+      p_model: model,
+    });
+    if (error) {
+      console.error(`[llm] get_llm_prompt error for ${promptKey}:`, error.message);
+      return null;
+    }
+    const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+    if (!row) {
+      console.warn(`[llm] no prompt found for key=${promptKey}`);
+      return null;
+    }
+    const prompt = {
+      systemPrompt: row.system_prompt || '',
+      userPrompt: row.user_prompt || '',
+    };
+    promptCache.set(cacheKey, { prompt, expiresAt: Date.now() + PROMPT_CACHE_TTL * 1000 });
+    await redisSetex(redisKey, PROMPT_CACHE_TTL, prompt);
+    return prompt;
+  } catch (err) {
+    console.error(`[llm] loadLlmPrompt exception for ${promptKey}:`, err?.message ?? err);
+    return null;
+  }
+}
+
+function buildPromptFromTemplate(template, vars) {
+  return template.replace(/\{(\w+)\}/g, (match, key) => vars[key] ?? match);
+}
+
+// Eagerly resolve providers on startup
+void resolveAllProviders();
+
+// Refresh every 15 minutes
+cron.schedule('*/15 * * * *', () => {
+  providersExpiresAt = 0;
+  void resolveAllProviders();
+  promptCache.clear();
+});
+
+// ── End Multi-Provider LLM Client ────────────────────────────────────────────
+
 cron.schedule('0 * * * *', async () => {
   try {
     await auditStaleTTLs();
