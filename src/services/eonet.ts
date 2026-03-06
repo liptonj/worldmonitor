@@ -85,6 +85,7 @@ function convertGDACSToNaturalEvent(gdacs: GDACSEvent): NaturalEvent {
   };
 }
 
+/** @deprecated Use fetchRelayPanel('eonet') / applyEonet and fetchRelayPanel('gdacs') / applyGdacs */
 export async function fetchNaturalEvents(days = 30): Promise<NaturalEvent[]> {
   const [eonetEvents, gdacsEvents] = await Promise.all([
     fetchEonetEvents(days),

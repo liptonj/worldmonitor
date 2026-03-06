@@ -53,6 +53,7 @@ const EVENT_TYPE_NAMES: Record<string, string> = {
   DR: 'Drought',
 };
 
+/** @deprecated Use fetchRelayPanel('gdacs') / applyGdacs */
 export async function fetchGDACSEvents(): Promise<GDACSEvent[]> {
   return breaker.execute(async () => {
     const response = await fetch(GDACS_API, {

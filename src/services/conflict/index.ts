@@ -244,6 +244,7 @@ const emptyHapiAllFallback: ListAllHumanitarianSummariesResponse = { summaries: 
 
 // ---- Exported Functions ----
 
+/** @deprecated Use fetchRelayPanel('conflict') / applyConflict */
 export async function fetchConflictEvents(): Promise<ConflictData> {
   const resp = await acledBreaker.execute(async () => {
     return client.listAcledEvents({ country: '', start: 0, end: 0, pageSize: 0, cursor: '' });
@@ -398,6 +399,7 @@ export function groupByType(events: UcdpGeoEvent[]): Record<string, UcdpGeoEvent
   };
 }
 
+/** @deprecated Use fetchRelayPanel('iran-events') / applyIranEvents */
 export async function fetchIranEvents(): Promise<IranEvent[]> {
   const resp = await iranBreaker.execute(async () => {
     // Bypass stale CDN cache from pre-Redis deployment (remove once CDN is clean)

@@ -47,6 +47,10 @@ export function getCableHealthMap(): Record<string, CableHealthRecord> {
   return cachedResponse?.cables ?? {};
 }
 
+export function setCableHealthCache(data: CableHealthResponse): void {
+  cachedResponse = data;
+}
+
 /** Parse relay-push payload (raw API response) to CableHealthResponse. */
 export function parseCableHealthPayload(payload: unknown): CableHealthResponse | null {
   if (!payload || typeof payload !== 'object') return null;

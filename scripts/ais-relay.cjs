@@ -448,6 +448,7 @@ async function warmIntelligenceAndBroadcast() {
       console.warn('[relay-cron] unparseable Redis value for intelligence');
       return;
     }
+    await redisSetex('digest:global:v1', 600, payload);
     broadcastToChannel(channel, payload);
     console.log(`[relay-cron] broadcast channel=${channel} subs=${channelSubscribers.get(channel)?.size ?? 0}`);
   } catch (err) {
@@ -3325,6 +3326,12 @@ const PHASE4_CHANNEL_KEYS = {
   'news:tech': 'news:digest:v1:tech:en',
   'news:finance': 'news:digest:v1:finance:en',
   'news:happy': 'news:digest:v1:happy:en',
+  intelligence: 'digest:global:v1',
+  'iran-events': 'conflict:iran-events:v1',
+  'ucdp-events': 'conflict:ucdp-events:v1',
+  telegram: 'relay:telegram:v1',
+  oref: 'relay:oref:v1',
+  ais: 'relay:ais-snapshot:v1',
 };
 
 // Map relay channel keys to frontend hydration keys (bootstrap.ts, getHydratedData, etc.)
@@ -3347,6 +3354,15 @@ const CHANNEL_TO_HYDRATION_KEY = {
   'news:finance': 'news:finance',
   'news:happy': 'news:happy',
   'strategic-risk': 'strategicRisk',
+  'iran-events': 'iranEvents',
+  'gulf-quotes': 'gulfQuotes',
+  'tech-events': 'techEvents',
+  'strategic-posture': 'strategicPosture',
+  'ucdp-events': 'ucdpEvents',
+  intelligence: 'intelligence',
+  telegram: 'telegram',
+  oref: 'oref',
+  ais: 'aisSnapshot',
 };
 const PHASE4_MAP_KEYS = {
   'supply-chain': 'supply_chain:chokepoints:v1',
@@ -6525,12 +6541,12 @@ cron.schedule('*/30 * * * *', async () => {
 });
 cron.schedule('0 */6 * * *', async () => {
   if (!ucdpCache.data) return;
-  const payload = JSON.stringify({ channel: 'ucdp-events', data: ucdpCache.data });
-  let count = 0;
-  for (const [chan, clients] of channelSubscribers) {
-    if (chan === 'ucdp-events') { for (const ws of clients) { try { ws.send(payload); count++; } catch {} } }
+  try {
+    await redisSetex('conflict:ucdp-events:v1', 86400, ucdpCache.data);
+    broadcastToChannel('ucdp-events', ucdpCache.data);
+  } catch (err) {
+    console.error('[relay] ucdp-events cron error:', err?.message ?? err);
   }
-  if (count > 0) console.log(`[relay-cron] ucdp-events broadcast to ${count} clients`);
 });
 cron.schedule('*/5 * * * *', async () => {
   try { await directFetchAndBroadcast('gps-interference', 'relay:gps-interference:v1', 3600, fetchGpsInterference); } catch (err) { console.error('[relay] gps-interference cron error:', err?.message ?? err); }
@@ -6606,16 +6622,18 @@ void (async () => {
 })();
 
 // Every 1 min — telegram intel (direct broadcast from in-memory state)
-cron.schedule('* * * * *', () => {
+cron.schedule('* * * * *', async () => {
   const items = Array.isArray(telegramState.items) ? telegramState.items : [];
-  broadcastToChannel('telegram', {
+  const payload = {
     source: 'telegram',
     earlySignal: true,
     enabled: TELEGRAM_ENABLED,
     count: items.length,
     updatedAt: telegramState.lastPollAt ? new Date(telegramState.lastPollAt).toISOString() : null,
     items,
-  });
+  };
+  await redisSetex('relay:telegram:v1', 120, payload);
+  broadcastToChannel('telegram', payload);
 });
 
 // Every 5 min — config channels (direct Supabase fetch, no Vercel round-trip)
@@ -6665,24 +6683,29 @@ cron.schedule('*/5 * * * *', async () => {
 });
 
 // Every 5 min — oref (direct broadcast from in-memory state)
-cron.schedule('*/5 * * * *', () => {
-  broadcastToChannel('oref', {
+cron.schedule('*/5 * * * *', async () => {
+  const payload = {
     configured: OREF_ENABLED,
     alerts: orefState.lastAlerts || [],
     historyCount24h: orefState.historyCount24h,
     totalHistoryCount: orefState.totalHistoryCount,
     timestamp: orefState.lastPollAt ? new Date(orefState.lastPollAt).toISOString() : new Date().toISOString(),
     ...(orefState.lastError ? { error: orefState.lastError } : {}),
-  });
+  };
+  await redisSetex('relay:oref:v1', 600, payload);
+  broadcastToChannel('oref', payload);
 });
 cron.schedule('*/10 * * * *', async () => {
   try { await directFetchAndBroadcast('iran-events', 'conflict:iran-events:v1', 600, fetchIranEvents); } catch (err) { console.error('[relay] iran-events cron error:', err?.message ?? err); }
 });
 
 // ── AIS direct broadcast (relay already has this data) ──────────────────────
-cron.schedule('*/5 * * * *', () => {
+cron.schedule('*/5 * * * *', async () => {
   buildSnapshot();
-  if (lastSnapshot) broadcastToChannel('ais', lastSnapshot);
+  if (lastSnapshot) {
+    await redisSetex('relay:ais-snapshot:v1', 600, lastSnapshot);
+    broadcastToChannel('ais', lastSnapshot);
+  }
 });
 
 server.on('error', (err) => {

@@ -21,7 +21,7 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('Origin not allowed', { status: 403 });
   }
 
-  const cors = getCorsHeaders(req, 'POST, OPTIONS');
+  const cors = getCorsHeaders(req);
 
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: cors });

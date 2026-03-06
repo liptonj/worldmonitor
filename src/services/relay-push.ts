@@ -11,7 +11,10 @@ let subscribedChannels: string[] = [];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelayMs = 2_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
+const STALE_THRESHOLD_MS = 30_000;
 let destroyed = false;
+let relayUrl = '';
+let lastMessageAt = 0;
 
 export function subscribe(channel: string, handler: ChannelHandler): () => void {
   if (!handlers.has(channel)) handlers.set(channel, new Set());
@@ -63,6 +66,7 @@ function connect(relayWsUrl: string, channels: string[]): void {
   });
 
   socket.addEventListener('message', (event) => {
+    lastMessageAt = Date.now();
     const raw = typeof event.data === 'string' ? event.data : '';
     if (!raw) return;
     try {
@@ -85,6 +89,32 @@ function connect(relayWsUrl: string, channels: string[]): void {
   });
 }
 
+function forceReconnect(): void {
+  if (destroyed || !relayUrl) return;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (socket) {
+    try { socket.close(); } catch {}
+    socket = null;
+  }
+  reconnectDelayMs = 2_000;
+  connect(relayUrl, subscribedChannels);
+}
+
+function isConnectionStale(): boolean {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return true;
+  return lastMessageAt > 0 && Date.now() - lastMessageAt > STALE_THRESHOLD_MS;
+}
+
+function handleVisibilityChange(): void {
+  if (destroyed || document.hidden) return;
+  if (isConnectionStale()) {
+    console.log('[relay-push] tab visible, connection stale — reconnecting');
+    forceReconnect();
+  } else if (socket?.readyState === WebSocket.OPEN) {
+    sendSubscribe();
+  }
+}
+
 export function initRelayPush(channels: string[]): void {
   const relayWsUrl = import.meta.env.VITE_WS_RELAY_URL as string | undefined;
   if (!relayWsUrl) {
@@ -100,11 +130,14 @@ export function initRelayPush(channels: string[]): void {
     const sep = relayWsUrl.includes('?') ? '&' : '?';
     url = `${relayWsUrl}${sep}token=${encodeURIComponent(wsToken)}`;
   }
+  relayUrl = url;
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   connect(url, channels);
 }
 
 export function destroyRelayPush(): void {
   destroyed = true;
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   socket?.close();
   socket = null;

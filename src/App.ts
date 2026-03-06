@@ -388,7 +388,7 @@ export class App {
       .catch(() => {});
 
     // ── PHASE 3: Render UI shell immediately ──
-    this.panelLayout.init();
+    await this.panelLayout.init();
 
     // Display prefs: fetch admin defaults in background — never blocks first paint.
     // localStorage values (getTimeFormat/getTimezoneMode/getTempUnit) already work without

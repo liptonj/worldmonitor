@@ -90,8 +90,11 @@ export const listFireDetections: WildfireServiceHandler['listFireDetections'] = 
   _ctx: ServerContext,
   _req: ListFireDetectionsRequest,
 ): Promise<ListFireDetectionsResponse> => {
-  const apiKey =
-    (await getSecret('NASA_FIRMS_API_KEY')) ?? (await getSecret('FIRMS_API_KEY')) ?? '';
+  const [nasaKey, firmsKey] = await Promise.all([
+    getSecret('NASA_FIRMS_API_KEY'),
+    getSecret('FIRMS_API_KEY'),
+  ]);
+  const apiKey = nasaKey ?? firmsKey ?? '';
 
   if (!apiKey) {
     return { fireDetections: [], pagination: undefined };

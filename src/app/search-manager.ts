@@ -4,7 +4,7 @@ import type { NewsItem, MapLayers } from '@/types';
 import type { MapView } from '@/components';
 import type { Command } from '@/config/commands';
 import { SearchModal } from '@/components';
-import { CIIPanel } from '@/components';
+import type { CIIPanel } from '@/components/CIIPanel';
 import { SITE_VARIANT, STORAGE_KEYS } from '@/config';
 import { LAYER_PRESETS, LAYER_KEY_MAP } from '@/config/commands';
 import { calculateCII, TIER1_COUNTRIES } from '@/services/country-instability';

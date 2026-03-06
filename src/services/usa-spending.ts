@@ -60,6 +60,7 @@ function validateLimit(val: number): number {
 
 /**
  * Fetch recent government awards/contracts
+ * @deprecated Use fetchRelayPanel('spending') / applySpending
  */
 export async function fetchRecentAwards(options: {
   daysBack?: number;

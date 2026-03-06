@@ -412,6 +412,7 @@ export function getAisStatus(): { connected: boolean; vessels: number; messages:
   };
 }
 
+/** @deprecated Use fetchRelayPanel('ais') / applyAisSignals */
 export async function fetchAisSignals(): Promise<{ disruptions: AisDisruptionEvent[]; density: AisDensityZone[] }> {
   if (!aisConfigured) {
     return { disruptions: [], density: [] };

@@ -15,19 +15,15 @@ import {
   fetchMarketDashboard,
   fetchPredictions,
   fetchEarthquakes,
-  fetchWeatherAlerts,
   fetchFredDashboard,
   fetchInternetOutages,
   isOutagesConfigured,
-  fetchAisSignals,
   getAisStatus,
   isAisConfigured,
   fetchCableActivity,
-  fetchCableHealth,
   parseCableHealthPayload,
-  fetchProtestEvents,
+  setCableHealthCache,
   getProtestStatus,
-  fetchFlightDelays,
   parseFlightDelaysPayload,
   fetchMilitaryFlights,
   fetchMilitaryVessels,
@@ -40,8 +36,6 @@ import {
   analysisWorker,
   fetchPizzIntStatus,
   fetchGdeltTensions,
-  fetchNaturalEvents,
-  fetchRecentAwards,
   fetchOilAnalytics,
   fetchBisDashboard,
   type BisData,
@@ -60,13 +54,13 @@ import { clusterNewsHybrid } from '@/services/clustering';
 import { ingestProtests, ingestFlights, ingestVessels, ingestEarthquakes, detectGeoConvergence, geoConvergenceToSignal } from '@/services/geo-convergence';
 import { signalAggregator } from '@/services/signal-aggregator';
 import { updateAndCheck } from '@/services/temporal-baseline';
-import { fetchAllFires, flattenFires, computeRegionStats, toMapFires } from '@/services/wildfires';
+import { flattenFires, computeRegionStats, toMapFires } from '@/services/wildfires';
 import { analyzeFlightsForSurge, surgeAlertToSignal, detectForeignMilitaryPresence, foreignPresenceToSignal, type TheaterPostureSummary } from '@/services/military-surge';
 import { fetchCachedTheaterPosture } from '@/services/cached-theater-posture';
 import { ingestProtestsForCII, ingestMilitaryForCII, ingestNewsForCII, ingestOutagesForCII, ingestConflictsForCII, ingestUcdpForCII, ingestHapiForCII, ingestDisplacementForCII, ingestClimateForCII, ingestStrikesForCII, ingestOrefForCII, ingestAviationForCII, ingestAdvisoriesForCII, ingestGpsJammingForCII, ingestAisDisruptionsForCII, ingestSatelliteFiresForCII, ingestCyberThreatsForCII, ingestTemporalAnomaliesForCII, isInLearningMode } from '@/services/country-instability';
 import { fetchGpsInterference, parseGpsJamPayload } from '@/services/gps-interference';
 import { dataFreshness, type DataSourceId } from '@/services/data-freshness';
-import { fetchConflictEvents, fetchUcdpClassifications, fetchAllHapiSummaries, fetchUcdpEvents, deduplicateAgainstAcled, fetchIranEvents, mapConflictPayload, mapUcdpPayload } from '@/services/conflict';
+import { fetchUcdpClassifications, fetchAllHapiSummaries, fetchUcdpEvents, deduplicateAgainstAcled, mapConflictPayload, mapUcdpPayload } from '@/services/conflict';
 import { fetchUnhcrPopulation } from '@/services/displacement';
 import { fetchClimateAnomalies, mapClimatePayload } from '@/services/climate';
 import { fetchSecurityAdvisories } from '@/services/security-advisories';
@@ -79,6 +73,7 @@ import { isFeatureAvailable, isFeatureEnabled } from '@/services/runtime-config'
 import { getAiFlowSettings } from '@/services/ai-flow-settings';
 import { t } from '@/services/i18n';
 import { getHydratedData } from '@/services/bootstrap';
+import { fetchRelayPanel } from '@/services/relay-http';
 import { canQueueAiClassification, AI_CLASSIFY_MAX_PER_FEED } from '@/services/ai-classify-queue';
 import { classifyWithAI } from '@/services/threat-classifier';
 import { ingestHeadlines } from '@/services/trending-keywords';
@@ -95,31 +90,27 @@ import type { GetGivingSummaryResponse } from '@/generated/client/worldmonitor/g
 import type { ListGulfQuotesResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { fetchNewsDigest } from '@/services/news-digest';
 import { fetchTechEvents } from '@/services/research';
-import {
-  MarketPanel,
-  HeatmapPanel,
-  CommoditiesPanel,
-  CryptoPanel,
-  PredictionPanel,
-  MonitorPanel,
-  InsightsPanel,
-  CIIPanel,
-  StrategicPosturePanel,
-  EconomicPanel,
-  UcdpEventsPanel,
-  DisplacementPanel,
-  ClimateAnomalyPanel,
-  PopulationExposurePanel,
-  TradePolicyPanel,
-  SupplyChainPanel,
-  SecurityAdvisoriesPanel,
-  OrefSirensPanel,
-  TelegramIntelPanel,
-  GivingPanel,
-  GulfEconomiesPanel,
-} from '@/components';
+import type { MarketPanel, HeatmapPanel, CommoditiesPanel, CryptoPanel } from '@/components/MarketPanel';
+import type { PredictionPanel } from '@/components/PredictionPanel';
+import type { MonitorPanel } from '@/components/MonitorPanel';
+import type { InsightsPanel } from '@/components/InsightsPanel';
+import type { CIIPanel } from '@/components/CIIPanel';
+import type { StrategicPosturePanel } from '@/components/StrategicPosturePanel';
+import type { EconomicPanel } from '@/components/EconomicPanel';
+import type { UcdpEventsPanel } from '@/components/UcdpEventsPanel';
+import type { DisplacementPanel } from '@/components/DisplacementPanel';
+import type { ClimateAnomalyPanel } from '@/components/ClimateAnomalyPanel';
+import type { PopulationExposurePanel } from '@/components/PopulationExposurePanel';
+import type { TradePolicyPanel } from '@/components/TradePolicyPanel';
+import type { SupplyChainPanel } from '@/components/SupplyChainPanel';
+import type { SecurityAdvisoriesPanel } from '@/components/SecurityAdvisoriesPanel';
+import type { OrefSirensPanel } from '@/components/OrefSirensPanel';
+import type { TelegramIntelPanel } from '@/components/TelegramIntelPanel';
+import type { GivingPanel } from '@/components/GivingPanel';
+import type { GulfEconomiesPanel } from '@/components/GulfEconomiesPanel';
 import type { GlobalDigestPanel } from '@/components/GlobalDigestPanel';
-import { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
+import type { TechEventsPanel } from '@/components/TechEventsPanel';
+import type { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
 import { classifyNewsItem } from '@/services/positive-classifier';
 import { filterBySentiment } from '@/services/sentiment-gate';
 import { fetchAllPositiveTopicIntelligence } from '@/services/gdelt-intel';
@@ -183,6 +174,7 @@ export class DataLoaderManager implements AppModule {
   private readonly perFeedFallbackBatchSize = 2;
   private lastGoodDigest: ListFeedDigestResponse | null = null;
   private lastCommodityData: Array<{ display: string; price: number | null; change: number | null; sparkline?: number[] }> = [];
+  private firesCache: ListFireDetectionsResponse | null = null;
 
   constructor(ctx: AppContext, callbacks: DataLoaderCallbacks) {
     this.ctx = ctx;
@@ -782,10 +774,30 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadNatural(): Promise<void> {
-    const [earthquakeResult, eonetResult] = await Promise.allSettled([
-      fetchEarthquakes(),
-      fetchNaturalEvents(30),
+    const hasCachedNatural = (this.ctx.intelligenceCache.eonetEvents?.length ?? 0) > 0 || (this.ctx.intelligenceCache.gdacsEvents?.length ?? 0) > 0;
+    const hasCachedEarthquakes = (this.ctx.intelligenceCache.earthquakes?.length ?? 0) > 0;
+
+    if (hasCachedNatural) {
+      this.mergeAndRenderNaturalEvents();
+    }
+    if (hasCachedEarthquakes && this.ctx.intelligenceCache.earthquakes) {
+      this.ctx.map?.setEarthquakes(this.ctx.intelligenceCache.earthquakes);
+      this.ctx.statusPanel?.updateApi('USGS', { status: 'ok' });
+    }
+    if (hasCachedNatural || hasCachedEarthquakes) {
+      const mergedCount = (this.ctx.intelligenceCache.eonetEvents?.length ?? 0) + (this.ctx.intelligenceCache.gdacsEvents?.length ?? 0);
+      this.ctx.map?.setLayerReady('natural', mergedCount > 0 || hasCachedEarthquakes);
+      if (hasCachedNatural && hasCachedEarthquakes) return;
+    }
+
+    const [earthquakeResult, relayEonet, relayGdacs] = await Promise.all([
+      fetchEarthquakes().then((v) => ({ status: 'fulfilled' as const, value: v })).catch((e) => ({ status: 'rejected' as const, reason: e })),
+      fetchRelayPanel('eonet'),
+      fetchRelayPanel('gdacs'),
     ]);
+
+    if (relayEonet) this.applyEonet(relayEonet);
+    if (relayGdacs) this.applyGdacs(relayGdacs);
 
     if (earthquakeResult.status === 'fulfilled') {
       this.ctx.intelligenceCache.earthquakes = earthquakeResult.value;
@@ -794,33 +806,35 @@ export class DataLoaderManager implements AppModule {
       this.ctx.statusPanel?.updateApi('USGS', { status: 'ok' });
       dataFreshness.recordUpdate('usgs', earthquakeResult.value.length);
     } else {
-      this.ctx.intelligenceCache.earthquakes = [];
-      this.ctx.map?.setEarthquakes([]);
-      this.ctx.statusPanel?.updateApi('USGS', { status: 'error' });
-      dataFreshness.recordError('usgs', String(earthquakeResult.reason));
+      if (!hasCachedEarthquakes) {
+        this.ctx.intelligenceCache.earthquakes = [];
+        this.ctx.map?.setEarthquakes([]);
+        this.ctx.statusPanel?.updateApi('USGS', { status: 'error' });
+        dataFreshness.recordError('usgs', String(earthquakeResult.reason));
+      }
     }
 
-    if (eonetResult.status === 'fulfilled') {
-      this.ctx.map?.setNaturalEvents(eonetResult.value);
-      this.ctx.statusPanel?.updateFeed('EONET', {
-        status: 'ok',
-        itemCount: eonetResult.value.length,
-      });
-      this.ctx.statusPanel?.updateApi('NASA EONET', { status: 'ok' });
-    } else {
+    if (!relayEonet && !relayGdacs && !hasCachedNatural) {
       this.ctx.map?.setNaturalEvents([]);
-      this.ctx.statusPanel?.updateFeed('EONET', { status: 'error', errorMessage: String(eonetResult.reason) });
+      this.ctx.statusPanel?.updateFeed('EONET', { status: 'error', errorMessage: 'No data from relay' });
       this.ctx.statusPanel?.updateApi('NASA EONET', { status: 'error' });
     }
 
     const hasEarthquakes = earthquakeResult.status === 'fulfilled' && earthquakeResult.value.length > 0;
-    const hasEonet = eonetResult.status === 'fulfilled' && eonetResult.value.length > 0;
+    const hasEonet = !!relayEonet || !!relayGdacs || hasCachedNatural;
     this.ctx.map?.setLayerReady('natural', hasEarthquakes || hasEonet);
   }
 
   async loadTechEvents(): Promise<void> {
     if (SITE_VARIANT !== 'tech' && !this.ctx.mapLayers.techEvents) return;
 
+    try {
+      const data = await fetchRelayPanel('tech-events');
+      if (data) {
+        this.applyTechEvents(data);
+        return;
+      }
+    } catch {}
     try {
       const data = await fetchTechEvents('conference', true, 90, 50);
       if (!data.success) throw new Error(data.error || 'Unknown error');
@@ -834,6 +848,7 @@ export class DataLoaderManager implements AppModule {
   }
 
   private renderWeatherAlerts(alerts: import('@/services/weather').WeatherAlert[]): void {
+    this.ctx.intelligenceCache.weatherAlerts = alerts;
     this.ctx.map?.setWeatherAlerts(alerts);
     this.ctx.map?.setLayerReady('weather', alerts.length > 0);
     this.ctx.statusPanel?.updateFeed('Weather', { status: 'ok', itemCount: alerts.length });
@@ -841,14 +856,20 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadWeatherAlerts(): Promise<void> {
-    try {
-      const alerts = await fetchWeatherAlerts();
-      this.renderWeatherAlerts(alerts);
-    } catch (error) {
-      this.ctx.map?.setLayerReady('weather', false);
-      this.ctx.statusPanel?.updateFeed('Weather', { status: 'error' });
-      dataFreshness.recordError('weather', String(error));
+    if (this.ctx.intelligenceCache.weatherAlerts) {
+      this.renderWeatherAlerts(this.ctx.intelligenceCache.weatherAlerts);
+      return;
     }
+    try {
+      const data = await fetchRelayPanel('weather');
+      if (data) {
+        this.applyWeatherAlerts(data);
+        return;
+      }
+    } catch {}
+    this.ctx.map?.setLayerReady('weather', false);
+    dataFreshness.recordError('weather', 'Relay data unavailable');
+    this.ctx.statusPanel?.updateFeed('Weather', { status: 'error' });
   }
 
   async loadIntelligenceSignals(): Promise<void> {
@@ -874,44 +895,15 @@ export class DataLoaderManager implements AppModule {
 
     const protestsTask = (async (): Promise<SocialUnrestEvent[]> => {
       try {
-        const protestData = await fetchProtestEvents();
-        this.ctx.intelligenceCache.protests = protestData;
-        ingestProtests(protestData.events);
-        ingestProtestsForCII(protestData.events);
-        signalAggregator.ingestProtests(protestData.events);
-        const protestCount = protestData.sources.acled + protestData.sources.gdelt;
-        if (protestCount > 0) dataFreshness.recordUpdate('acled', protestCount);
-        if (protestData.sources.gdelt > 0) dataFreshness.recordUpdate('gdelt', protestData.sources.gdelt);
-        if (protestData.sources.gdelt > 0) dataFreshness.recordUpdate('gdelt_doc', protestData.sources.gdelt);
-        if (this.ctx.mapLayers.protests) {
-          this.ctx.map?.setProtests(protestData.events);
-          this.ctx.map?.setLayerReady('protests', protestData.events.length > 0);
-          const status = getProtestStatus();
-          this.ctx.statusPanel?.updateFeed('Protests', {
-            status: 'ok',
-            itemCount: protestData.events.length,
-            errorMessage: status.acledConfigured === false ? 'ACLED not configured - using GDELT only' : undefined,
-          });
+        const data = await fetchRelayPanel('conflict');
+        if (data) {
+          this.applyConflict(data);
+          return this.ctx.intelligenceCache.protests?.events || [];
         }
-        return protestData.events;
-      } catch (error) {
-        console.error('[Intelligence] Protests fetch failed:', error);
-        dataFreshness.recordError('acled', String(error));
-        return [];
-      }
+      } catch {}
+      return [];
     })();
     tasks.push(protestsTask.then(() => undefined));
-
-    tasks.push((async () => {
-      try {
-        const conflictData = await fetchConflictEvents();
-        ingestConflictsForCII(conflictData.events);
-        if (conflictData.count > 0) dataFreshness.recordUpdate('acled_conflict', conflictData.count);
-      } catch (error) {
-        console.error('[Intelligence] Conflict events fetch failed:', error);
-        dataFreshness.recordError('acled_conflict', String(error));
-      }
-    })());
 
     tasks.push((async () => {
       try {
@@ -1193,6 +1185,14 @@ export class DataLoaderManager implements AppModule {
       return;
     }
 
+    try {
+      const data = await fetchRelayPanel('cyber');
+      if (data) {
+        this.applyCyberThreats(data);
+        return;
+      }
+    } catch {}
+
     const threats = fetchCyberThreats();
     if (threats.length > 0) {
       this.renderCyberThreats(threats);
@@ -1202,12 +1202,18 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadIranEvents(): Promise<void> {
-    try {
-      const events = await fetchIranEvents();
-      this.renderIranEvents(events);
-    } catch {
-      this.ctx.map?.setLayerReady('iranAttacks', false);
+    if (this.ctx.intelligenceCache.iranEvents) {
+      this.renderIranEvents(this.ctx.intelligenceCache.iranEvents);
+      return;
     }
+    try {
+      const data = await fetchRelayPanel('iran-events');
+      if (data) {
+        this.applyIranEvents(data);
+        return;
+      }
+    } catch {}
+    this.ctx.map?.setLayerReady('iranAttacks', false);
   }
 
   private renderAisSignals(disruptions: import('@/types').AisDisruptionEvent[], density: import('@/types').AisDensityZone[]): void {
@@ -1246,14 +1252,15 @@ export class DataLoaderManager implements AppModule {
 
   async loadAisSignals(): Promise<void> {
     try {
-      const { disruptions, density } = await fetchAisSignals();
-      this.renderAisSignals(disruptions, density);
-    } catch (error) {
-      this.ctx.map?.setLayerReady('ais', false);
-      this.ctx.statusPanel?.updateFeed('Shipping', { status: 'error', errorMessage: String(error) });
-      this.ctx.statusPanel?.updateApi('AISStream', { status: 'error' });
-      dataFreshness.recordError('ais', String(error));
-    }
+      const data = await fetchRelayPanel('ais');
+      if (data) {
+        this.applyAisSignals(data);
+        return;
+      }
+    } catch {}
+    this.ctx.map?.setLayerReady('ais', false);
+    this.ctx.statusPanel?.updateFeed('Shipping', { status: 'error', errorMessage: 'No data from relay' });
+    this.ctx.statusPanel?.updateApi('AISStream', { status: 'error' });
   }
 
   waitForAisData(): void {
@@ -1307,10 +1314,14 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadCableHealth(): Promise<void> {
-    const healthData = fetchCableHealth();
-    if (Object.keys(healthData.cables).length > 0) {
-      this.renderCableHealth(healthData.cables);
-    }
+    try {
+      const data = await fetchRelayPanel('cables');
+      if (data) {
+        this.applyCableHealth(data);
+        return;
+      }
+    } catch {}
+    this.ctx.map?.setLayerReady('cables', false);
   }
 
   async loadProtests(): Promise<void> {
@@ -1334,37 +1345,17 @@ export class DataLoaderManager implements AppModule {
       return;
     }
     try {
-      const protestData = await fetchProtestEvents();
-      this.ctx.intelligenceCache.protests = protestData;
-      this.ctx.map?.setProtests(protestData.events);
-      this.ctx.map?.setLayerReady('protests', protestData.events.length > 0);
-      ingestProtests(protestData.events);
-      ingestProtestsForCII(protestData.events);
-      signalAggregator.ingestProtests(protestData.events);
-      const protestCount = protestData.sources.acled + protestData.sources.gdelt;
-      if (protestCount > 0) dataFreshness.recordUpdate('acled', protestCount);
-      if (protestData.sources.gdelt > 0) dataFreshness.recordUpdate('gdelt', protestData.sources.gdelt);
-      if (protestData.sources.gdelt > 0) dataFreshness.recordUpdate('gdelt_doc', protestData.sources.gdelt);
-      (this.ctx.panels['cii'] as CIIPanel)?.refresh();
-      const status = getProtestStatus();
-      this.ctx.statusPanel?.updateFeed('Protests', {
-        status: 'ok',
-        itemCount: protestData.events.length,
-        errorMessage: status.acledConfigured === false ? 'ACLED not configured - using GDELT only' : undefined,
-      });
-      if (status.acledConfigured === true) {
-        this.ctx.statusPanel?.updateApi('ACLED', { status: 'ok' });
-      } else if (status.acledConfigured === null) {
-        this.ctx.statusPanel?.updateApi('ACLED', { status: 'warning' });
+      const data = await fetchRelayPanel('conflict');
+      if (data) {
+        this.applyConflict(data);
+        return;
       }
-      this.ctx.statusPanel?.updateApi('GDELT Doc', { status: 'ok' });
-    } catch (error) {
-      this.ctx.map?.setLayerReady('protests', false);
-      this.ctx.statusPanel?.updateFeed('Protests', { status: 'error', errorMessage: String(error) });
-      this.ctx.statusPanel?.updateApi('ACLED', { status: 'error' });
-      this.ctx.statusPanel?.updateApi('GDELT Doc', { status: 'error' });
-      dataFreshness.recordError('gdelt_doc', String(error));
-    }
+    } catch {}
+
+    this.ctx.map?.setLayerReady('protests', false);
+    this.ctx.statusPanel?.updateFeed('Protests', { status: 'error', errorMessage: 'No data from relay' });
+    this.ctx.statusPanel?.updateApi('ACLED', { status: 'error' });
+    this.ctx.statusPanel?.updateApi('GDELT Doc', { status: 'error' });
   }
 
   private renderFlightDelays(delays: import('@/services/aviation').AirportDelayAlert[]): void {
@@ -1381,14 +1372,20 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadFlightDelays(): Promise<void> {
-    try {
-      const delays = await fetchFlightDelays();
-      this.renderFlightDelays(delays);
-    } catch (error) {
-      this.ctx.map?.setLayerReady('flights', false);
-      this.ctx.statusPanel?.updateFeed('Flights', { status: 'error', errorMessage: String(error) });
-      this.ctx.statusPanel?.updateApi('FAA', { status: 'error' });
+    if (this.ctx.intelligenceCache.flightDelays) {
+      this.renderFlightDelays(this.ctx.intelligenceCache.flightDelays);
+      return;
     }
+    try {
+      const data = await fetchRelayPanel('flights');
+      if (data) {
+        this.applyFlightDelays(data);
+        return;
+      }
+    } catch {}
+    this.ctx.map?.setLayerReady('flights', false);
+    this.ctx.statusPanel?.updateFeed('Flights', { status: 'error', errorMessage: 'No data from relay' });
+    this.ctx.statusPanel?.updateApi('FAA', { status: 'error' });
   }
 
   async loadMilitary(): Promise<void> {
@@ -1553,7 +1550,7 @@ export class DataLoaderManager implements AppModule {
             this.renderFredData(retryData);
             return;
           }
-        } catch { /* fall through */ }
+        } catch {}
       }
       this.ctx.statusPanel?.updateApi('FRED', { status: 'error' });
       economicPanel?.setErrorState(true, 'FRED data temporarily unavailable — will retry');
@@ -1598,13 +1595,16 @@ export class DataLoaderManager implements AppModule {
 
   async loadGovernmentSpending(): Promise<void> {
     try {
-      const data = await fetchRecentAwards({ daysBack: 7, limit: 15 });
-      this.renderSpending(data);
+      const data = await fetchRelayPanel('spending');
+      if (data) {
+        this.applySpending(data);
+        return;
+      }
     } catch (e) {
       console.error('[App] Government spending failed:', e);
-      this.ctx.statusPanel?.updateApi('USASpending', { status: 'error' });
-      dataFreshness.recordError('spending', String(e));
     }
+    this.ctx.statusPanel?.updateApi('USASpending', { status: 'error' });
+    dataFreshness.recordError('spending', 'No data from relay');
   }
 
   private renderBisData(data: BisData): void {
@@ -1782,19 +1782,23 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadFirmsData(): Promise<void> {
-    const fireResult = fetchAllFires(1);
-    if (fireResult.skipped) {
-      this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
+    if (this.firesCache && (this.firesCache.fireDetections?.length ?? 0) > 0) {
+      this.renderNatural(this.firesCache);
       return;
     }
-    const data: ListFireDetectionsResponse = {
-      fireDetections: flattenFires(fireResult.regions),
-    };
-    this.renderNatural(data);
+    try {
+      const data = await fetchRelayPanel('natural');
+      if (data) {
+        this.applyNatural(data);
+        return;
+      }
+    } catch {}
+    this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
   }
 
   private renderNatural(data: ListFireDetectionsResponse): void {
     const detections = data.fireDetections ?? [];
+    if (detections.length > 0) this.firesCache = data;
     if (detections.length === 0) {
       ingestSatelliteFiresForCII([]);
       (this.ctx.panels['cii'] as CIIPanel)?.refresh();
@@ -2375,6 +2379,34 @@ export class DataLoaderManager implements AppModule {
     if (data.count === 0) return;
     ingestConflictsForCII(data.events);
     dataFreshness.recordUpdate('acled_conflict', data.count);
+    const protestEvents: SocialUnrestEvent[] = data.events.map((e) => ({
+      id: e.id,
+      title: e.location || e.country,
+      eventType: 'civil_unrest' as const,
+      country: e.country,
+      region: e.region,
+      lat: e.lat,
+      lon: e.lon,
+      time: e.time,
+      severity: (e.fatalities > 0 ? 'high' : 'medium') as import('@/types').ProtestSeverity,
+      sources: [e.source],
+      sourceType: 'acled' as const,
+      confidence: 'high' as const,
+      validated: false,
+    }));
+    this.ctx.intelligenceCache.protests = { events: protestEvents, sources: { acled: data.count, gdelt: 0 } };
+    if (this.ctx.mapLayers.protests) {
+      this.ctx.map?.setProtests(protestEvents);
+      this.ctx.map?.setLayerReady('protests', protestEvents.length > 0);
+    }
+    ingestProtests(protestEvents);
+    ingestProtestsForCII(protestEvents);
+    signalAggregator.ingestProtests(protestEvents);
+    const status = getProtestStatus();
+    this.ctx.statusPanel?.updateFeed('Protests', { status: 'ok', itemCount: protestEvents.length, errorMessage: status.acledConfigured === false ? 'ACLED not configured - using GDELT only' : undefined });
+    this.ctx.statusPanel?.updateApi('ACLED', status.acledConfigured === true ? { status: 'ok' } : status.acledConfigured === null ? { status: 'warning' } : { status: 'error' });
+    this.ctx.statusPanel?.updateApi('GDELT Doc', { status: 'ok' });
+    (this.ctx.panels['cii'] as CIIPanel)?.refresh();
   }
 
   applyUcdpEvents(payload: unknown): void {
@@ -2403,6 +2435,7 @@ export class DataLoaderManager implements AppModule {
   applyCableHealth(payload: unknown): void {
     const healthData = parseCableHealthPayload(payload);
     if (!healthData) return;
+    setCableHealthCache(healthData);
     this.renderCableHealth(healthData.cables);
   }
 
@@ -2502,6 +2535,7 @@ export class DataLoaderManager implements AppModule {
     }));
     this.ctx.map?.setTechEvents(mapEvents);
     this.ctx.map?.setLayerReady('techEvents', mapEvents.length > 0);
+    (this.ctx.panels['events'] as TechEventsPanel | undefined)?.setEvents(data.events);
     this.ctx.statusPanel?.updateFeed('Tech Events', { status: 'ok', itemCount: mapEvents.length });
     if (SITE_VARIANT === 'tech' && this.ctx.searchModal) {
       this.ctx.searchModal.registerSource('techevent', mapEvents.map((e: { id: string; title: string; location: string; startDate: string }) => ({

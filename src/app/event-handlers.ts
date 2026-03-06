@@ -3,14 +3,9 @@ import type { PanelConfig } from '@/types';
 import type { MapView } from '@/components';
 import type { ClusteredEvent } from '@/types';
 import type { DashboardSnapshot } from '@/services/storage';
-import {
-  PlaybackControl,
-  StatusPanel,
-  MobileWarningModal,
-  PizzIntIndicator,
-  CIIPanel,
-  PredictionPanel,
-} from '@/components';
+import { PlaybackControl, StatusPanel, MobileWarningModal, PizzIntIndicator } from '@/components';
+import type { CIIPanel } from '@/components/CIIPanel';
+import type { PredictionPanel } from '@/components/PredictionPanel';
 import {
   buildMapUrl,
   debounce,
