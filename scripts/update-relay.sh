@@ -212,12 +212,19 @@ if [[ -z "$(env_get VITE_WS_RELAY_URL)" ]]; then
   warn "VITE_WS_RELAY_URL not set in local .env (ensure it is set in Vercel build env)."
 fi
 
-# REDIS_URL: local Redis for relay direct-fetch cache (Phase 0+).
+# REDIS_URL: local Redis for relay direct-fetch cache.
 # Defaults to redis://localhost:6379 when not set.
 if [[ -z "$(env_get REDIS_URL)" ]]; then
   warn "REDIS_URL not set — using default redis://localhost:6379."
   env_set "REDIS_URL" "redis://localhost:6379"
 fi
+
+# Supabase client — required for config:news-sources, config:feature-flags, markets, news channels.
+prompt_env "SUPABASE_URL" "Supabase project URL (e.g. https://xxx.supabase.co)" "required"
+prompt_env "SUPABASE_ANON_KEY" "Supabase anon key" "required"
+
+# Optional API keys — channels that need them will warn and skip if unset.
+prompt_env "ACLED_ACCESS_TOKEN" "ACLED access token (for strategic-risk / iran-events)" "optional"
 
 if [[ "${VALIDATION_ERRORS}" -gt 0 ]]; then
   die "Environment validation failed with ${VALIDATION_ERRORS} error(s)."

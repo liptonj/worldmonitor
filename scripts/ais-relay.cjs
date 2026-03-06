@@ -187,6 +187,9 @@ redis.on('connect', () => {
   console.log('[redis] connected to local Redis');
 });
 
+// Eagerly connect so Redis is ready before the first cron fires.
+redis.connect().catch(() => {/* error logged by error handler above */});
+
 const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY
   ? createSupabaseClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
   : null;
@@ -5447,7 +5450,7 @@ async function fetchCyber() {
   ]);
   const combined = [...feodo, ...urlhaus];
   const threats = combined.slice(0, 500).map(toProtoCyberThreat);
-  return threats.length > 0 ? { threats } : null;
+  return { threats };
 }
 
 // Service status: simplified — fetch statuspage JSON for key services
