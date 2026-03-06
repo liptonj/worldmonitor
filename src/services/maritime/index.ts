@@ -412,6 +412,9 @@ export function getAisStatus(): { connected: boolean; vessels: number; messages:
   };
 }
 
+/**
+ * @deprecated Replaced by relay push (ais channel). Data now comes via fetchRelayPanel('ais') / applyAisSignals.
+ */
 export async function fetchAisSignals(): Promise<{ disruptions: AisDisruptionEvent[]; density: AisDensityZone[] }> {
   if (!aisConfigured) {
     return { disruptions: [], density: [] };

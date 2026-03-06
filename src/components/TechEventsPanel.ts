@@ -3,15 +3,12 @@ import { t } from '@/services/i18n';
 import { sanitizeUrl } from '@/utils/sanitize';
 import { h, replaceChildren } from '@/utils/dom-utils';
 import { isDesktopRuntime } from '@/services/runtime';
-import { ResearchServiceClient } from '@/generated/client/worldmonitor/research/v1/service_client';
 import type { TechEvent } from '@/generated/client/worldmonitor/research/v1/service_client';
 import { fetchRelayPanel } from '@/services/relay-http';
 import type { NewsItem, DeductContextDetail } from '@/types';
 import { buildNewsContext } from '@/utils/news-context';
 
 type ViewMode = 'upcoming' | 'conferences' | 'earnings' | 'all';
-
-const researchClient = new ResearchServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 
 export class TechEventsPanel extends Panel {
   private viewMode: ViewMode = 'upcoming';
@@ -50,40 +47,11 @@ export class TechEventsPanel extends Panel {
         this.setEvents(data.events);
         return;
       }
-    } catch { /* fall through to gRPC */ }
+    } catch { /* fall through */ }
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const data = await researchClient.listTechEvents({
-          type: '',
-          mappable: false,
-          days: 180,
-          limit: 100,
-        });
-        if (!data.success) throw new Error(data.error || 'Unknown error');
-
-        this.events = data.events;
-        this.setCount(data.conferenceCount);
-        this.error = null;
-
-        if (this.events.length === 0 && attempt < 2) {
-          this.showRetrying();
-          await new Promise(r => setTimeout(r, 15_000));
-          continue;
-        }
-        break;
-      } catch (err) {
-        if (this.isAbortError(err)) return;
-        if (attempt < 2) {
-          this.showRetrying();
-          await new Promise(r => setTimeout(r, 15_000));
-          continue;
-        }
-        this.error = err instanceof Error ? err.message : 'Failed to fetch events';
-        console.error('[TechEvents] Fetch error:', err);
-      }
-    }
     this.loading = false;
+    this.error = 'No data from relay';
+    this.setCount(0);
     this.render();
   }
 

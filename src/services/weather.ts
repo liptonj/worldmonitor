@@ -37,6 +37,9 @@ interface NWSResponse {
 const NWS_API = 'https://api.weather.gov/alerts/active';
 const breaker = createCircuitBreaker<WeatherAlert[]>({ name: 'NWS Weather', cacheTtlMs: 30 * 60 * 1000, persistCache: true });
 
+/**
+ * @deprecated Replaced by relay push (weather channel). Data now comes via fetchRelayPanel('weather') / applyWeatherAlerts.
+ */
 export async function fetchWeatherAlerts(): Promise<WeatherAlert[]> {
   return breaker.execute(async () => {
     const response = await fetch(NWS_API, {
