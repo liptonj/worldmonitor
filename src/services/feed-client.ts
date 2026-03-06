@@ -1,7 +1,7 @@
 // src/services/feed-client.ts
 import type { Feed } from '@/types';
 import { getHydratedNewsSources } from '@/services/bootstrap';
-import { relayRssUrl, RELAY_HTTP_BASE } from '@/services/relay-http';
+import { RELAY_HTTP_BASE } from '@/services/relay-http';
 
 // Static structural config — region keys to label keys and feed category keys
 export const SOURCE_REGION_MAP: Record<string, { labelKey: string; feedKeys: string[] }> = {
@@ -88,7 +88,7 @@ function buildFeedsFromSources(): void {
   for (const src of _sources) {
     const url =
       typeof src.url === 'string'
-        ? relayRssUrl(src.url)
+        ? `/api/rss-proxy?url=${encodeURIComponent(src.url)}`
         : src.url;
     const feed: Feed = { name: src.name, url };
     if (src.category === 'intel') {

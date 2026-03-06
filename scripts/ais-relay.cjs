@@ -3310,6 +3310,10 @@ const PHASE4_CHANNEL_KEYS = {
   'config:feature-flags': 'relay:config:feature-flags',
   climate: 'relay:climate:v1',
   conflict: 'relay:conflict:v1',
+  'news:full': 'news:digest:v1:full:en',
+  'news:tech': 'news:digest:v1:tech:en',
+  'news:finance': 'news:digest:v1:finance:en',
+  'news:happy': 'news:digest:v1:happy:en',
 };
 
 // Map relay channel keys to frontend hydration keys (bootstrap.ts, getHydratedData, etc.)

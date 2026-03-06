@@ -60,46 +60,43 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
     }
 
     if (!error && row) {
+      const providerName = row.name ?? '';
+
+      // Ollama: resolve entirely via get_ollama_credentials (anon-accessible, SECURITY DEFINER).
+      // Ollama authenticates via CF Access headers, not an API key.
+      if (providerName === 'ollama') {
+        const ollamaProvider = await resolveOllamaProvider(supabase);
+        if (ollamaProvider) {
+          if (redis) {
+            try { await redis.setex('wm:llm:active-provider:v1', PROVIDER_CACHE_TTL, JSON.stringify(ollamaProvider)); } catch { /* non-fatal */ }
+          }
+          return ollamaProvider;
+        }
+        console.error('[LLM] Ollama is active provider but get_ollama_credentials failed');
+        return null;
+      }
+
+      // Non-Ollama providers: resolve API key via getSecret (needs service role for vault)
       const secretName = row.api_key_secret_name;
       if (!secretName) {
-        console.error('[LLM] Provider %s has no api_key_secret_name', row.name);
+        console.error('[LLM] Provider %s has no api_key_secret_name', providerName);
         return null;
       }
       const apiKey = await getSecret(secretName);
       if (!apiKey) {
-        console.error('[LLM] Could not resolve secret %s for provider %s', secretName, row.name);
+        console.error('[LLM] Could not resolve secret %s for provider %s', secretName, providerName);
+        return null;
       }
-      if (apiKey) {
-        const extraHeaders: Record<string, string> = {};
-        if ((row.name ?? '') === 'ollama') {
-          try {
-            const anonClient = createAnonClient();
-            const { data: credsData } = await anonClient.rpc('get_ollama_credentials');
-            if (Array.isArray(credsData) && credsData.length > 0) {
-              const creds = credsData[0] as { cf_access_client_id?: string | null; cf_access_client_secret?: string | null };
-              if (creds.cf_access_client_id) extraHeaders['CF-Access-Client-Id'] = creds.cf_access_client_id;
-              if (creds.cf_access_client_secret) extraHeaders['CF-Access-Client-Secret'] = creds.cf_access_client_secret;
-            }
-          } catch { /* non-fatal — CF Access headers optional if endpoint allows */ }
-          if (!extraHeaders['CF-Access-Client-Id'] && process.env.OLLAMA_CF_ACCESS_CLIENT_ID) {
-            extraHeaders['CF-Access-Client-Id'] = process.env.OLLAMA_CF_ACCESS_CLIENT_ID;
-          }
-          if (!extraHeaders['CF-Access-Client-Secret'] && process.env.OLLAMA_CF_ACCESS_CLIENT_SECRET) {
-            extraHeaders['CF-Access-Client-Secret'] = process.env.OLLAMA_CF_ACCESS_CLIENT_SECRET;
-          }
-        }
-        const provider: LlmProvider = {
-          name: row.name ?? '',
-          apiUrl: row.api_url ?? '',
-          model: row.default_model ?? '',
-          apiKey,
-          ...(Object.keys(extraHeaders).length > 0 ? { extraHeaders } : {}),
-        };
-        if (redis) {
-          try { await redis.setex('wm:llm:active-provider:v1', PROVIDER_CACHE_TTL, JSON.stringify(provider)); } catch { /* non-fatal */ }
-        }
-        return provider;
+      const provider: LlmProvider = {
+        name: providerName,
+        apiUrl: row.api_url ?? '',
+        model: row.default_model ?? '',
+        apiKey,
+      };
+      if (redis) {
+        try { await redis.setex('wm:llm:active-provider:v1', PROVIDER_CACHE_TTL, JSON.stringify(provider)); } catch { /* non-fatal */ }
       }
+      return provider;
     } else if (!row) {
       console.error('[LLM] RPC get_active_llm_provider returned no rows');
     }
@@ -109,6 +106,47 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
 
   // 3. No provider available
   return null;
+}
+
+interface OllamaCredentials {
+  api_url?: string | null;
+  model?: string | null;
+  cf_access_client_id?: string | null;
+  cf_access_client_secret?: string | null;
+}
+
+async function resolveOllamaProvider(
+  supabase: ReturnType<typeof createAnonClient>,
+): Promise<LlmProvider | null> {
+  try {
+    const { data, error } = await supabase.rpc('get_ollama_credentials');
+    if (error) {
+      console.error('[LLM] RPC get_ollama_credentials error:', error.message);
+      return null;
+    }
+    const creds = (Array.isArray(data) && data.length > 0 ? data[0] : null) as OllamaCredentials | null;
+    if (!creds?.api_url) {
+      console.error('[LLM] get_ollama_credentials returned no api_url');
+      return null;
+    }
+
+    const extraHeaders: Record<string, string> = {};
+    if (creds.cf_access_client_id) extraHeaders['CF-Access-Client-Id'] = creds.cf_access_client_id;
+    if (creds.cf_access_client_secret) extraHeaders['CF-Access-Client-Secret'] = creds.cf_access_client_secret;
+
+    const chatUrl = creds.api_url.replace(/\/+$/, '') + '/chat/completions';
+
+    return {
+      name: 'ollama',
+      apiUrl: chatUrl,
+      model: creds.model ?? '',
+      apiKey: 'ollama',
+      ...(Object.keys(extraHeaders).length > 0 ? { extraHeaders } : {}),
+    };
+  } catch (err) {
+    console.error('[LLM] resolveOllamaProvider exception:', err);
+    return null;
+  }
 }
 
 /**
