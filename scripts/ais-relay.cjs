@@ -594,6 +594,9 @@ const ALLOWED_CHANNELS = new Set([
   'telegram', 'gulf-quotes', 'tech-events', 'oref', 'iran-events',
   'gps-interference', 'eonet', 'gdacs', 'config:news-sources',
   'config:feature-flags', 'climate', 'conflict', 'ucdp-events',
+  'ai:intel-digest', 'ai:panel-summary', 'ai:article-summaries',
+  'ai:classifications', 'ai:country-briefs', 'ai:posture-analysis',
+  'ai:instability-analysis', 'ai:risk-overview',
 ]);
 const CHANNEL_PATTERN = /^[a-z0-9:_-]{1,63}$/;
 const MAX_CHANNELS_PER_CLIENT = 50;
@@ -3618,6 +3621,14 @@ const PHASE4_CHANNEL_KEYS = {
   telegram: 'relay:telegram:v1',
   oref: 'relay:oref:v1',
   ais: 'relay:ais-snapshot:v1',
+  'ai:intel-digest': 'ai:digest:global:v1',
+  'ai:panel-summary': 'ai:panel-summary:v1',
+  'ai:article-summaries': 'ai:article-summaries:v1',
+  'ai:classifications': 'ai:classifications:v1',
+  'ai:country-briefs': 'ai:country-briefs:v1',
+  'ai:posture-analysis': 'ai:posture-analysis:v1',
+  'ai:instability-analysis': 'ai:instability-analysis:v1',
+  'ai:risk-overview': 'ai:risk-overview:v1',
 };
 
 // Map relay channel keys to frontend hydration keys (bootstrap.ts, getHydratedData, etc.)
