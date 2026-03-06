@@ -4959,6 +4959,75 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       safeEnd(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({ error: err?.message ?? 'fetch failed', articles: [] }));
     }
+  } else if (req.method === 'POST' && pathname === '/api/deduct') {
+    // ── HTTP: Deduction endpoint ──────────────────────────────────────────────
+    // POST /api/deduct — user-triggered situation analysis via Ollama
+    // Auth is already checked above for all non-public routes; reach here only if authorized.
+    let body = '';
+    req.on('data', chunk => { body += chunk; if (body.length > 10_000) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const parsed = JSON.parse(body);
+        const query = typeof parsed.query === 'string' ? parsed.query.slice(0, 500) : '';
+        const geoContext = typeof parsed.geoContext === 'string' ? parsed.geoContext.slice(0, 2000) : '';
+
+        if (!query) {
+          safeEnd(res, 400, { 'Content-Type': 'application/json' },
+            JSON.stringify({ error: 'query is required' }));
+          return;
+        }
+
+        const cacheKey = `ai:deduct:v1:${simpleHash((query + '|' + geoContext).toLowerCase())}`;
+        const cached = await redisGet(cacheKey);
+        if (cached) {
+          sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(cached));
+          return;
+        }
+
+        const prompt = await loadLlmPrompt('deduction');
+        if (!prompt) {
+          safeEnd(res, 503, { 'Content-Type': 'application/json' },
+            JSON.stringify({ error: 'Deduction prompt not configured' }));
+          return;
+        }
+
+        const newsData = await redisGet('relay:news:full:v1');
+        const headlines = (newsData?.items || []).slice(0, 15)
+          .map(i => i.title).filter(Boolean)
+          .map((h, idx) => `${idx + 1}. ${h}`).join('\n');
+
+        const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, {});
+        const userPrompt = buildPromptFromTemplate(prompt.userPrompt, {
+          query,
+          geoContext,
+          recentHeadlines: headlines,
+        });
+
+        const content = await callLlmForFunction('deduction',
+          [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+          { maxTokens: 1500, temperature: 0.3 },
+        );
+
+        if (!content) {
+          safeEnd(res, 503, { 'Content-Type': 'application/json' },
+            JSON.stringify({ error: 'LLM generation failed' }));
+          return;
+        }
+
+        const result = {
+          analysis: content,
+          model: 'multi-provider',
+          generatedAt: new Date().toISOString(),
+        };
+
+        await redisSetex(cacheKey, 3600, result);
+        sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(result));
+      } catch (err) {
+        console.error('[relay] /api/deduct error:', err?.message ?? err);
+        safeEnd(res, 500, { 'Content-Type': 'application/json' },
+          JSON.stringify({ error: 'Internal error' }));
+      }
+    });
   } else {
     res.writeHead(404);
     res.end();
