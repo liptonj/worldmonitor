@@ -1,6 +1,7 @@
 import type { GetGlobalIntelDigestResponse } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { Panel } from './Panel';
 import { IntelligenceServiceClient } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
+import { fetchRelayPanel } from '@/services/relay-http';
 import { h, replaceChildren } from '@/utils/dom-utils';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -38,6 +39,9 @@ export class GlobalDigestPanel extends Panel {
 
     replaceChildren(this.content, container);
 
+    // Show loading state; relay push will deliver digest via setDigest()
+    replaceChildren(this.contentEl, h('div', { className: 'digest-loading' }, 'Loading…'));
+
     if (!document.getElementById('global-digest-panel-styles')) {
       const style = document.createElement('style');
       style.id = 'global-digest-panel-styles';
@@ -58,7 +62,6 @@ export class GlobalDigestPanel extends Panel {
       document.head.appendChild(style);
     }
 
-    void this.fetch(false);
   }
 
   getSummaryData(): string | null {
@@ -94,10 +97,17 @@ export class GlobalDigestPanel extends Panel {
     if (this.isLoading) return;
     this.isLoading = true;
     this.refreshBtn.disabled = true;
-    replaceChildren(this.contentEl, h('div', { className: 'digest-loading' }, 'Synthesizing intelligence…'));
+    replaceChildren(this.contentEl, h('div', { className: 'digest-loading' }, forceRefresh ? 'Synthesizing intelligence…' : 'Loading…'));
     replaceChildren(this.footerEl);
 
     try {
+      if (!forceRefresh) {
+        const cached = await fetchRelayPanel<GetGlobalIntelDigestResponse>('intelligence');
+        if (cached?.digest) {
+          this.setDigest(cached);
+          return;
+        }
+      }
       const res = await client.getGlobalIntelDigest({ forceRefresh });
       if (!res.digest) {
         this.lastDigestText = null;

@@ -3,10 +3,8 @@ import { t } from '@/services/i18n';
 import { escapeHtml } from '@/utils/sanitize';
 import { formatPrice, formatChange, getChangeClass } from '@/utils';
 import { miniSparkline } from '@/utils/sparkline';
-import { MarketServiceClient } from '@/generated/client/worldmonitor/market/v1/service_client';
+import { fetchRelayPanel } from '@/services/relay-http';
 import type { ListGulfQuotesResponse, GulfQuote } from '@/generated/client/worldmonitor/market/v1/service_client';
-
-const client = new MarketServiceClient('', { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
 
 function renderSection(title: string, quotes: GulfQuote[]): string {
   if (quotes.length === 0) return '';
@@ -27,33 +25,23 @@ function renderSection(title: string, quotes: GulfQuote[]): string {
 }
 
 export class GulfEconomiesPanel extends Panel {
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private hasData = false;
 
   constructor() {
     super({ id: 'gulf-economies', title: t('panels.gulfEconomies') });
-    setTimeout(() => void this.fetchData(), 8_000);
-  }
-
-  destroy(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
-    super.destroy();
-  }
-
-  public async fetchData(): Promise<void> {
-    try {
-      const data = await client.listGulfQuotes({});
-      this.renderGulf(data);
-    } catch (err) {
-      if (this.isAbortError(err)) return;
-      this.showError(t('common.failedMarketData'));
-    }
-
-    if (!this.pollTimer) {
-      this.pollTimer = setInterval(() => void this.fetchData(), 60_000);
-    }
+    // Data comes from relay push via data-loader's applyGulfQuotes → setData()
+    // Delayed fallback ensures panel gets data even if relay push never delivers
+    setTimeout(() => {
+      if (!this.hasData) {
+        fetchRelayPanel<ListGulfQuotesResponse>('gulf-quotes')
+          .then(data => { if (data && !this.hasData) this.setData(data); })
+          .catch(() => {});
+      }
+    }, 10_000);
   }
 
   public setData(data: ListGulfQuotesResponse): void {
+    this.hasData = true;
     this.renderGulf(data);
   }
 

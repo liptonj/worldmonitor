@@ -120,6 +120,7 @@ import {
   GulfEconomiesPanel,
 } from '@/components';
 import type { GlobalDigestPanel } from '@/components/GlobalDigestPanel';
+import type { TechEventsPanel } from '@/components/TechEventsPanel';
 import { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
 import { classifyNewsItem } from '@/services/positive-classifier';
 import { filterBySentiment } from '@/services/sentiment-gate';
@@ -2637,6 +2638,7 @@ export class DataLoaderManager implements AppModule {
     }));
     this.ctx.map?.setTechEvents(mapEvents);
     this.ctx.map?.setLayerReady('techEvents', mapEvents.length > 0);
+    (this.ctx.panels['events'] as TechEventsPanel | undefined)?.setEvents(data.events);
     this.ctx.statusPanel?.updateFeed('Tech Events', { status: 'ok', itemCount: mapEvents.length });
     if (SITE_VARIANT === 'tech' && this.ctx.searchModal) {
       this.ctx.searchModal.registerSource('techevent', mapEvents.map((e: { id: string; title: string; location: string; startDate: string }) => ({

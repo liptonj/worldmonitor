@@ -5,6 +5,7 @@ import { h, replaceChildren } from '@/utils/dom-utils';
 import { isDesktopRuntime } from '@/services/runtime';
 import { ResearchServiceClient } from '@/generated/client/worldmonitor/research/v1/service_client';
 import type { TechEvent } from '@/generated/client/worldmonitor/research/v1/service_client';
+import { fetchRelayPanel } from '@/services/relay-http';
 import type { NewsItem, DeductContextDetail } from '@/types';
 import { buildNewsContext } from '@/utils/news-context';
 
@@ -21,13 +22,35 @@ export class TechEventsPanel extends Panel {
   constructor(id: string, private getLatestNews?: () => NewsItem[]) {
     super({ id, title: t('panels.events'), showCount: true });
     this.element.classList.add('panel-tall');
+    // Data comes from relay push via data-loader's applyTechEvents → setEvents()
+    // Initial fetch ensures panel gets data even if relay push never delivers
     void this.fetchEvents();
+    this.render();
+  }
+
+  /**
+   * Set events from relay-push payload. Does not fetch.
+   */
+  public setEvents(events: TechEvent[]): void {
+    this.events = events;
+    this.loading = false;
+    this.error = null;
+    this.setCount(events.filter(e => e.type === 'conference').length);
+    this.render();
   }
 
   private async fetchEvents(): Promise<void> {
     this.loading = true;
     this.error = null;
     this.render();
+
+    try {
+      const data = await fetchRelayPanel<{ success?: boolean; events?: TechEvent[]; conferenceCount?: number }>('tech-events');
+      if (data?.events && Array.isArray(data.events)) {
+        this.setEvents(data.events);
+        return;
+      }
+    } catch { /* fall through to gRPC */ }
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
