@@ -27,6 +27,7 @@ import {
   initAisStream,
   disconnectAisStream,
 } from '@/services';
+import { subscribeChannel, unsubscribeChannel } from '@/services/relay-push';
 import {
   trackPanelView,
   trackVariantSwitch,
@@ -779,9 +780,11 @@ export class EventHandlerManager implements AppModule {
       if (layer === 'ais') {
         if (enabled) {
           this.ctx.map?.setLayerLoading('ais', true);
+          subscribeChannel('ais');
           initAisStream();
           this.callbacks.waitForAisData();
         } else {
+          unsubscribeChannel('ais');
           disconnectAisStream();
         }
         return;

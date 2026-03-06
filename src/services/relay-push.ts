@@ -144,6 +144,23 @@ export function destroyRelayPush(): void {
   handlers.clear();
 }
 
+export function subscribeChannel(channel: string): void {
+  if (subscribedChannels.includes(channel)) return;
+  subscribedChannels.push(channel);
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'wm-subscribe', channels: [channel] }));
+  }
+}
+
+export function unsubscribeChannel(channel: string): void {
+  const idx = subscribedChannels.indexOf(channel);
+  if (idx === -1) return;
+  subscribedChannels.splice(idx, 1);
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'wm-unsubscribe', channels: [channel] }));
+  }
+}
+
 export function isRelayConnected(): boolean {
   return socket?.readyState === WebSocket.OPEN;
 }

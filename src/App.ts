@@ -33,7 +33,7 @@ import { DataLoaderManager } from '@/app/data-loader';
 import { EventHandlerManager } from '@/app/event-handlers';
 import { resolveUserRegion } from '@/utils/user-location';
 import { initDisplayPrefs } from '@/utils/display-prefs';
-import { initRelayPush, subscribe as subscribeRelayPush, destroyRelayPush } from '@/services/relay-push';
+import { initRelayPush, subscribe as subscribeRelayPush, destroyRelayPush, subscribeChannel } from '@/services/relay-push';
 
 const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
 
@@ -595,7 +595,6 @@ export class App {
       'natural',
       'cyber',
       'flights',
-      'ais',
       'weather',
       'spending',
       'giving',
@@ -631,6 +630,7 @@ export class App {
     subscribeRelayPush('cables',         (p) => { void dl.applyCableHealth(p); });
     subscribeRelayPush('flights',        (p) => { void dl.applyFlightDelays(p); });
     subscribeRelayPush('ais',            (p) => { void dl.applyAisSignals(p); });
+    if (this.state.mapLayers.ais) subscribeChannel('ais');
     subscribeRelayPush('weather',        (p) => { void dl.applyWeatherAlerts(p); });
     subscribeRelayPush('spending',       (p) => { void dl.applySpending(p); });
     subscribeRelayPush('giving',         (p) => { void dl.applyGiving(p); });
