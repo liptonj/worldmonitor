@@ -2,12 +2,12 @@
 // Runtime config comes from Supabase via feed-client.ts.
 import type { Feed } from '@/types';
 import { SITE_VARIANT } from './variant';
+import { relayRssUrl } from '@/services/relay-http';
 
-// Helper to create RSS proxy URL (Vercel)
-const rss = (url: string) => `/api/rss-proxy?url=${encodeURIComponent(url)}`;
+// Route all RSS feeds through the relay server (cached in Redis, no Vercel dependency).
+const rss = (url: string) => relayRssUrl(url);
 
 // Keep dedicated alias for feeds historically fetched through Railway.
-// `rss-proxy` now handles secure server-side fallback.
 const railwayRss = (url: string) => rss(url);
 
 // Source tier system for prioritization (lower = more authoritative)

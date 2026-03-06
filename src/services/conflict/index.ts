@@ -407,3 +407,23 @@ export async function fetchIranEvents(): Promise<IranEvent[]> {
   }, emptyIranFallback);
   return resp.events;
 }
+
+/** Map relay-pushed conflict payload (ListAcledEventsResponse) to ConflictData. */
+export function mapConflictPayload(resp: ListAcledEventsResponse): ConflictData {
+  const events = resp.events.map(toConflictEvent);
+  const byCountry = new Map<string, ConflictEvent[]>();
+  let totalFatalities = 0;
+  for (const event of events) {
+    totalFatalities += event.fatalities;
+    (byCountry.get(event.country) ?? byCountry.set(event.country, []).get(event.country)!).push(event);
+  }
+  return { events, byCountry, totalFatalities, count: events.length };
+}
+
+/** Map relay-pushed ucdp-events payload (relay's UcdpEventsResponse shape) to UcdpEventsResponse. */
+export function mapUcdpPayload(payload: unknown): UcdpEventsResponse | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const resp = payload as { success?: boolean; data?: UcdpGeoEvent[]; count?: number; cached_at?: string };
+  if (!Array.isArray(resp.data)) return null;
+  return { success: true, count: resp.data.length, data: resp.data, cached_at: resp.cached_at ?? '' };
+}

@@ -1,7 +1,7 @@
 // src/services/feed-client.ts
 import type { Feed } from '@/types';
-import { SITE_VARIANT } from '@/config/variant';
 import { getHydratedNewsSources } from '@/services/bootstrap';
+import { relayRssUrl, RELAY_HTTP_BASE } from '@/services/relay-http';
 
 // Static structural config — region keys to label keys and feed category keys
 export const SOURCE_REGION_MAP: Record<string, { labelKey: string; feedKeys: string[] }> = {
@@ -88,7 +88,7 @@ function buildFeedsFromSources(): void {
   for (const src of _sources) {
     const url =
       typeof src.url === 'string'
-        ? `/api/rss-proxy?url=${encodeURIComponent(src.url)}`
+        ? relayRssUrl(src.url)
         : src.url;
     const feed: Feed = { name: src.name, url };
     if (src.category === 'intel') {
@@ -108,10 +108,12 @@ export async function loadNewsSources(): Promise<void> {
   }
 
   try {
-    const variant = SITE_VARIANT || 'full';
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch(`/api/config/news-sources?variant=${variant}`, { signal: controller.signal });
+    const res = await fetch(`${RELAY_HTTP_BASE}/panel/config:news-sources`, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${import.meta.env.VITE_WS_RELAY_TOKEN ?? ''}` },
+    });
     clearTimeout(timer);
     if (!res.ok) return;
     _sources = await res.json();

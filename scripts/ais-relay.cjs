@@ -302,7 +302,7 @@ const ALLOWED_CHANNELS = new Set([
   'natural', 'bis', 'flights', 'ais', 'weather', 'spending', 'giving',
   'telegram', 'gulf-quotes', 'tech-events', 'oref', 'iran-events',
   'gps-interference', 'eonet', 'gdacs', 'config:news-sources',
-  'config:feature-flags',
+  'config:feature-flags', 'climate', 'conflict', 'ucdp-events',
 ]);
 const CHANNEL_PATTERN = /^[a-z0-9:_-]{1,63}$/;
 const MAX_CHANNELS_PER_CLIENT = 50;
@@ -3308,6 +3308,8 @@ const PHASE4_CHANNEL_KEYS = {
   giving: 'giving:summary:v1',
   'config:news-sources': 'relay:config:news-sources',
   'config:feature-flags': 'relay:config:feature-flags',
+  climate: 'relay:climate:v1',
+  conflict: 'relay:conflict:v1',
 };
 
 // Map relay channel keys to frontend hydration keys (bootstrap.ts, getHydratedData, etc.)
@@ -3319,6 +3321,8 @@ const CHANNEL_TO_HYDRATION_KEY = {
   'service-status': 'serviceStatuses',
   'supply-chain': 'chokepoints',
   'giving': 'giving',
+  climate: 'climateAnomalies',
+  conflict: 'acledEvents',
 };
 const PHASE4_MAP_KEYS = {
   'supply-chain': 'supply_chain:chokepoints:v1',
@@ -4178,7 +4182,7 @@ async function wtoFetch(path, params) {
     if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
     const res = await fetch(url.toString(), {
       headers: { 'Ocp-Apim-Subscription-Key': apiKey, 'User-Agent': CHROME_UA },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(30_000),
     });
     if (res.status === 204) return { Dataset: [] };
     if (!res.ok) return null;
@@ -5130,6 +5134,35 @@ async function fetchEonet() {
   return events;
 }
 
+// Fetches global climate anomaly data from NOAA NCEI.
+// Returns { anomalies: [] } matching ListClimateAnomaliesResponse proto shape.
+async function fetchClimateAnomaliesData() {
+  const currentYear = new Date().getFullYear();
+  const url = `https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/global/time-series/globe/land_ocean/ann/1/1990-${currentYear}.json`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`NOAA NCEI HTTP ${res.status}`);
+  const json = await res.json();
+  const entries = Object.entries(json.data ?? {});
+  const anomalies = [];
+  for (const [period, rawValue] of entries) {
+    const value = parseFloat(rawValue);
+    if (isNaN(value)) continue;
+    const absVal = Math.abs(value);
+    const severity = absVal >= 1.0 ? 'ANOMALY_SEVERITY_EXTREME' : absVal >= 0.5 ? 'ANOMALY_SEVERITY_MODERATE' : null;
+    if (!severity) continue;
+    anomalies.push({
+      zone: 'Global',
+      location: { latitude: 0, longitude: 0 },
+      tempDelta: value,
+      precipDelta: 0,
+      severity,
+      type: value > 0 ? 'ANOMALY_TYPE_WARM' : 'ANOMALY_TYPE_COLD',
+      period,
+    });
+  }
+  return { anomalies: anomalies.slice(-12) };
+}
+
 async function fetchGdacs() {
   const res = await fetch('https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP', {
     headers: { Accept: 'application/json' },
@@ -5909,6 +5942,37 @@ async function fetchStrategicRisk() {
   return { ciiScores, strategicRisks };
 }
 
+// --- fetchAcledConflictEvents: raw ACLED events in proto ListAcledEventsResponse shape ---
+async function fetchAcledConflictEvents() {
+  const token = process.env.ACLED_ACCESS_TOKEN;
+  if (!token) return null;
+  const endDate = new Date().toISOString().slice(0, 10);
+  const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const params = new URLSearchParams({
+    event_date: `${startDate}|${endDate}`, event_date_where: 'BETWEEN',
+    limit: '500', _format: 'json',
+  });
+  const resp = await fetch(`https://acleddata.com/api/acled/read?${params}`, {
+    headers: { Accept: 'application/json', Authorization: `Bearer ${token}`, 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(PHASE3C_TIMEOUT_MS),
+  });
+  if (!resp.ok) throw new Error(`ACLED HTTP ${resp.status}`);
+  const data = await resp.json();
+  const events = (data.data || []).map((e) => ({
+    id: String(e.data_id || e.event_id_cnty || ''),
+    eventType: (e.event_type || '').toLowerCase().replace(/\s+/g, '_'),
+    subEventType: e.sub_event_type || '',
+    country: e.country || '',
+    admin1: e.admin1 || '',
+    location: { latitude: parseFloat(e.latitude) || 0, longitude: parseFloat(e.longitude) || 0 },
+    occurredAt: e.event_date ? new Date(e.event_date).getTime() : 0,
+    fatalities: parseInt(e.fatalities, 10) || 0,
+    actors: [e.actor1, e.actor2].filter(Boolean),
+    source: e.source || 'ACLED',
+  }));
+  return { events };
+}
+
 // --- fetchPredictions: Polymarket Gamma API ---
 async function fetchPredictions() {
   const GAMMA_BASE = 'https://gamma-api.polymarket.com';
@@ -6345,6 +6409,22 @@ cron.schedule('*/30 * * * *', async () => {
 });
 cron.schedule('*/30 * * * *', async () => {
   try { await directFetchAndBroadcast('gdacs', 'relay:gdacs:v1', 1800, () => fetchGdacs().then((g) => g || null)); } catch (err) { console.error('[relay] gdacs cron error:', err?.message ?? err); }
+});
+cron.schedule('0 */6 * * *', async () => {
+  try { await directFetchAndBroadcast('climate', 'relay:climate:v1', 21600, fetchClimateAnomaliesData); } catch (err) { console.error('[relay] climate cron error:', err?.message ?? err); }
+});
+cron.schedule('*/30 * * * *', async () => {
+  if (!process.env.ACLED_ACCESS_TOKEN) return;
+  try { await directFetchAndBroadcast('conflict', 'relay:conflict:v1', 1800, fetchAcledConflictEvents); } catch (err) { console.error('[relay] conflict cron error:', err?.message ?? err); }
+});
+cron.schedule('0 */6 * * *', async () => {
+  if (!ucdpCache.data) return;
+  const payload = JSON.stringify({ channel: 'ucdp-events', data: ucdpCache.data });
+  let count = 0;
+  for (const [chan, clients] of channelSubscribers) {
+    if (chan === 'ucdp-events') { for (const ws of clients) { try { ws.send(payload); count++; } catch {} } }
+  }
+  if (count > 0) console.log(`[relay-cron] ucdp-events broadcast to ${count} clients`);
 });
 cron.schedule('*/5 * * * *', async () => {
   try { await directFetchAndBroadcast('gps-interference', 'relay:gps-interference:v1', 3600, fetchGpsInterference); } catch (err) { console.error('[relay] gps-interference cron error:', err?.message ?? err); }

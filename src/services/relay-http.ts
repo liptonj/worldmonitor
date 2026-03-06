@@ -1,9 +1,14 @@
 /**
- * Relay HTTP fetch helpers for bootstrap, panel, and map layer data.
- * Used when frontend fetches directly from relay.5ls.us instead of Vercel.
+ * Relay HTTP fetch helpers for bootstrap, panel, map layer, and RSS proxy data.
+ * All data routes go through the relay server — never through Vercel API routes.
  */
 
 export const RELAY_HTTP_BASE = import.meta.env.VITE_RELAY_HTTP_URL || 'https://relay.5ls.us';
+
+/** Build a relay RSS proxy URL for the given feed URL. */
+export function relayRssUrl(feedUrl: string): string {
+  return `${RELAY_HTTP_BASE}/rss?url=${encodeURIComponent(feedUrl)}`;
+}
 
 export function getRelayFetchHeaders(): HeadersInit {
   const token = import.meta.env.VITE_WS_RELAY_TOKEN as string | undefined;

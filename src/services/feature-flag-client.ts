@@ -1,6 +1,7 @@
 // src/services/feature-flag-client.ts
 import type { MlFeatureFlags, MlThresholds } from '@/config/ml-config';
 import { getHydratedFeatureFlags } from '@/services/bootstrap';
+import { RELAY_HTTP_BASE } from '@/services/relay-http';
 
 const FETCH_TIMEOUT_MS = 3_000;
 let _flags: Record<string, unknown> | null = null;
@@ -15,7 +16,10 @@ export async function loadFeatureFlags(): Promise<void> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch('/api/config/feature-flags', { signal: controller.signal });
+    const res = await fetch(`${RELAY_HTTP_BASE}/panel/config:feature-flags`, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${import.meta.env.VITE_WS_RELAY_TOKEN ?? ''}` },
+    });
     clearTimeout(timer);
     if (res.ok) {
       _flags = await res.json();

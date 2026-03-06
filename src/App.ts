@@ -622,6 +622,9 @@ export class App {
     subscribeRelayPush('trade',          (p) => { void dl.applyTradePolicy(p); });
     subscribeRelayPush('supply-chain',   (p) => { void dl.applySupplyChain(p); });
     subscribeRelayPush('natural',        (p) => { void dl.applyNatural(p); });
+    subscribeRelayPush('climate',        (p) => { void dl.applyClimate(p); });
+    subscribeRelayPush('conflict',       (p) => { void dl.applyConflict(p); });
+    subscribeRelayPush('ucdp-events',    (p) => { void dl.applyUcdpEvents(p); });
     subscribeRelayPush('cyber',          (p) => { void dl.applyCyberThreats(p); });
     subscribeRelayPush('cables',         (p) => { void dl.applyCableHealth(p); });
     subscribeRelayPush('flights',        (p) => { void dl.applyFlightDelays(p); });

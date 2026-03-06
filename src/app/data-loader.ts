@@ -66,9 +66,9 @@ import { fetchCachedTheaterPosture } from '@/services/cached-theater-posture';
 import { ingestProtestsForCII, ingestMilitaryForCII, ingestNewsForCII, ingestOutagesForCII, ingestConflictsForCII, ingestUcdpForCII, ingestHapiForCII, ingestDisplacementForCII, ingestClimateForCII, ingestStrikesForCII, ingestOrefForCII, ingestAviationForCII, ingestAdvisoriesForCII, ingestGpsJammingForCII, ingestAisDisruptionsForCII, ingestSatelliteFiresForCII, ingestCyberThreatsForCII, ingestTemporalAnomaliesForCII, isInLearningMode } from '@/services/country-instability';
 import { fetchGpsInterference, parseGpsJamPayload } from '@/services/gps-interference';
 import { dataFreshness, type DataSourceId } from '@/services/data-freshness';
-import { fetchConflictEvents, fetchUcdpClassifications, fetchAllHapiSummaries, fetchUcdpEvents, deduplicateAgainstAcled, fetchIranEvents } from '@/services/conflict';
+import { fetchConflictEvents, fetchUcdpClassifications, fetchAllHapiSummaries, fetchUcdpEvents, deduplicateAgainstAcled, fetchIranEvents, mapConflictPayload, mapUcdpPayload } from '@/services/conflict';
 import { fetchUnhcrPopulation } from '@/services/displacement';
-import { fetchClimateAnomalies } from '@/services/climate';
+import { fetchClimateAnomalies, mapClimatePayload } from '@/services/climate';
 import { fetchSecurityAdvisories } from '@/services/security-advisories';
 import { fetchTelegramFeed } from '@/services/telegram-intel';
 import { protoToGivingSummary, fetchGivingSummary } from '@/services/giving';
@@ -2387,6 +2387,36 @@ export class DataLoaderManager implements AppModule {
     const data = payload as ListFireDetectionsResponse;
     if (!Array.isArray(data.fireDetections)) return;
     this.renderNatural(data);
+  }
+
+  applyClimate(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const resp = payload as import('@/generated/client/worldmonitor/climate/v1/service_client').ListClimateAnomaliesResponse;
+    if (!Array.isArray(resp.anomalies)) return;
+    const anomalies = mapClimatePayload(resp);
+    if (anomalies.length === 0) return;
+    (this.ctx.panels['climate'] as ClimateAnomalyPanel)?.setAnomalies(anomalies);
+    ingestClimateForCII(anomalies);
+    if (this.ctx.mapLayers.climate) this.ctx.map?.setClimateAnomalies(anomalies);
+    dataFreshness.recordUpdate('climate', anomalies.length);
+  }
+
+  applyConflict(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const resp = payload as import('@/generated/client/worldmonitor/conflict/v1/service_client').ListAcledEventsResponse;
+    if (!Array.isArray(resp.events)) return;
+    const data = mapConflictPayload(resp);
+    if (data.count === 0) return;
+    ingestConflictsForCII(data.events);
+    dataFreshness.recordUpdate('acled_conflict', data.count);
+  }
+
+  applyUcdpEvents(payload: unknown): void {
+    const result = mapUcdpPayload(payload);
+    if (!result || !result.success || result.data.length === 0) return;
+    (this.ctx.panels['ucdp-events'] as UcdpEventsPanel)?.setEvents(result.data);
+    if (this.ctx.mapLayers.ucdpEvents) this.ctx.map?.setUcdpEvents(result.data);
+    dataFreshness.recordUpdate('ucdp_events', result.count);
   }
 
   applyCyberThreats(payload: unknown): void {

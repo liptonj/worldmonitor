@@ -66,6 +66,11 @@ export function formatDelta(value: number, unit: string): string {
   return `${sign}${value.toFixed(1)}${unit}`;
 }
 
+/** Map a relay-pushed payload directly to display anomalies. */
+export function mapClimatePayload(resp: ListClimateAnomaliesResponse): ClimateAnomaly[] {
+  return (resp.anomalies ?? []).map(toDisplayAnomaly).filter(a => a.severity !== 'normal');
+}
+
 // Internal: Map proto ClimateAnomaly -> consumer-friendly shape
 function toDisplayAnomaly(proto: ProtoClimateAnomaly): ClimateAnomaly {
   return {
