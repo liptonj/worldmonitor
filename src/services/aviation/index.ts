@@ -103,9 +103,7 @@ const breaker = createCircuitBreaker<AirportDelayAlert[]>({ name: 'Flight Delays
 
 // --- Main fetch (public API) ---
 
-/**
- * @deprecated Replaced by relay push (flights channel). Data now comes via fetchRelayPanel('flights') / applyFlightDelays.
- */
+/** @deprecated Use fetchRelayPanel('flights') / applyFlightDelays */
 export async function fetchFlightDelays(): Promise<AirportDelayAlert[]> {
   return breaker.execute(async () => {
     const response = await client.listAirportDelays({

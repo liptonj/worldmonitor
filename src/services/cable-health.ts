@@ -47,7 +47,6 @@ export function getCableHealthMap(): Record<string, CableHealthRecord> {
   return cachedResponse?.cables ?? {};
 }
 
-/** Set cached response from relay push payload. Call from applyCableHealth before render. */
 export function setCableHealthCache(data: CableHealthResponse): void {
   cachedResponse = data;
 }

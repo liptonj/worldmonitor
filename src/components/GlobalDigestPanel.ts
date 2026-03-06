@@ -39,7 +39,6 @@ export class GlobalDigestPanel extends Panel {
 
     replaceChildren(this.content, container);
 
-    // Show loading state; relay push will deliver digest via setDigest()
     replaceChildren(this.contentEl, h('div', { className: 'digest-loading' }, 'Loading…'));
 
     if (!document.getElementById('global-digest-panel-styles')) {
@@ -69,9 +68,6 @@ export class GlobalDigestPanel extends Panel {
     return `[Intelligence Digest]\n${this.lastDigestText}`;
   }
 
-  /**
-   * Set digest from relay-push payload. Does not fetch.
-   */
   setDigest(data: GetGlobalIntelDigestResponse): void {
     if (!data?.digest) {
       this.lastDigestText = null;

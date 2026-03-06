@@ -29,8 +29,6 @@ export class GulfEconomiesPanel extends Panel {
 
   constructor() {
     super({ id: 'gulf-economies', title: t('panels.gulfEconomies') });
-    // Data comes from relay push via data-loader's applyGulfQuotes → setData()
-    // Delayed fallback ensures panel gets data even if relay push never delivers
     setTimeout(() => {
       if (!this.hasData) {
         fetchRelayPanel<ListGulfQuotesResponse>('gulf-quotes')

@@ -85,9 +85,7 @@ function convertGDACSToNaturalEvent(gdacs: GDACSEvent): NaturalEvent {
   };
 }
 
-/**
- * @deprecated Replaced by relay push (eonet/gdacs channels). Data now comes via fetchRelayPanel('eonet') / applyEonet and fetchRelayPanel('gdacs') / applyGdacs.
- */
+/** @deprecated Use fetchRelayPanel('eonet') / applyEonet and fetchRelayPanel('gdacs') / applyGdacs */
 export async function fetchNaturalEvents(days = 30): Promise<NaturalEvent[]> {
   const [eonetEvents, gdacsEvents] = await Promise.all([
     fetchEonetEvents(days),

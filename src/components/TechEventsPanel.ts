@@ -19,15 +19,10 @@ export class TechEventsPanel extends Panel {
   constructor(id: string, private getLatestNews?: () => NewsItem[]) {
     super({ id, title: t('panels.events'), showCount: true });
     this.element.classList.add('panel-tall');
-    // Data comes from relay push via data-loader's applyTechEvents → setEvents()
-    // Initial fetch ensures panel gets data even if relay push never delivers
     void this.fetchEvents();
     this.render();
   }
 
-  /**
-   * Set events from relay-push payload. Does not fetch.
-   */
   public setEvents(events: TechEvent[]): void {
     this.events = events;
     this.loading = false;
@@ -47,7 +42,7 @@ export class TechEventsPanel extends Panel {
         this.setEvents(data.events);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
 
     this.loading = false;
     this.error = 'No data from relay';

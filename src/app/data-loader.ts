@@ -834,7 +834,7 @@ export class DataLoaderManager implements AppModule {
         this.applyTechEvents(data);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
     try {
       const data = await fetchTechEvents('conference', true, 90, 50);
       if (!data.success) throw new Error(data.error || 'Unknown error');
@@ -866,7 +866,7 @@ export class DataLoaderManager implements AppModule {
         this.applyWeatherAlerts(data);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
     this.ctx.map?.setLayerReady('weather', false);
     dataFreshness.recordError('weather', 'Relay data unavailable');
     this.ctx.statusPanel?.updateFeed('Weather', { status: 'error' });
@@ -900,7 +900,7 @@ export class DataLoaderManager implements AppModule {
           this.applyConflict(data);
           return this.ctx.intelligenceCache.protests?.events || [];
         }
-      } catch { /* fall through */ }
+      } catch {}
       return [];
     })();
     tasks.push(protestsTask.then(() => undefined));
@@ -1191,7 +1191,7 @@ export class DataLoaderManager implements AppModule {
         this.applyCyberThreats(data);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
 
     const threats = fetchCyberThreats();
     if (threats.length > 0) {
@@ -1212,7 +1212,7 @@ export class DataLoaderManager implements AppModule {
         this.applyIranEvents(data);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
     this.ctx.map?.setLayerReady('iranAttacks', false);
   }
 
@@ -1257,7 +1257,7 @@ export class DataLoaderManager implements AppModule {
         this.applyAisSignals(data);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
     this.ctx.map?.setLayerReady('ais', false);
     this.ctx.statusPanel?.updateFeed('Shipping', { status: 'error', errorMessage: 'No data from relay' });
     this.ctx.statusPanel?.updateApi('AISStream', { status: 'error' });
@@ -1320,7 +1320,7 @@ export class DataLoaderManager implements AppModule {
         this.applyCableHealth(data);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
     this.ctx.map?.setLayerReady('cables', false);
   }
 
@@ -1350,7 +1350,7 @@ export class DataLoaderManager implements AppModule {
         this.applyConflict(data);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
 
     this.ctx.map?.setLayerReady('protests', false);
     this.ctx.statusPanel?.updateFeed('Protests', { status: 'error', errorMessage: 'No data from relay' });
@@ -1382,7 +1382,7 @@ export class DataLoaderManager implements AppModule {
         this.applyFlightDelays(data);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
     this.ctx.map?.setLayerReady('flights', false);
     this.ctx.statusPanel?.updateFeed('Flights', { status: 'error', errorMessage: 'No data from relay' });
     this.ctx.statusPanel?.updateApi('FAA', { status: 'error' });
@@ -1550,7 +1550,7 @@ export class DataLoaderManager implements AppModule {
             this.renderFredData(retryData);
             return;
           }
-        } catch { /* fall through */ }
+        } catch {}
       }
       this.ctx.statusPanel?.updateApi('FRED', { status: 'error' });
       economicPanel?.setErrorState(true, 'FRED data temporarily unavailable — will retry');
@@ -1792,7 +1792,7 @@ export class DataLoaderManager implements AppModule {
         this.applyNatural(data);
         return;
       }
-    } catch { /* fall through */ }
+    } catch {}
     this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
   }
 
@@ -2379,7 +2379,6 @@ export class DataLoaderManager implements AppModule {
     if (data.count === 0) return;
     ingestConflictsForCII(data.events);
     dataFreshness.recordUpdate('acled_conflict', data.count);
-    // Also populate protests layer for map display (ConflictEvent adapted to SocialUnrestEvent)
     const protestEvents: SocialUnrestEvent[] = data.events.map((e) => ({
       id: e.id,
       title: e.location || e.country,
