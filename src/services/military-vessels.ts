@@ -10,7 +10,6 @@ import {
   registerAisCallback,
   unregisterAisCallback,
   isAisConfigured,
-  initAisStream,
   type AisPositionData,
 } from './maritime';
 import { fetchUSNIFleetReport, mergeUSNIWithAIS } from './usni-fleet';
@@ -506,11 +505,6 @@ export function initMilitaryVesselStream(): void {
   // Register callback with shared AIS stream
   registerAisCallback(processAisPosition);
   isTracking = true;
-
-  // Ensure AIS stream is running
-  if (isAisConfigured()) {
-    initAisStream();
-  }
 }
 
 /**
@@ -552,11 +546,6 @@ export async function fetchMilitaryVessels(): Promise<{
     if (vesselCache && Date.now() - vesselCache.timestamp < CACHE_TTL) {
       vessels = vesselCache.data;
     } else {
-      // Initialize stream if not running
-      if (!isTracking && isAisConfigured()) {
-        initMilitaryVesselStream();
-      }
-
       // Clean up old data
       cleanup();
 
