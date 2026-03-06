@@ -677,7 +677,7 @@ export default defineConfig({
   build: {
     // Geospatial bundles (maplibre/deck) are expected to be large even when split.
     // Raise warning threshold to reduce noisy false alarms in CI.
-    chunkSizeWarningLimit: 1200,
+    chunkSizeWarningLimit: 1400,
     modulePreload: { polyfill: false },
     rollupOptions: {
       onwarn(warning, warn) {
@@ -719,6 +719,9 @@ export default defineConfig({
               || id.includes('/h3-js/')
             ) {
               return 'deck-stack';
+            }
+            if (id.includes('/protobufjs/') || id.includes('/flatbuffers/')) {
+              return 'serialization';
             }
             if (id.includes('/d3/')) {
               return 'd3';
