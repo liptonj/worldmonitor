@@ -733,9 +733,6 @@ export default defineConfig({
               return 'sentry';
             }
           }
-          if (id.includes('/src/components/') && id.endsWith('Panel.ts')) {
-            return 'panels';
-          }
           // Give lazy-loaded locale chunks a recognizable prefix so the
           // service worker can exclude them from precache (en.json is
           // statically imported into the main bundle).

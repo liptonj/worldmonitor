@@ -89,32 +89,27 @@ import type { GetGivingSummaryResponse } from '@/generated/client/worldmonitor/g
 import type { ListGulfQuotesResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { fetchNewsDigest } from '@/services/news-digest';
 import { fetchTechEvents } from '@/services/research';
-import {
-  MarketPanel,
-  HeatmapPanel,
-  CommoditiesPanel,
-  CryptoPanel,
-  PredictionPanel,
-  MonitorPanel,
-  InsightsPanel,
-  CIIPanel,
-  StrategicPosturePanel,
-  EconomicPanel,
-  UcdpEventsPanel,
-  DisplacementPanel,
-  ClimateAnomalyPanel,
-  PopulationExposurePanel,
-  TradePolicyPanel,
-  SupplyChainPanel,
-  SecurityAdvisoriesPanel,
-  OrefSirensPanel,
-  TelegramIntelPanel,
-  GivingPanel,
-  GulfEconomiesPanel,
-} from '@/components';
+import type { MarketPanel, HeatmapPanel, CommoditiesPanel, CryptoPanel } from '@/components/MarketPanel';
+import type { PredictionPanel } from '@/components/PredictionPanel';
+import type { MonitorPanel } from '@/components/MonitorPanel';
+import type { InsightsPanel } from '@/components/InsightsPanel';
+import type { CIIPanel } from '@/components/CIIPanel';
+import type { StrategicPosturePanel } from '@/components/StrategicPosturePanel';
+import type { EconomicPanel } from '@/components/EconomicPanel';
+import type { UcdpEventsPanel } from '@/components/UcdpEventsPanel';
+import type { DisplacementPanel } from '@/components/DisplacementPanel';
+import type { ClimateAnomalyPanel } from '@/components/ClimateAnomalyPanel';
+import type { PopulationExposurePanel } from '@/components/PopulationExposurePanel';
+import type { TradePolicyPanel } from '@/components/TradePolicyPanel';
+import type { SupplyChainPanel } from '@/components/SupplyChainPanel';
+import type { SecurityAdvisoriesPanel } from '@/components/SecurityAdvisoriesPanel';
+import type { OrefSirensPanel } from '@/components/OrefSirensPanel';
+import type { TelegramIntelPanel } from '@/components/TelegramIntelPanel';
+import type { GivingPanel } from '@/components/GivingPanel';
+import type { GulfEconomiesPanel } from '@/components/GulfEconomiesPanel';
 import type { GlobalDigestPanel } from '@/components/GlobalDigestPanel';
 import type { TechEventsPanel } from '@/components/TechEventsPanel';
-import { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
+import type { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
 import { classifyNewsItem } from '@/services/positive-classifier';
 import { filterBySentiment } from '@/services/sentiment-gate';
 import { fetchAllPositiveTopicIntelligence } from '@/services/gdelt-intel';
