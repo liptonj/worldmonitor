@@ -223,9 +223,6 @@ fi
 prompt_env "SUPABASE_URL" "Supabase project URL (e.g. https://xxx.supabase.co)" "required"
 prompt_env "SUPABASE_ANON_KEY" "Supabase anon key" "required"
 
-# Optional API keys — channels that need them will warn and skip if unset.
-prompt_env "ACLED_ACCESS_TOKEN" "ACLED access token (for strategic-risk / iran-events)" "optional"
-
 if [[ "${VALIDATION_ERRORS}" -gt 0 ]]; then
   die "Environment validation failed with ${VALIDATION_ERRORS} error(s)."
 fi
