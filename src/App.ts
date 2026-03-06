@@ -659,7 +659,6 @@ export class App {
     subscribeRelayPush('config:news-sources',  (p) => applyNewsSources(p));
     subscribeRelayPush('config:feature-flags', (p) => applyFeatureFlags(p));
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     subscribeRelayPush('ai:intel-digest', (payload) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const digestPanel = this.state.panels['global-digest'] as any;

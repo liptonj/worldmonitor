@@ -354,16 +354,11 @@ export function classifyByKeyword(title: string, variant = 'full'): ThreatClassi
   return { level: 'info', category: 'general', confidence: 0.3, source: 'keyword' };
 }
 
-// ── Relay-pushed classifications (from ai:classifications channel) ────────────
-// The relay pre-classifies headlines via Ollama and pushes them as:
-// { [fnv1a(title.toLowerCase())]: { level, category, title, generatedAt } }
-// Check this cache before making any API calls.
-
 const VALID_LEVELS: Record<string, ThreatLevel> = {
   critical: 'critical', high: 'high', medium: 'medium', low: 'low', info: 'info',
 };
 
-// FNV-1a hash — must match simpleHash() in ais-relay.cjs
+// FNV-1a — matches simpleHash() in ais-relay.cjs
 function fnv1aHash(str: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -386,35 +381,16 @@ function getRelayClassifications(): Record<string, RelayClassification> {
 }
 
 function lookupRelayClassification(title: string): ThreatClassification | null {
-  const cache = getRelayClassifications();
-  const hash = fnv1aHash(title.toLowerCase());
-  const entry = cache[hash];
+  const entry = getRelayClassifications()[fnv1aHash(title.toLowerCase())];
   if (!entry) return null;
   const level = VALID_LEVELS[entry.level] ?? null;
   if (!level) return null;
-  return {
-    level,
-    category: entry.category as EventCategory,
-    confidence: 0.9,
-    source: 'llm',
-  };
+  return { level, category: entry.category as EventCategory, confidence: 0.9, source: 'llm' };
 }
-
-// ── classifyWithAI: relay-first, no Vercel fallback ─────────────────────────
-// Classifications come from the relay's `ai:classifications` push (pre-computed
-// by the Ollama cron). If the relay hasn't classified a headline yet, return
-// null — the keyword fallback in classifyThreat() will cover it.
 
 export function classifyWithAI(
   title: string,
   _variant: string
 ): Promise<ThreatClassification | null> {
-  // Fast path: relay has already classified this headline
-  const relayResult = lookupRelayClassification(title);
-  if (relayResult) return Promise.resolve(relayResult);
-
-  // Not in relay cache yet — return null, let keyword classification handle it.
-  // The relay will classify it within the next 5-minute cron window and push
-  // the result via the ai:classifications WebSocket channel.
-  return Promise.resolve(null);
+  return Promise.resolve(lookupRelayClassification(title));
 }

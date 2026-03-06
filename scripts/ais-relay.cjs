@@ -275,17 +275,12 @@ async function auditStaleTTLs() {
 }
 
 // ── Multi-Provider LLM Client ───────────────────────────────────────────────
-// Resolves ALL enabled providers from Supabase, supports per-function provider
-// assignment with priority-based fallback chains, handles qwen3 native API,
-// OpenAI-compat, and provider-specific auth (CF Access, Bearer token).
 
 const providerRegistry = new Map();  // name → { apiUrl, model, headers, maxTokens, maxTokensSummary, type }
 let functionConfigMap = new Map();   // functionKey → { provider_chain, timeout_ms, max_retries }
 let providersExpiresAt = 0;
 const PROVIDER_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const DEFAULT_TIMEOUT_MS = 120_000;
-
-// ── Resolve ALL providers from Supabase ──
 
 async function resolveAllProviders() {
   if (providerRegistry.size > 0 && Date.now() < providersExpiresAt) return;
@@ -295,7 +290,6 @@ async function resolveAllProviders() {
   }
 
   try {
-    // 1. Load Ollama credentials (CF Access + model)
     const { data: ollamaData, error: ollamaErr } = await supabase.rpc('get_ollama_credentials');
     if (!ollamaErr && Array.isArray(ollamaData) && ollamaData.length > 0) {
       const row = ollamaData[0];
@@ -318,15 +312,12 @@ async function resolveAllProviders() {
       console.error('[llm] get_ollama_credentials RPC error:', ollamaErr.message);
     }
 
-    // 2. Load all enabled providers from llm_providers table
     const { data: providers, error: provErr } = await supabase.rpc('get_all_enabled_providers');
     if (!provErr && Array.isArray(providers)) {
       for (const p of providers) {
         if (p.name === 'ollama') continue; // already resolved above with full credentials
-        // Resolve API key from vault
         let apiKey = null;
         if (p.api_key_secret_name) {
-          // NOTE: requires service_role privileges
           const { data: secretData, error: secretErr } = await supabase.rpc('get_secret_value', {
             p_name: p.api_key_secret_name,
           });
@@ -356,7 +347,6 @@ async function resolveAllProviders() {
       console.error('[llm] get_all_enabled_providers RPC error:', provErr.message);
     }
 
-    // 3. Load per-function provider config
     const { data: funcData, error: funcErr } = await supabase.rpc('get_llm_function_config');
     if (!funcErr && Array.isArray(funcData)) {
       const newMap = new Map();
@@ -413,7 +403,6 @@ async function callLlmWithProvider(providerName, messages, opts = {}) {
   let url, body;
 
   if (provider.type === 'qwen3') {
-    // Native Ollama API for qwen3 models
     url = `${provider.apiUrl}/api/chat`;
     body = JSON.stringify({
       model: provider.model,
@@ -423,7 +412,6 @@ async function callLlmWithProvider(providerName, messages, opts = {}) {
       options: { num_predict: maxTokens },
     });
   } else {
-    // OpenAI-compat: Groq, OpenRouter, non-qwen3 Ollama
     url = `${provider.apiUrl}/v1/chat/completions`;
     body = JSON.stringify({
       model: provider.model,
@@ -554,21 +542,15 @@ function buildPromptFromTemplate(template, vars) {
   return template.replace(/\{(\w+)\}/g, (match, key) => vars[key] ?? match);
 }
 
-// Eagerly resolve providers on startup
 void resolveAllProviders();
 
-// Refresh every 15 minutes
 cron.schedule('*/15 * * * *', () => {
   providersExpiresAt = 0;
   void resolveAllProviders();
   promptCache.clear();
 });
 
-// ── End Multi-Provider LLM Client ────────────────────────────────────────────
-
-// ── AI: Global Intel Digest ─────────────────────────────────────────────────
-// Reads latest headlines from local Redis, calls Ollama for a narrative digest,
-// caches result, broadcasts to ai:intel-digest channel.
+// ── AI: Global Intel Digest ──────────────────────────────────────────────────
 
 const AI_DIGEST_CACHE_KEY = 'ai:digest:global:v1';
 const AI_DIGEST_TTL = 14400; // 4 hours
@@ -580,7 +562,6 @@ async function generateIntelDigest() {
     return;
   }
 
-  // Gather headlines from the news digest cache
   const newsData = await redisGet('relay:news:full:v1');
   const headlines = [];
   if (newsData?.items && Array.isArray(newsData.items)) {
@@ -588,7 +569,6 @@ async function generateIntelDigest() {
       if (item.title) headlines.push(item.title);
     }
   }
-  // Also check intelligence-specific headline sources
   for (const key of ['relay:intelligence:v1']) {
     const data = await redisGet(key);
     if (data?.headlines && Array.isArray(data.headlines)) {
@@ -637,7 +617,6 @@ async function generateIntelDigest() {
   console.log(`[ai-cron] intel digest generated (${content.length} chars), broadcast to ${channelSubscribers.get('ai:intel-digest')?.size ?? 0} subs`);
 }
 
-// Register cron — every 10 minutes
 cron.schedule('*/10 * * * *', async () => {
   try { await generateIntelDigest(); }
   catch (err) { console.error('[ai-cron] intel digest error:', err?.message ?? err); }
@@ -651,9 +630,7 @@ cron.schedule('0 * * * *', async () => {
   }
 });
 
-// ── AI: Full Panel Summary (Two-Model Consensus) ────────────────────────────
-// Reads ALL cached panel data from Redis — full content, not just headlines.
-// Runs two models independently, then an arbiter synthesizes both outputs.
+// ── AI: Full Panel Summary (Two-Model Consensus) ─────────────────────────────
 
 const AI_PANEL_SUMMARY_CACHE_KEY = 'ai:panel-summary:v1';
 const AI_PANEL_SUMMARY_TTL = 900; // 15 min
@@ -710,7 +687,6 @@ async function generatePanelSummary() {
     return;
   }
 
-  // ── Build rich context from ALL data sources ──
   const dateStr = new Date().toISOString().slice(0, 10);
   const contextSections = [];
 
@@ -763,9 +739,6 @@ async function generatePanelSummary() {
   const userPrompt = buildPromptFromTemplate(viewPrompt.userPrompt, { panelData, date: dateStr });
   const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
 
-  // ── Two-Model Consensus ──
-  // Run two models in parallel, then synthesize with arbiter
-
   const funcConfig = getFunctionConfig('panel_summary');
   const providerChain = funcConfig?.providerChain || ['ollama'];
 
@@ -792,7 +765,6 @@ async function generatePanelSummary() {
   const modelsUsed = [];
 
   if (summaryA && summaryB && arbiterPrompt) {
-    // ── Arbiter: synthesize both outputs ──
     const arbiterSystem = buildPromptFromTemplate(arbiterPrompt.systemPrompt, { date: dateStr });
     const arbiterUser = buildPromptFromTemplate(arbiterPrompt.userPrompt, {
       summaryA: summaryA,
@@ -842,9 +814,7 @@ cron.schedule('*/15 * * * *', async () => {
   catch (err) { console.error('[ai-cron] panel summary error:', err?.message ?? err); }
 });
 
-// ── AI: Article Summarization + Event Classification ────────────────────────
-// Processes all headlines when news digest updates.
-// Batches Ollama calls (one per headline) with concurrency limiting.
+// ── AI: Article Summarization + Event Classification ─────────────────────────
 
 const AI_SUMMARIES_CACHE_KEY = 'ai:article-summaries:v1';
 const AI_CLASSIFICATIONS_CACHE_KEY = 'ai:classifications:v1';
@@ -958,8 +928,7 @@ cron.schedule('2-59/5 * * * *', async () => {
   catch (err) { console.error('[ai-cron] article summarize/classify error:', err?.message ?? err); }
 });
 
-// ── AI: Country Intel Briefs ────────────────────────────────────────────────
-// Pre-generates briefs for the top 15 most active countries.
+// ── AI: Country Intel Briefs ─────────────────────────────────────────────────
 
 const AI_COUNTRY_BRIEFS_CACHE_KEY = 'ai:country-briefs:v1';
 const AI_COUNTRY_BRIEF_TTL = 7200; // 2 hours
@@ -1222,7 +1191,6 @@ async function generateRiskOverview() {
   console.log(`[ai-cron] risk overview generated (${content.length} chars)`);
 }
 
-// Register crons — staggered to avoid overloading Ollama
 cron.schedule('3-59/15 * * * *', async () => {
   try { await generatePostureAnalysis(); }
   catch (err) { console.error('[ai-cron] posture analysis error:', err?.message ?? err); }
