@@ -295,7 +295,7 @@ async function resolveAllProviders() {
       const row = ollamaData[0];
       if (row.api_url) {
         providerRegistry.set('ollama', {
-          apiUrl: row.api_url.replace(/\/+$/, ''),
+          apiUrl: row.api_url.replace(/\/+$/, '').replace(/\/v1$/, ''),
           model: row.model || 'qwen3:8b',
           type: (row.model || '').toLowerCase().startsWith('qwen3') ? 'qwen3' : 'openai-compat',
           maxTokens: row.max_tokens || 3000,
@@ -318,7 +318,7 @@ async function resolveAllProviders() {
         if (p.name === 'ollama') continue; // already resolved above with full credentials
         let apiKey = null;
         if (p.api_key_secret_name) {
-          const { data: secretData, error: secretErr } = await supabase.rpc('get_secret_value', {
+          const { data: secretData, error: secretErr } = await supabase.rpc('get_relay_provider_secret', {
             p_name: p.api_key_secret_name,
           });
           if (secretErr) {
