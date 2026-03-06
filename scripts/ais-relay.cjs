@@ -838,6 +838,244 @@ cron.schedule('*/15 * * * *', async () => {
   catch (err) { console.error('[ai-cron] panel summary error:', err?.message ?? err); }
 });
 
+// ── AI: Article Summarization + Event Classification ────────────────────────
+// Processes all headlines when news digest updates.
+// Batches Ollama calls (one per headline) with concurrency limiting.
+
+const AI_SUMMARIES_CACHE_KEY = 'ai:article-summaries:v1';
+const AI_CLASSIFICATIONS_CACHE_KEY = 'ai:classifications:v1';
+const AI_ARTICLE_TTL = 86400; // 24 hours
+const AI_MAX_CONCURRENT = 3;  // max parallel Ollama calls
+
+async function summarizeAndClassifyHeadlines() {
+  const newsData = await redisGet('relay:news:full:v1');
+  if (!newsData?.items || !Array.isArray(newsData.items) || newsData.items.length === 0) {
+    console.warn('[ai-cron] no news items for article summarization — skipping');
+    return;
+  }
+
+  const summaryPrompt = await loadLlmPrompt('news_summary', null, 'brief');
+  const classifyPrompt = await loadLlmPrompt('classify_event');
+
+  if (!summaryPrompt && !classifyPrompt) {
+    console.warn('[ai-cron] no prompts found for summary or classify — skipping');
+    return;
+  }
+
+  // Load existing caches to skip already-processed headlines
+  const existingSummaries = (await redisGet(AI_SUMMARIES_CACHE_KEY)) || {};
+  const existingClassifications = (await redisGet(AI_CLASSIFICATIONS_CACHE_KEY)) || {};
+
+  const headlines = newsData.items.slice(0, 100); // cap at 100 per run
+  const summaries = { ...existingSummaries };
+  const classifications = { ...existingClassifications };
+  const dateStr = new Date().toISOString().slice(0, 10);
+
+  // Process in batches with concurrency limiting
+  const queue = [];
+  for (const item of headlines) {
+    const title = item.title || '';
+    if (!title || title.length < 10) continue;
+    const hash = simpleHash(title.toLowerCase());
+
+    // Skip if already processed
+    if (summaries[hash] && classifications[hash]) continue;
+
+    queue.push({ title, hash, item });
+  }
+
+  console.log(`[ai-cron] ${queue.length} new headlines to summarize/classify out of ${headlines.length}`);
+
+  // Process with concurrency limit
+  for (let i = 0; i < queue.length; i += AI_MAX_CONCURRENT) {
+    const batch = queue.slice(i, i + AI_MAX_CONCURRENT);
+    await Promise.all(batch.map(async ({ title, hash }) => {
+      // Summarize
+      if (summaryPrompt && !summaries[hash]) {
+        const sysPrompt = buildPromptFromTemplate(summaryPrompt.systemPrompt, {
+          dateContext: `Current date: ${dateStr}.`,
+          langInstruction: '',
+        });
+        const usrPrompt = buildPromptFromTemplate(summaryPrompt.userPrompt, {
+          headlineText: title,
+          intelSection: '',
+        });
+        const summary = await callLlmForFunction('news_summary',
+          [{ role: 'system', content: sysPrompt }, { role: 'user', content: usrPrompt }],
+          { maxTokens: 400, temperature: 0.3 },
+        );
+        if (summary && summary.length >= 20) {
+          summaries[hash] = { text: summary, title, generatedAt: dateStr };
+        }
+      }
+
+      // Classify
+      if (classifyPrompt && !classifications[hash]) {
+        const sysPrompt = classifyPrompt.systemPrompt;
+        const usrPrompt = buildPromptFromTemplate(classifyPrompt.userPrompt, {
+          title: title.slice(0, 500),
+        });
+        const raw = await callLlmForFunction('classify_event',
+          [{ role: 'system', content: sysPrompt }, { role: 'user', content: usrPrompt }],
+          { maxTokens: 50, temperature: 0 },
+        );
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed.level && parsed.category) {
+              classifications[hash] = { ...parsed, title, generatedAt: dateStr };
+            }
+          } catch { /* not valid JSON — skip */ }
+        }
+      }
+    }));
+  }
+
+  await redisSetex(AI_SUMMARIES_CACHE_KEY, AI_ARTICLE_TTL, summaries);
+  await redisSetex(AI_CLASSIFICATIONS_CACHE_KEY, AI_ARTICLE_TTL, classifications);
+  broadcastToChannel('ai:article-summaries', summaries);
+  broadcastToChannel('ai:classifications', classifications);
+  console.log(`[ai-cron] article AI complete: ${Object.keys(summaries).length} summaries, ${Object.keys(classifications).length} classifications`);
+}
+
+// Utility: simple FNV-1a hash for headline dedup
+function simpleHash(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+// Run after news digest updates (every 5 min, staggered by 2 min)
+cron.schedule('2-59/5 * * * *', async () => {
+  try { await summarizeAndClassifyHeadlines(); }
+  catch (err) { console.error('[ai-cron] article summarize/classify error:', err?.message ?? err); }
+});
+
+// ── AI: Country Intel Briefs ────────────────────────────────────────────────
+// Pre-generates briefs for the top 15 most active countries.
+
+const AI_COUNTRY_BRIEFS_CACHE_KEY = 'ai:country-briefs:v1';
+const AI_COUNTRY_BRIEF_TTL = 7200; // 2 hours
+
+const AI_TIER1_COUNTRIES = {
+  US: 'United States', RU: 'Russia', CN: 'China', UA: 'Ukraine',
+  IR: 'Iran', IL: 'Israel', TW: 'Taiwan', KP: 'North Korea',
+  SA: 'Saudi Arabia', TR: 'Turkey', PL: 'Poland', DE: 'Germany',
+  FR: 'France', GB: 'United Kingdom', IN: 'India', PK: 'Pakistan',
+  SY: 'Syria', YE: 'Yemen', MM: 'Myanmar', VE: 'Venezuela',
+};
+
+const COUNTRY_KEYWORDS = {
+  US: ['united states', 'usa', 'america', 'washington', 'biden', 'trump', 'pentagon'],
+  RU: ['russia', 'moscow', 'kremlin', 'putin'],
+  CN: ['china', 'beijing', 'xi jinping', 'prc'],
+  UA: ['ukraine', 'kyiv', 'zelensky', 'donbas'],
+  IR: ['iran', 'tehran', 'khamenei', 'irgc'],
+  IL: ['israel', 'tel aviv', 'netanyahu', 'idf', 'gaza'],
+  TW: ['taiwan', 'taipei'],
+  KP: ['north korea', 'pyongyang', 'kim jong'],
+  SA: ['saudi arabia', 'riyadh'],
+  TR: ['turkey', 'ankara', 'erdogan'],
+  PL: ['poland', 'warsaw'],
+  DE: ['germany', 'berlin'],
+  FR: ['france', 'paris', 'macron'],
+  GB: ['britain', 'uk', 'london'],
+  IN: ['india', 'delhi', 'modi'],
+  PK: ['pakistan', 'islamabad'],
+  SY: ['syria', 'damascus'],
+  YE: ['yemen', 'sanaa', 'houthi'],
+  MM: ['myanmar', 'burma'],
+  VE: ['venezuela', 'caracas', 'maduro'],
+};
+
+function detectActiveCountries(headlines) {
+  const mentions = {};
+  for (const [code] of Object.entries(AI_TIER1_COUNTRIES)) mentions[code] = 0;
+
+  for (const title of headlines) {
+    const lower = title.toLowerCase();
+    for (const [code, keywords] of Object.entries(COUNTRY_KEYWORDS)) {
+      if (keywords.some(kw => lower.includes(kw))) {
+        mentions[code] = (mentions[code] || 0) + 1;
+      }
+    }
+  }
+
+  return Object.entries(mentions)
+    .filter(([, count]) => count > 0)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 15)
+    .map(([code]) => code);
+}
+
+async function generateCountryBriefs() {
+  const prompt = await loadLlmPrompt('intel_brief');
+  if (!prompt) {
+    console.warn('[ai-cron] no intel_brief prompt found — skipping');
+    return;
+  }
+
+  // Gather all headlines
+  const newsData = await redisGet('relay:news:full:v1');
+  const headlines = [];
+  if (newsData?.items && Array.isArray(newsData.items)) {
+    for (const item of newsData.items.slice(0, 50)) {
+      if (item.title) headlines.push(item.title);
+    }
+  }
+
+  if (headlines.length === 0) {
+    console.warn('[ai-cron] no headlines for country briefs — skipping');
+    return;
+  }
+
+  const topCountries = detectActiveCountries(headlines);
+  if (topCountries.length === 0) return;
+
+  const existingBriefs = (await redisGet(AI_COUNTRY_BRIEFS_CACHE_KEY)) || {};
+  const briefs = { ...existingBriefs };
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const headlineText = headlines.map((h, i) => `${i + 1}. ${h}`).join('\n');
+
+  // Process countries sequentially (to avoid overloading Ollama)
+  for (const code of topCountries) {
+    const countryName = AI_TIER1_COUNTRIES[code] || code;
+    const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, { date: dateStr });
+    const userPrompt = buildPromptFromTemplate(prompt.userPrompt, {
+      date: dateStr,
+      countryName,
+      countryCode: code,
+      contextSnapshot: '',
+      recentHeadlines: headlineText,
+    });
+
+    const content = await callLlmForFunction('country_brief',
+      [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+      { maxTokens: 900, temperature: 0.4 },
+    );
+
+    if (content) {
+      briefs[code] = {
+        brief: content,
+        countryName,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  await redisSetex(AI_COUNTRY_BRIEFS_CACHE_KEY, AI_COUNTRY_BRIEF_TTL, briefs);
+  broadcastToChannel('ai:country-briefs', briefs);
+  console.log(`[ai-cron] generated ${topCountries.length} country briefs`);
+}
+
+cron.schedule('*/30 * * * *', async () => {
+  try { await generateCountryBriefs(); }
+  catch (err) { console.error('[ai-cron] country briefs error:', err?.message ?? err); }
+});
+
 // ─────────────────────────────────────────────────────────────
 
 let upstreamSocket = null;
