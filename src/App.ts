@@ -680,6 +680,9 @@ export class App {
     subscribeRelayPush('ai:classifications', (payload) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (this.state as any).classifications = payload;
+      // Expose globally for threat-classifier.ts relay lookup (zero Vercel calls)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__wmRelayClassifications = payload;
       document.dispatchEvent(new CustomEvent('wm:classifications-updated', { detail: payload }));
     });
     subscribeRelayPush('ai:country-briefs', (payload) => {
