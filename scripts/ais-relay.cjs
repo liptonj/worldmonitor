@@ -303,7 +303,7 @@ async function resolveAllProviders() {
         providerRegistry.set('ollama', {
           apiUrl: row.api_url.replace(/\/+$/, ''),
           model: row.model || 'qwen3:8b',
-          type: (row.model || '').startsWith('qwen3') ? 'qwen3' : 'openai-compat',
+          type: (row.model || '').toLowerCase().startsWith('qwen3') ? 'qwen3' : 'openai-compat',
           maxTokens: row.max_tokens || 3000,
           maxTokensSummary: row.max_tokens_summary || 400,
           headers: {
@@ -326,9 +326,12 @@ async function resolveAllProviders() {
         // Resolve API key from vault
         let apiKey = null;
         if (p.api_key_secret_name) {
-          const { data: secretData } = await supabase.rpc('get_secret_value', {
+          const { data: secretData, error: secretErr } = await supabase.rpc('get_secret_value', {
             p_name: p.api_key_secret_name,
           });
+          if (secretErr) {
+            console.warn(`[llm] could not resolve API key for ${p.name}: ${secretErr.message}`);
+          }
           apiKey = secretData?.[0]?.decrypted_secret || null;
         }
         providerRegistry.set(p.name, {
@@ -348,6 +351,8 @@ async function resolveAllProviders() {
         });
         console.log(`[llm] registered ${p.name}: model=${p.default_model}`);
       }
+    } else if (provErr) {
+      console.error('[llm] get_all_enabled_providers RPC error:', provErr.message);
     }
 
     // 3. Load per-function provider config
@@ -363,6 +368,8 @@ async function resolveAllProviders() {
       }
       functionConfigMap = newMap;
       console.log(`[llm] loaded ${newMap.size} function configs`);
+    } else if (funcErr) {
+      console.error('[llm] get_llm_function_config RPC error:', funcErr.message);
     }
 
     providersExpiresAt = Date.now() + PROVIDER_TTL_MS;
