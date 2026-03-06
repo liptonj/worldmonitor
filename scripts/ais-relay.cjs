@@ -3905,6 +3905,72 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(data));
+  } else if (pathname === '/gdelt') {
+    // GDELT Doc API proxy — browser cannot call gdeltproject.org directly (CORS)
+    const qs = new URLSearchParams((req.url || '').split('?')[1] || '');
+    const query = qs.get('query') || '';
+    const maxRecords = Math.min(parseInt(qs.get('max_records') || '10', 10) || 10, 20);
+    const timespan = qs.get('timespan') || '24h';
+    const toneFilter = qs.get('tone_filter') || '';
+    const sort = qs.get('sort') || 'date';
+
+    if (!query || query.length < 2) {
+      safeEnd(res, 400, { 'Content-Type': 'application/json' }, JSON.stringify({ error: 'query required' }));
+      return;
+    }
+
+    const fullQuery = toneFilter ? `${query} ${toneFilter}` : query;
+    const cacheKey = `relay:gdelt:${Buffer.from(fullQuery).toString('base64').slice(0, 60)}:${timespan}:${maxRecords}`;
+
+    try {
+      const cached = await redisGet(cacheKey);
+      if (cached) {
+        sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(cached));
+        return;
+      }
+
+      const gdeltUrl = new URL('https://api.gdeltproject.org/api/v2/doc/doc');
+      gdeltUrl.searchParams.set('query', fullQuery);
+      gdeltUrl.searchParams.set('mode', 'artlist');
+      gdeltUrl.searchParams.set('maxrecords', String(maxRecords));
+      gdeltUrl.searchParams.set('format', 'json');
+      gdeltUrl.searchParams.set('sort', sort);
+      gdeltUrl.searchParams.set('timespan', timespan);
+
+      const resp = await fetch(gdeltUrl.toString(), {
+        headers: { 'User-Agent': CHROME_UA, Accept: 'application/json' },
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (!resp.ok) {
+        safeEnd(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({ error: `GDELT returned ${resp.status}`, articles: [] }));
+        return;
+      }
+
+      const contentType = resp.headers.get('content-type') || '';
+      if (!contentType.includes('json')) {
+        const text = await resp.text();
+        safeEnd(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({ error: `GDELT non-JSON: ${text.slice(0, 80)}`, articles: [] }));
+        return;
+      }
+
+      const raw = await resp.json();
+      const articles = (raw.articles || []).map((a) => ({
+        title: a.title || '',
+        url: a.url || '',
+        source: a.domain || a.source?.domain || '',
+        date: a.seendate || '',
+        image: a.socialimage || '',
+        language: a.language || '',
+        tone: typeof a.tone === 'number' ? a.tone : 0,
+      }));
+
+      const result = { articles, query: fullQuery, error: '' };
+      if (articles.length > 0) await redisSetex(cacheKey, 600, result);
+      sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(result));
+    } catch (err) {
+      safeEnd(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({ error: err?.message ?? 'fetch failed', articles: [] }));
+    }
   } else {
     res.writeHead(404);
     res.end();

@@ -1,11 +1,10 @@
 import type { Hotspot } from '@/types';
 import { t } from '@/services/i18n';
-import {
-  IntelligenceServiceClient,
-  type GdeltArticle as ProtoGdeltArticle,
-  type SearchGdeltDocumentsResponse,
+import type {
+  GdeltArticle as ProtoGdeltArticle,
+  SearchGdeltDocumentsResponse,
 } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
-import { createCircuitBreaker } from '@/utils';
+import { RELAY_HTTP_BASE } from '@/services/relay-http';
 
 export interface GdeltArticle {
   title: string;
@@ -122,15 +121,32 @@ export function getIntelTopics(): IntelTopic[] {
   }));
 }
 
-// ---- Sebuf client ----
-
-const client = new IntelligenceServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-const gdeltBreaker = createCircuitBreaker<SearchGdeltDocumentsResponse>({ name: 'GDELT Intelligence', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
-
-const emptyGdeltFallback: SearchGdeltDocumentsResponse = { articles: [], query: '', error: '' };
+// ---- Relay GDELT proxy ----
 
 const CACHE_TTL = 5 * 60 * 1000;
 const articleCache = new Map<string, { articles: GdeltArticle[]; timestamp: number }>();
+
+async function fetchFromRelay(
+  query: string,
+  maxrecords: number,
+  timespan: string,
+  toneFilter = '',
+  sort = 'date',
+): Promise<SearchGdeltDocumentsResponse> {
+  const params = new URLSearchParams({
+    query,
+    max_records: String(maxrecords),
+    timespan,
+    ...(toneFilter && { tone_filter: toneFilter }),
+    ...(sort && sort !== 'date' && { sort }),
+  });
+  const resp = await fetch(`${RELAY_HTTP_BASE}/gdelt?${params}`, {
+    headers: { Authorization: `Bearer ${import.meta.env.VITE_WS_RELAY_TOKEN ?? ''}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!resp.ok) throw new Error(`GDELT relay ${resp.status}`);
+  return resp.json() as Promise<SearchGdeltDocumentsResponse>;
+}
 
 /** Map proto GdeltArticle (all required strings) to service GdeltArticle (optional fields) */
 function toGdeltArticle(a: ProtoGdeltArticle): GdeltArticle {
@@ -157,25 +173,21 @@ export async function fetchGdeltArticles(
     return cached.articles;
   }
 
-  const resp = await gdeltBreaker.execute(async () => {
-    return client.searchGdeltDocuments({
-      query,
-      maxRecords: maxrecords,
-      timespan,
-      toneFilter: '',
-      sort: '',
-    });
-  }, emptyGdeltFallback);
+  try {
+    const resp = await fetchFromRelay(query, maxrecords, timespan);
 
-  if (resp.error) {
-    console.warn(`[GDELT-Intel] RPC error: ${resp.error}`);
+    if (resp.error) {
+      console.warn(`[GDELT-Intel] RPC error: ${resp.error}`);
+      return cached?.articles || [];
+    }
+
+    const articles: GdeltArticle[] = (resp.articles || []).map(toGdeltArticle);
+    articleCache.set(cacheKey, { articles, timestamp: Date.now() });
+    return articles;
+  } catch (err) {
+    console.warn(`[GDELT-Intel] Relay fetch failed: ${err instanceof Error ? err.message : err}`);
     return cached?.articles || [];
   }
-
-  const articles: GdeltArticle[] = (resp.articles || []).map(toGdeltArticle);
-
-  articleCache.set(cacheKey, { articles, timestamp: Date.now() });
-  return articles;
 }
 
 export async function fetchHotspotContext(hotspot: Hotspot): Promise<GdeltArticle[]> {
@@ -256,24 +268,21 @@ export async function fetchPositiveGdeltArticles(
     return cached.articles;
   }
 
-  const resp = await gdeltBreaker.execute(async () => {
-    return client.searchGdeltDocuments({
-      query,
-      maxRecords: maxrecords,
-      timespan,
-      toneFilter,
-      sort,
-    });
-  }, emptyGdeltFallback);
+  try {
+    const resp = await fetchFromRelay(query, maxrecords, timespan, toneFilter, sort);
 
-  if (resp.error) {
-    console.warn(`[GDELT-Intel] Positive RPC error: ${resp.error}`);
+    if (resp.error) {
+      console.warn(`[GDELT-Intel] Positive RPC error: ${resp.error}`);
+      return cached?.articles || [];
+    }
+
+    const articles: GdeltArticle[] = (resp.articles || []).map(toGdeltArticle);
+    articleCache.set(cacheKey, { articles, timestamp: Date.now() });
+    return articles;
+  } catch (err) {
+    console.warn(`[GDELT-Intel] Positive relay fetch failed: ${err instanceof Error ? err.message : err}`);
     return cached?.articles || [];
   }
-
-  const articles: GdeltArticle[] = (resp.articles || []).map(toGdeltArticle);
-  articleCache.set(cacheKey, { articles, timestamp: Date.now() });
-  return articles;
 }
 
 export async function fetchPositiveTopicIntelligence(topic: IntelTopic): Promise<TopicIntelligence> {
