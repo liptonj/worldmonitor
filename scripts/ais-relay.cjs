@@ -1076,6 +1076,164 @@ cron.schedule('*/30 * * * *', async () => {
   catch (err) { console.error('[ai-cron] country briefs error:', err?.message ?? err); }
 });
 
+// ── AI: Strategic Posture Analysis ──────────────────────────────────────────
+
+async function generatePostureAnalysis() {
+  const prompt = await loadLlmPrompt('strategic_posture_analysis');
+  if (!prompt) return;
+
+  const postureData = await redisGet('relay:strategic-posture:v1');
+  if (!postureData?.theaters || postureData.theaters.length === 0) return;
+
+  const elevated = postureData.theaters.filter(t =>
+    t.postureLevel === 'elevated' || t.postureLevel === 'critical'
+  );
+  if (elevated.length === 0) return; // only analyze elevated+ theaters
+
+  const theaterText = postureData.theaters.map(t =>
+    `${t.theater}: ${t.postureLevel} (${t.activeFlights} flights, ${t.trackedVessels ?? 0} vessels, ops: ${(t.activeOperations || []).join(', ') || 'none'})`
+  ).join('\n');
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, { date: dateStr });
+  const userPrompt = buildPromptFromTemplate(prompt.userPrompt, { theaterData: theaterText });
+
+  const content = await callLlmForFunction('posture_analysis',
+    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+    { maxTokens: 1000, temperature: 0.3 },
+  );
+  if (!content) return;
+
+  const payload = { analysis: content, generatedAt: new Date().toISOString(), theaterCount: postureData.theaters.length };
+  await redisSetex('ai:posture-analysis:v1', 900, payload);
+  broadcastToChannel('ai:posture-analysis', payload);
+  console.log(`[ai-cron] posture analysis generated (${content.length} chars)`);
+}
+
+// ── AI: Country Instability Analysis ────────────────────────────────────────
+
+async function generateInstabilityAnalysis() {
+  const prompt = await loadLlmPrompt('country_instability_analysis');
+  if (!prompt) return;
+
+  const riskData = await redisGet('relay:strategic-risk:v1');
+  if (!riskData?.ciiScores || riskData.ciiScores.length === 0) return;
+
+  const topScores = riskData.ciiScores
+    .filter(s => s.combinedScore >= 30)
+    .slice(0, 10);
+  if (topScores.length === 0) return;
+
+  const COUNTRIES = {
+    US: 'United States', RU: 'Russia', CN: 'China', UA: 'Ukraine',
+    IR: 'Iran', IL: 'Israel', TW: 'Taiwan', KP: 'North Korea',
+    SA: 'Saudi Arabia', TR: 'Turkey', PL: 'Poland', DE: 'Germany',
+    FR: 'France', GB: 'United Kingdom', IN: 'India', PK: 'Pakistan',
+    SY: 'Syria', YE: 'Yemen', MM: 'Myanmar', VE: 'Venezuela',
+  };
+
+  const countryText = topScores.map(s =>
+    `${s.region} (${COUNTRIES[s.region] || s.region}): score=${s.combinedScore}, trend=${s.trend}, components: unrest=${s.components?.ciiContribution ?? 0}, news=${s.components?.newsActivity ?? 0}, military=${s.components?.militaryActivity ?? 0}`
+  ).join('\n');
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, { date: dateStr });
+  const userPrompt = buildPromptFromTemplate(prompt.userPrompt, { countryData: countryText });
+
+  const content = await callLlmForFunction('instability_analysis',
+    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+    { maxTokens: 1000, temperature: 0.3 },
+  );
+  if (!content) return;
+
+  const payload = { analysis: content, generatedAt: new Date().toISOString(), countryCount: topScores.length };
+  await redisSetex('ai:instability-analysis:v1', 7200, payload);
+  broadcastToChannel('ai:instability-analysis', payload);
+  console.log(`[ai-cron] instability analysis generated (${content.length} chars)`);
+}
+
+// ── AI: Strategic Risk Overview ─────────────────────────────────────────────
+
+async function generateRiskOverview() {
+  const prompt = await loadLlmPrompt('strategic_risk_overview');
+  if (!prompt) return;
+
+  const riskData = await redisGet('relay:strategic-risk:v1');
+  const postureData = await redisGet('relay:strategic-posture:v1');
+  const newsData = await redisGet('relay:news:full:v1');
+
+  if (!riskData?.strategicRisks || riskData.strategicRisks.length === 0) return;
+
+  const COUNTRIES = {
+    US: 'United States', RU: 'Russia', CN: 'China', UA: 'Ukraine',
+    IR: 'Iran', IL: 'Israel', TW: 'Taiwan', KP: 'North Korea',
+    SA: 'Saudi Arabia', TR: 'Turkey', PL: 'Poland', DE: 'Germany',
+    FR: 'France', GB: 'United Kingdom', IN: 'India', PK: 'Pakistan',
+    SY: 'Syria', YE: 'Yemen', MM: 'Myanmar', VE: 'Venezuela',
+  };
+
+  const globalRisk = riskData.strategicRisks[0];
+  const riskScore = globalRisk?.score ?? 0;
+  const riskLevel = globalRisk?.level?.replace('SEVERITY_LEVEL_', '') ?? 'UNKNOWN';
+  const topFactors = (globalRisk?.factors || []).map(f => COUNTRIES[f] || f).join(', ');
+
+  const postureSummary = (postureData?.theaters || [])
+    .filter(t => t.postureLevel !== 'normal')
+    .map(t => `${t.theater}: ${t.postureLevel}`)
+    .join(', ') || 'All theaters normal';
+
+  const instabilitySummary = (riskData?.ciiScores || [])
+    .slice(0, 5)
+    .map(s => `${COUNTRIES[s.region] || s.region}: ${s.combinedScore}`)
+    .join(', ');
+
+  const headlines = (newsData?.items || []).slice(0, 10).map(i => i.title).filter(Boolean).join('\n');
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const systemPrompt = buildPromptFromTemplate(prompt.systemPrompt, { date: dateStr });
+  const userPrompt = buildPromptFromTemplate(prompt.userPrompt, {
+    riskScore: String(riskScore),
+    riskLevel,
+    topFactors,
+    postureSummary,
+    instabilitySummary,
+    headlines,
+  });
+
+  const content = await callLlmForFunction('risk_overview',
+    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+    { maxTokens: 800, temperature: 0.3 },
+  );
+  if (!content) return;
+
+  const payload = {
+    overview: content,
+    riskScore,
+    riskLevel,
+    model: 'multi-provider',
+    generatedAt: new Date().toISOString(),
+  };
+  await redisSetex('ai:risk-overview:v1', 900, payload);
+  broadcastToChannel('ai:risk-overview', payload);
+  console.log(`[ai-cron] risk overview generated (${content.length} chars)`);
+}
+
+// Register crons — staggered to avoid overloading Ollama
+cron.schedule('3-59/15 * * * *', async () => {
+  try { await generatePostureAnalysis(); }
+  catch (err) { console.error('[ai-cron] posture analysis error:', err?.message ?? err); }
+});
+
+cron.schedule('5-59/30 * * * *', async () => {
+  try { await generateInstabilityAnalysis(); }
+  catch (err) { console.error('[ai-cron] instability analysis error:', err?.message ?? err); }
+});
+
+cron.schedule('4-59/15 * * * *', async () => {
+  try { await generateRiskOverview(); }
+  catch (err) { console.error('[ai-cron] risk overview error:', err?.message ?? err); }
+});
+
 // ─────────────────────────────────────────────────────────────
 
 let upstreamSocket = null;
