@@ -70,7 +70,7 @@ export class SummarizeViewModal {
     this.contentEl.innerHTML = `
       <div class="summarize-view-loading">
         <div class="summarize-view-spinner"></div>
-        <div class="summarize-view-status">${PROGRESS_STEPS[0].text}</div>
+        <div class="summarize-view-status">${PROGRESS_STEPS[0]?.text ?? ''}</div>
         <div class="summarize-view-elapsed"></div>
       </div>
     `;
