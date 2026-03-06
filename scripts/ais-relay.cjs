@@ -3997,6 +3997,14 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+function disconnectUpstream() {
+  if (upstreamSocket) {
+    console.log('[Relay] No AIS subscribers — disconnecting from aisstream.io');
+    upstreamSocket.close();
+    upstreamSocket = null;
+  }
+}
+
 function connectUpstream() {
   // Skip if already connected or connecting
   if (upstreamSocket?.readyState === WebSocket.OPEN ||
@@ -6738,7 +6746,10 @@ wss.on('connection', (ws, req) => {
   }
   console.log(`[Relay] Client connected (${clients.size + 1}/${MAX_WS_CLIENTS})`);
   clients.add(ws);
-  connectUpstream();
+  const aisSubscribers = channelSubscribers.get('ais');
+  if (aisSubscribers && aisSubscribers.size > 0) {
+    connectUpstream();
+  }
 
   ws.on('message', (data) => {
     if (data.length > MAX_WS_MESSAGE_BYTES) {
@@ -6762,6 +6773,9 @@ wss.on('connection', (ws, req) => {
         }
         ws.send(JSON.stringify({ type: 'wm-subscribed', channels: accepted }));
         sendCachedPayloads(ws, accepted);
+        if (accepted.includes('ais')) {
+          connectUpstream();
+        }
         return;
       }
       if (msg.type === 'wm-unsubscribe' && Array.isArray(msg.channels)) {
@@ -6774,6 +6788,12 @@ wss.on('connection', (ws, req) => {
             else clientChannelCount.delete(ws);
           }
         }
+        if (msg.channels.includes('ais')) {
+          const remaining = channelSubscribers.get('ais');
+          if (!remaining || remaining.size === 0) {
+            disconnectUpstream();
+          }
+        }
         return;
       }
     } catch {
@@ -6782,8 +6802,15 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    const wasAisSub = channelSubscribers.get('ais')?.has(ws) ?? false;
     clients.delete(ws);
     unsubscribeClient(ws);
+    if (wasAisSub) {
+      const remaining = channelSubscribers.get('ais');
+      if (!remaining || remaining.size === 0) {
+        disconnectUpstream();
+      }
+    }
   });
 
   ws.on('error', (err) => {
