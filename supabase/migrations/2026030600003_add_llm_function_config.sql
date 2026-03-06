@@ -143,5 +143,7 @@ $$;
 comment on function public.get_secret_value(text) is
   'Resolves a single vault secret by name. Used by relay for provider API keys.';
 
-grant execute on function public.get_secret_value(text) to anon;
+-- NOTE: relay uses service_role key for secret resolution; anon access intentionally revoked
 revoke execute on function public.get_secret_value(text) from public;
+revoke execute on function public.get_secret_value(text) from anon;
+revoke execute on function public.get_secret_value(text) from authenticated;

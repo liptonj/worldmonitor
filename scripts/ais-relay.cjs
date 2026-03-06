@@ -326,6 +326,7 @@ async function resolveAllProviders() {
         // Resolve API key from vault
         let apiKey = null;
         if (p.api_key_secret_name) {
+          // NOTE: requires service_role privileges
           const { data: secretData, error: secretErr } = await supabase.rpc('get_secret_value', {
             p_name: p.api_key_secret_name,
           });
@@ -810,6 +811,9 @@ async function generatePanelSummary() {
       modelsUsed.push('model_a_fallback');
     }
   } else {
+    if (summaryA && summaryB && !arbiterPrompt) {
+      console.warn('[ai-cron] panel summary: arbiter prompt missing, using model A output');
+    }
     finalSummary = summaryA || summaryB;
     modelsUsed.push(summaryA ? 'model_a_only' : 'model_b_only');
   }
