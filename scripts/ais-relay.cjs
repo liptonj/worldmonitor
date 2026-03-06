@@ -3383,9 +3383,9 @@ function getCorsOrigin(req) {
 const server = http.createServer(async (req, res) => {
   const pathname = (req.url || '/').split('?')[0];
   const corsOrigin = getCorsOrigin(req);
+  res.setHeader('Vary', 'Origin');
   if (corsOrigin) {
     res.setHeader('Access-Control-Allow-Origin', corsOrigin);
-    res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', `Content-Type, Authorization, ${RELAY_AUTH_HEADER}`);
