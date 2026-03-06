@@ -22,6 +22,7 @@ import {
   isAisConfigured,
   fetchCableActivity,
   parseCableHealthPayload,
+  setCableHealthCache,
   getProtestStatus,
   parseFlightDelaysPayload,
   fetchMilitaryFlights,
@@ -2435,6 +2436,7 @@ export class DataLoaderManager implements AppModule {
   applyCableHealth(payload: unknown): void {
     const healthData = parseCableHealthPayload(payload);
     if (!healthData) return;
+    setCableHealthCache(healthData);
     this.renderCableHealth(healthData.cables);
   }
 
