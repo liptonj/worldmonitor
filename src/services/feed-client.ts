@@ -84,10 +84,7 @@ function buildFeedsFromSources(): void {
   _feeds = {};
   _intelSources = [];
   for (const src of _sources) {
-    const url =
-      typeof src.url === 'string'
-        ? `/api/rss-proxy?url=${encodeURIComponent(src.url)}`
-        : src.url;
+    const url = src.url;
     const feed: Feed = { name: src.name, url };
     if (src.category === 'intel') {
       _intelSources.push(feed);

@@ -3,12 +3,9 @@
 import type { Feed } from '@/types';
 import { SITE_VARIANT } from './variant';
 
-// Helper to create RSS proxy URL (Vercel server-side proxy for most feeds)
-const rss = (url: string) => `/api/rss-proxy?url=${encodeURIComponent(url)}`;
-
-// Alias for feeds that historically needed an external proxy.
-// Both now route through Vercel's rss-proxy which handles server-side fallback.
-const railwayRss = (url: string) => rss(url);
+// Raw RSS URL — relay fetches these server-side; browser never fetches RSS directly.
+const rss = (url: string) => url;
+const railwayRss = (url: string) => url;
 
 // Source tier system for prioritization (lower = more authoritative)
 // Tier 1: Wire services - fastest, most reliable breaking news
