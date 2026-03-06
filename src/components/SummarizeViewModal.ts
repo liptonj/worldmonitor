@@ -2,11 +2,21 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { t } from '@/services/i18n';
 
+const PROGRESS_STEPS = [
+  { delay: 0, text: 'Collecting panel data…' },
+  { delay: 3_000, text: 'Connecting to AI model…' },
+  { delay: 8_000, text: 'Generating summary — this may take up to a minute…' },
+  { delay: 30_000, text: 'Still working — large dashboards take longer…' },
+  { delay: 60_000, text: 'Almost there — finalizing summary…' },
+];
+
 export class SummarizeViewModal {
   private element: HTMLElement;
   private contentEl: HTMLElement;
   private footerEl: HTMLElement;
   private closeBtn: HTMLButtonElement;
+  private progressTimers: ReturnType<typeof setTimeout>[] = [];
+  private elapsedTimer: ReturnType<typeof setInterval> | null = null;
   private escHandler = (e: KeyboardEvent) => {
     if (e.key === 'Escape') this.hide();
   };
@@ -39,7 +49,6 @@ export class SummarizeViewModal {
         this.hide();
       }
     });
-    // Escape listener is added in show() and removed in hide()
   }
 
   show(): void {
@@ -53,14 +62,40 @@ export class SummarizeViewModal {
   hide(): void {
     this.element.classList.remove('active');
     document.removeEventListener('keydown', this.escHandler);
+    this.clearProgress();
   }
 
   setLoading(): void {
-    this.contentEl.innerHTML = `<div class="summarize-view-loading">${t('modals.summarizeView.analyzing')}</div>`;
+    this.clearProgress();
+    this.contentEl.innerHTML = `
+      <div class="summarize-view-loading">
+        <div class="summarize-view-spinner"></div>
+        <div class="summarize-view-status">${PROGRESS_STEPS[0].text}</div>
+        <div class="summarize-view-elapsed"></div>
+      </div>
+    `;
     this.footerEl.innerHTML = '';
+
+    const statusEl = this.contentEl.querySelector('.summarize-view-status') as HTMLElement;
+    const elapsedEl = this.contentEl.querySelector('.summarize-view-elapsed') as HTMLElement;
+    const startTime = Date.now();
+
+    for (const step of PROGRESS_STEPS) {
+      if (step.delay === 0) continue;
+      const timer = setTimeout(() => {
+        if (statusEl) statusEl.textContent = step.text;
+      }, step.delay);
+      this.progressTimers.push(timer);
+    }
+
+    this.elapsedTimer = setInterval(() => {
+      const secs = Math.floor((Date.now() - startTime) / 1000);
+      if (elapsedEl) elapsedEl.textContent = `${secs}s`;
+    }, 1000);
   }
 
   setError(message: string): void {
+    this.clearProgress();
     this.contentEl.innerHTML = '';
     const div = document.createElement('div');
     div.className = 'summarize-view-error';
@@ -70,11 +105,13 @@ export class SummarizeViewModal {
   }
 
   setEmpty(): void {
+    this.clearProgress();
     this.contentEl.innerHTML = `<div class="summarize-view-empty">${t('modals.summarizeView.openPanelsFirst')}</div>`;
     this.footerEl.innerHTML = '';
   }
 
   async setContent(summary: string, model?: string, generatedAt?: string): Promise<void> {
+    this.clearProgress();
     const html = DOMPurify.sanitize(await marked.parse(summary));
     const contentDiv = document.createElement('div');
     contentDiv.className = 'summarize-view-body';
@@ -89,5 +126,14 @@ export class SummarizeViewModal {
       footerParts.push(ts);
     }
     this.footerEl.textContent = footerParts.join(' · ');
+  }
+
+  private clearProgress(): void {
+    for (const t of this.progressTimers) clearTimeout(t);
+    this.progressTimers = [];
+    if (this.elapsedTimer) {
+      clearInterval(this.elapsedTimer);
+      this.elapsedTimer = null;
+    }
   }
 }

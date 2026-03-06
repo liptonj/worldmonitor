@@ -2,7 +2,7 @@ import type { ServerContext } from '../../../../src/generated/server/worldmonito
 import { getActiveLlmProvider, getLlmPrompt, buildPrompt } from '../../../_shared/llm';
 import { CHROME_UA } from '../../../_shared/constants';
 
-const SUMMARIZE_VIEW_TIMEOUT_MS = 90_000;
+const SUMMARIZE_VIEW_TIMEOUT_MS = 110_000;
 const MIN_PANEL_LENGTH = 20;
 const MAX_PANEL_LENGTH = 80_000;
 

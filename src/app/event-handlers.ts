@@ -583,7 +583,10 @@ export class EventHandlerManager implements AppModule {
 
         if (!resp.ok) {
           console.error('[SummarizeView] non-OK HTTP status=%d', resp.status);
-          this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
+          const httpMsg = resp.status === 504 ? t('modals.summarizeView.errorTimeout')
+            : resp.status === 502 || resp.status === 503 ? t('modals.summarizeView.errorUnavailable')
+            : t('modals.summarizeView.errorRetry');
+          this.summarizeViewModal!.setError(httpMsg);
           return;
         }
 
@@ -615,7 +618,10 @@ export class EventHandlerManager implements AppModule {
         await this.summarizeViewModal!.setContent(summary, data.model, data.generatedAt);
       } catch (err) {
         console.error('[SummarizeView] request_failed', err);
-        this.summarizeViewModal!.setError(t('modals.summarizeView.errorRetry'));
+        const isNetwork = err instanceof TypeError;
+        this.summarizeViewModal!.setError(
+          isNetwork ? t('modals.summarizeView.errorNetwork') : t('modals.summarizeView.errorRetry'),
+        );
       }
     });
   }

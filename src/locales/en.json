@@ -350,7 +350,9 @@
       "error": "Could not generate summary. Please try again.",
       "errorProviderMissing": "AI summarization is not configured. Please contact support.",
       "errorPromptMissing": "AI summary template is missing. Please contact support.",
-      "errorTimeout": "AI summarization timed out. Please try again.",
+      "errorTimeout": "AI summarization timed out. The model may be under heavy load — please try again shortly.",
+      "errorUnavailable": "AI service is temporarily unavailable. Please try again in a moment.",
+      "errorNetwork": "Network error — check your connection and try again.",
       "errorRetry": "Could not generate summary. Please try again."
     },
     "signal": {

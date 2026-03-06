@@ -107,6 +107,8 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/supply-chain/v1/get-chokepoint-status': 'medium',
   '/api/news/v1/list-feed-digest': 'slow',
   '/api/intelligence/v1/classify-event': 'static',
+  '/api/intelligence/v1/summarize-view': 'no-store',
+  '/api/intelligence/v1/deduct-situation': 'no-store',
   '/api/news/v1/summarize-article-cache': 'slow',
 };
 
