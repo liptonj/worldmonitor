@@ -3963,14 +3963,14 @@ const server = http.createServer(async (req, res) => {
       });
 
       if (!resp.ok) {
-        safeEnd(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({ error: `GDELT returned ${resp.status}`, articles: [] }));
+        sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify({ error: `GDELT returned ${resp.status}`, articles: [] }));
         return;
       }
 
       const contentType = resp.headers.get('content-type') || '';
       if (!contentType.includes('json')) {
         const text = await resp.text();
-        safeEnd(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({ error: `GDELT non-JSON: ${text.slice(0, 80)}`, articles: [] }));
+        sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify({ error: `GDELT non-JSON: ${text.slice(0, 80)}`, articles: [] }));
         return;
       }
 
@@ -3989,7 +3989,7 @@ const server = http.createServer(async (req, res) => {
       if (articles.length > 0) await redisSetex(cacheKey, 600, result);
       sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(result));
     } catch (err) {
-      safeEnd(res, 502, { 'Content-Type': 'application/json' }, JSON.stringify({ error: err?.message ?? 'fetch failed', articles: [] }));
+      sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify({ error: err?.message ?? 'fetch failed', articles: [] }));
     }
   } else {
     res.writeHead(404);
