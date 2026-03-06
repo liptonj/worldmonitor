@@ -650,6 +650,194 @@ cron.schedule('0 * * * *', async () => {
   }
 });
 
+// ── AI: Full Panel Summary (Two-Model Consensus) ────────────────────────────
+// Reads ALL cached panel data from Redis — full content, not just headlines.
+// Runs two models independently, then an arbiter synthesizes both outputs.
+
+const AI_PANEL_SUMMARY_CACHE_KEY = 'ai:panel-summary:v1';
+const AI_PANEL_SUMMARY_TTL = 900; // 15 min
+
+function extractNewsContext(newsData) {
+  if (!newsData?.items || !Array.isArray(newsData.items)) return '';
+  return newsData.items.slice(0, 40).map((item, i) => {
+    const parts = [`${i + 1}. ${item.title || 'Untitled'}`];
+    if (item.description) parts.push(`   ${item.description.slice(0, 300)}`);
+    if (item.source) parts.push(`   Source: ${item.source}`);
+    if (item.pubDate) parts.push(`   Published: ${item.pubDate}`);
+    return parts.join('\n');
+  }).join('\n\n');
+}
+
+function extractTelegramContext(telegramData) {
+  if (!telegramData) return '';
+  const items = Array.isArray(telegramData) ? telegramData
+    : telegramData.items ? telegramData.items : [];
+  return items.slice(0, 30).map((msg, i) => {
+    const channel = msg.channel || msg.chatTitle || 'Unknown';
+    const text = (msg.text || msg.message || '').slice(0, 500);
+    const ts = msg.date || msg.timestamp || '';
+    return `${i + 1}. [${channel}] ${text}${ts ? ` (${ts})` : ''}`;
+  }).join('\n');
+}
+
+function extractMarketContext(marketData) {
+  if (!marketData) return '';
+  const sections = [];
+  if (marketData.indices) {
+    sections.push('Indices: ' + marketData.indices.slice(0, 10).map(i =>
+      `${i.symbol || i.name}: ${i.price ?? i.value ?? '?'} (${i.changePercent ?? i.change ?? '?'}%)`
+    ).join(', '));
+  }
+  if (marketData.commodities) {
+    sections.push('Commodities: ' + marketData.commodities.slice(0, 5).map(c =>
+      `${c.name || c.symbol}: $${c.price ?? '?'}`
+    ).join(', '));
+  }
+  if (marketData.crypto) {
+    sections.push('Crypto: ' + marketData.crypto.slice(0, 5).map(c =>
+      `${c.symbol || c.name}: $${c.price ?? '?'} (${c.changePercent ?? '?'}%)`
+    ).join(', '));
+  }
+  return sections.join('\n');
+}
+
+async function generatePanelSummary() {
+  const viewPrompt = await loadLlmPrompt('view_summary');
+  const arbiterPrompt = await loadLlmPrompt('view_summary_arbiter');
+  if (!viewPrompt) {
+    console.warn('[ai-cron] no view_summary prompt found — skipping');
+    return;
+  }
+
+  // ── Build rich context from ALL data sources ──
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const contextSections = [];
+
+  // News: full headlines + descriptions + sources
+  const newsData = await redisGet('relay:news:full:v1');
+  const newsContext = extractNewsContext(newsData);
+  if (newsContext) contextSections.push(`## NEWS & HEADLINES\n${newsContext}`);
+
+  // Telegram: raw OSINT channel messages
+  const telegramData = await redisGet('relay:telegram:v1');
+  const telegramContext = extractTelegramContext(telegramData);
+  if (telegramContext) contextSections.push(`## TELEGRAM INTELLIGENCE (OSINT)\n${telegramContext}`);
+
+  // Markets: indices, commodities, crypto
+  const marketData = await redisGet('relay:markets:v1');
+  const marketContext = extractMarketContext(marketData);
+  if (marketContext) contextSections.push(`## MARKET DATA\n${marketContext}`);
+
+  // Structured data panels — summarize as key metrics
+  const dataKeys = [
+    { key: 'relay:strategic-risk:v1', label: 'STRATEGIC RISK SCORES' },
+    { key: 'relay:strategic-posture:v1', label: 'MILITARY THEATER POSTURE' },
+    { key: 'relay:intelligence:v1', label: 'INTELLIGENCE DIGEST' },
+    { key: 'relay:cyber:v1', label: 'CYBER THREATS' },
+    { key: 'relay:supply-chain:v1', label: 'SUPPLY CHAIN STATUS' },
+    { key: 'relay:predictions:v1', label: 'PREDICTION MARKETS' },
+    { key: 'relay:trade:v1', label: 'TRADE POLICY' },
+    { key: 'relay:weather:v1', label: 'WEATHER ALERTS' },
+    { key: 'relay:cables:v1', label: 'UNDERSEA CABLE HEALTH' },
+    { key: 'relay:conflict:v1', label: 'CONFLICT EVENTS' },
+    { key: 'relay:natural:v1', label: 'NATURAL DISASTERS / WILDFIRES' },
+    { key: 'relay:eonet:v1', label: 'NASA EARTH EVENTS' },
+    { key: 'relay:gdacs:v1', label: 'GDACS DISASTER ALERTS' },
+  ];
+
+  for (const { key, label } of dataKeys) {
+    const data = await redisGet(key);
+    if (data) {
+      contextSections.push(`## ${label}\n${JSON.stringify(data).slice(0, 2500)}`);
+    }
+  }
+
+  if (contextSections.length < 5) {
+    console.warn(`[ai-cron] only ${contextSections.length} data sources available — skipping panel summary`);
+    return;
+  }
+
+  const panelData = contextSections.join('\n\n');
+  const systemPrompt = buildPromptFromTemplate(viewPrompt.systemPrompt, { date: dateStr });
+  const userPrompt = buildPromptFromTemplate(viewPrompt.userPrompt, { panelData, date: dateStr });
+  const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
+
+  // ── Two-Model Consensus ──
+  // Run two models in parallel, then synthesize with arbiter
+
+  const funcConfig = getFunctionConfig('panel_summary');
+  const providerChain = funcConfig?.providerChain || ['ollama'];
+
+  // Model A: first provider in chain
+  const summaryAPromise = callLlmForFunction('panel_summary', messages, { maxTokens: 1500, temperature: 0.4 });
+
+  // Model B: second provider in chain (or same provider if only one)
+  let summaryBPromise;
+  if (providerChain.length >= 2) {
+    summaryBPromise = callLlmWithProvider(providerChain[1], messages, { maxTokens: 1500, temperature: 0.4 });
+  } else {
+    // Same model, different temperature for diversity
+    summaryBPromise = callLlmForFunction('panel_summary', messages, { maxTokens: 1500, temperature: 0.7 });
+  }
+
+  const [summaryA, summaryB] = await Promise.all([summaryAPromise, summaryBPromise]);
+
+  if (!summaryA && !summaryB) {
+    console.warn('[ai-cron] both model calls failed for panel summary');
+    return;
+  }
+
+  let finalSummary;
+  const modelsUsed = [];
+
+  if (summaryA && summaryB && arbiterPrompt) {
+    // ── Arbiter: synthesize both outputs ──
+    const arbiterSystem = buildPromptFromTemplate(arbiterPrompt.systemPrompt, { date: dateStr });
+    const arbiterUser = buildPromptFromTemplate(arbiterPrompt.userPrompt, {
+      summaryA: summaryA,
+      summaryB: summaryB,
+    });
+
+    finalSummary = await callLlmForFunction('panel_summary_arbiter',
+      [{ role: 'system', content: arbiterSystem }, { role: 'user', content: arbiterUser }],
+      { maxTokens: 1500, temperature: 0.3 },
+    );
+    modelsUsed.push('model_a', 'model_b', 'arbiter');
+
+    if (!finalSummary) {
+      finalSummary = summaryA; // fallback to model A if arbiter fails
+      modelsUsed.length = 0;
+      modelsUsed.push('model_a_fallback');
+    }
+  } else {
+    finalSummary = summaryA || summaryB;
+    modelsUsed.push(summaryA ? 'model_a_only' : 'model_b_only');
+  }
+
+  if (!finalSummary) return;
+
+  const payload = {
+    summary: finalSummary,
+    approach: modelsUsed.join('+'),
+    generatedAt: new Date().toISOString(),
+    contextSources: contextSections.length,
+    dataSources: {
+      newsHeadlines: newsData?.items?.length ?? 0,
+      telegramMessages: (Array.isArray(telegramData) ? telegramData : telegramData?.items || []).length,
+      panelCount: dataKeys.filter(k => contextSections.some(s => s.includes(k.label))).length,
+    },
+  };
+
+  await redisSetex(AI_PANEL_SUMMARY_CACHE_KEY, AI_PANEL_SUMMARY_TTL, payload);
+  broadcastToChannel('ai:panel-summary', payload);
+  console.log(`[ai-cron] panel summary generated via ${payload.approach} (${finalSummary.length} chars, ${contextSections.length} sources)`);
+}
+
+cron.schedule('*/15 * * * *', async () => {
+  try { await generatePanelSummary(); }
+  catch (err) { console.error('[ai-cron] panel summary error:', err?.message ?? err); }
+});
+
 // ─────────────────────────────────────────────────────────────
 
 let upstreamSocket = null;
