@@ -64,6 +64,8 @@ export interface IntelligenceCache {
   eonetEvents?: import('@/types').NaturalEvent[];
   /** Cached GDACS events (as NaturalEvent) for relay-push merge with EONET */
   gdacsEvents?: import('@/types').NaturalEvent[];
+  /** Cached weather alerts from relay push */
+  weatherAlerts?: import('@/services/weather').WeatherAlert[];
 }
 
 export interface AppModule {

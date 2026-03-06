@@ -79,6 +79,7 @@ import { isFeatureAvailable, isFeatureEnabled } from '@/services/runtime-config'
 import { getAiFlowSettings } from '@/services/ai-flow-settings';
 import { t } from '@/services/i18n';
 import { getHydratedData } from '@/services/bootstrap';
+import { fetchRelayPanel } from '@/services/relay-http';
 import { canQueueAiClassification, AI_CLASSIFY_MAX_PER_FEED } from '@/services/ai-classify-queue';
 import { classifyWithAI } from '@/services/threat-classifier';
 import { ingestHeadlines } from '@/services/trending-keywords';
@@ -183,6 +184,7 @@ export class DataLoaderManager implements AppModule {
   private readonly perFeedFallbackBatchSize = 2;
   private lastGoodDigest: ListFeedDigestResponse | null = null;
   private lastCommodityData: Array<{ display: string; price: number | null; change: number | null; sparkline?: number[] }> = [];
+  private firesCache: ListFireDetectionsResponse | null = null;
 
   constructor(ctx: AppContext, callbacks: DataLoaderCallbacks) {
     this.ctx = ctx;
@@ -782,10 +784,31 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadNatural(): Promise<void> {
-    const [earthquakeResult, eonetResult] = await Promise.allSettled([
-      fetchEarthquakes(),
-      fetchNaturalEvents(30),
+    const hasCachedNatural = (this.ctx.intelligenceCache.eonetEvents?.length ?? 0) > 0 || (this.ctx.intelligenceCache.gdacsEvents?.length ?? 0) > 0;
+    const hasCachedEarthquakes = (this.ctx.intelligenceCache.earthquakes?.length ?? 0) > 0;
+
+    if (hasCachedNatural) {
+      this.mergeAndRenderNaturalEvents();
+    }
+    if (hasCachedEarthquakes && this.ctx.intelligenceCache.earthquakes) {
+      this.ctx.map?.setEarthquakes(this.ctx.intelligenceCache.earthquakes);
+      this.ctx.statusPanel?.updateApi('USGS', { status: 'ok' });
+    }
+    if (hasCachedNatural || hasCachedEarthquakes) {
+      const mergedCount = (this.ctx.intelligenceCache.eonetEvents?.length ?? 0) + (this.ctx.intelligenceCache.gdacsEvents?.length ?? 0);
+      this.ctx.map?.setLayerReady('natural', mergedCount > 0 || hasCachedEarthquakes);
+      if (hasCachedNatural && hasCachedEarthquakes) return;
+    }
+
+    const [earthquakeResult, eonetResult, relayEonet, relayGdacs] = await Promise.all([
+      fetchEarthquakes().then((v) => ({ status: 'fulfilled' as const, value: v })).catch((e) => ({ status: 'rejected' as const, reason: e })),
+      fetchNaturalEvents(30).then((v) => ({ status: 'fulfilled' as const, value: v })).catch((e) => ({ status: 'rejected' as const, reason: e })),
+      fetchRelayPanel('eonet'),
+      fetchRelayPanel('gdacs'),
     ]);
+
+    if (relayEonet) this.applyEonet(relayEonet);
+    if (relayGdacs) this.applyGdacs(relayGdacs);
 
     if (earthquakeResult.status === 'fulfilled') {
       this.ctx.intelligenceCache.earthquakes = earthquakeResult.value;
@@ -794,33 +817,40 @@ export class DataLoaderManager implements AppModule {
       this.ctx.statusPanel?.updateApi('USGS', { status: 'ok' });
       dataFreshness.recordUpdate('usgs', earthquakeResult.value.length);
     } else {
-      this.ctx.intelligenceCache.earthquakes = [];
-      this.ctx.map?.setEarthquakes([]);
-      this.ctx.statusPanel?.updateApi('USGS', { status: 'error' });
-      dataFreshness.recordError('usgs', String(earthquakeResult.reason));
+      if (!hasCachedEarthquakes) {
+        this.ctx.intelligenceCache.earthquakes = [];
+        this.ctx.map?.setEarthquakes([]);
+        this.ctx.statusPanel?.updateApi('USGS', { status: 'error' });
+        dataFreshness.recordError('usgs', String(earthquakeResult.reason));
+      }
     }
 
-    if (eonetResult.status === 'fulfilled') {
+    if (eonetResult.status === 'fulfilled' && !relayEonet && !relayGdacs) {
       this.ctx.map?.setNaturalEvents(eonetResult.value);
-      this.ctx.statusPanel?.updateFeed('EONET', {
-        status: 'ok',
-        itemCount: eonetResult.value.length,
-      });
+      this.ctx.intelligenceCache.eonetEvents = eonetResult.value;
+      this.ctx.statusPanel?.updateFeed('EONET', { status: 'ok', itemCount: eonetResult.value.length });
       this.ctx.statusPanel?.updateApi('NASA EONET', { status: 'ok' });
-    } else {
+    } else if (!relayEonet && !relayGdacs && !hasCachedNatural) {
       this.ctx.map?.setNaturalEvents([]);
-      this.ctx.statusPanel?.updateFeed('EONET', { status: 'error', errorMessage: String(eonetResult.reason) });
+      this.ctx.statusPanel?.updateFeed('EONET', { status: 'error', errorMessage: String(eonetResult.status === 'rejected' ? eonetResult.reason : 'No data') });
       this.ctx.statusPanel?.updateApi('NASA EONET', { status: 'error' });
     }
 
     const hasEarthquakes = earthquakeResult.status === 'fulfilled' && earthquakeResult.value.length > 0;
-    const hasEonet = eonetResult.status === 'fulfilled' && eonetResult.value.length > 0;
+    const hasEonet = !!relayEonet || !!relayGdacs || (eonetResult.status === 'fulfilled' && eonetResult.value.length > 0) || hasCachedNatural;
     this.ctx.map?.setLayerReady('natural', hasEarthquakes || hasEonet);
   }
 
   async loadTechEvents(): Promise<void> {
     if (SITE_VARIANT !== 'tech' && !this.ctx.mapLayers.techEvents) return;
 
+    try {
+      const data = await fetchRelayPanel('tech-events');
+      if (data) {
+        this.applyTechEvents(data);
+        return;
+      }
+    } catch { /* fall through */ }
     try {
       const data = await fetchTechEvents('conference', true, 90, 50);
       if (!data.success) throw new Error(data.error || 'Unknown error');
@@ -834,6 +864,7 @@ export class DataLoaderManager implements AppModule {
   }
 
   private renderWeatherAlerts(alerts: import('@/services/weather').WeatherAlert[]): void {
+    this.ctx.intelligenceCache.weatherAlerts = alerts;
     this.ctx.map?.setWeatherAlerts(alerts);
     this.ctx.map?.setLayerReady('weather', alerts.length > 0);
     this.ctx.statusPanel?.updateFeed('Weather', { status: 'ok', itemCount: alerts.length });
@@ -841,6 +872,17 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadWeatherAlerts(): Promise<void> {
+    if (this.ctx.intelligenceCache.weatherAlerts) {
+      this.renderWeatherAlerts(this.ctx.intelligenceCache.weatherAlerts);
+      return;
+    }
+    try {
+      const data = await fetchRelayPanel('weather');
+      if (data) {
+        this.applyWeatherAlerts(data);
+        return;
+      }
+    } catch { /* fall through */ }
     try {
       const alerts = await fetchWeatherAlerts();
       this.renderWeatherAlerts(alerts);
@@ -1193,6 +1235,14 @@ export class DataLoaderManager implements AppModule {
       return;
     }
 
+    try {
+      const data = await fetchRelayPanel('cyber');
+      if (data) {
+        this.applyCyberThreats(data);
+        return;
+      }
+    } catch { /* fall through */ }
+
     const threats = fetchCyberThreats();
     if (threats.length > 0) {
       this.renderCyberThreats(threats);
@@ -1202,6 +1252,17 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadIranEvents(): Promise<void> {
+    if (this.ctx.intelligenceCache.iranEvents) {
+      this.renderIranEvents(this.ctx.intelligenceCache.iranEvents);
+      return;
+    }
+    try {
+      const data = await fetchRelayPanel('iran-events');
+      if (data) {
+        this.applyIranEvents(data);
+        return;
+      }
+    } catch { /* fall through */ }
     try {
       const events = await fetchIranEvents();
       this.renderIranEvents(events);
@@ -1245,6 +1306,13 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadAisSignals(): Promise<void> {
+    try {
+      const data = await fetchRelayPanel('ais');
+      if (data) {
+        this.applyAisSignals(data);
+        return;
+      }
+    } catch { /* fall through */ }
     try {
       const { disruptions, density } = await fetchAisSignals();
       this.renderAisSignals(disruptions, density);
@@ -1307,6 +1375,13 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadCableHealth(): Promise<void> {
+    try {
+      const data = await fetchRelayPanel('cables');
+      if (data) {
+        this.applyCableHealth(data);
+        return;
+      }
+    } catch { /* fall through */ }
     const healthData = fetchCableHealth();
     if (Object.keys(healthData.cables).length > 0) {
       this.renderCableHealth(healthData.cables);
@@ -1333,6 +1408,14 @@ export class DataLoaderManager implements AppModule {
       if (protestData.sources.gdelt > 0) dataFreshness.recordUpdate('gdelt_doc', protestData.sources.gdelt);
       return;
     }
+    try {
+      const data = await fetchRelayPanel('conflict');
+      if (data) {
+        this.applyConflict(data);
+        return;
+      }
+    } catch { /* fall through */ }
+
     try {
       const protestData = await fetchProtestEvents();
       this.ctx.intelligenceCache.protests = protestData;
@@ -1381,6 +1464,17 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadFlightDelays(): Promise<void> {
+    if (this.ctx.intelligenceCache.flightDelays) {
+      this.renderFlightDelays(this.ctx.intelligenceCache.flightDelays);
+      return;
+    }
+    try {
+      const data = await fetchRelayPanel('flights');
+      if (data) {
+        this.applyFlightDelays(data);
+        return;
+      }
+    } catch { /* fall through */ }
     try {
       const delays = await fetchFlightDelays();
       this.renderFlightDelays(delays);
@@ -1782,6 +1876,17 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadFirmsData(): Promise<void> {
+    if (this.firesCache && (this.firesCache.fireDetections?.length ?? 0) > 0) {
+      this.renderNatural(this.firesCache);
+      return;
+    }
+    try {
+      const data = await fetchRelayPanel('natural');
+      if (data) {
+        this.applyNatural(data);
+        return;
+      }
+    } catch { /* fall through */ }
     const fireResult = fetchAllFires(1);
     if (fireResult.skipped) {
       this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
@@ -1795,6 +1900,7 @@ export class DataLoaderManager implements AppModule {
 
   private renderNatural(data: ListFireDetectionsResponse): void {
     const detections = data.fireDetections ?? [];
+    if (detections.length > 0) this.firesCache = data;
     if (detections.length === 0) {
       ingestSatelliteFiresForCII([]);
       (this.ctx.panels['cii'] as CIIPanel)?.refresh();
@@ -2375,6 +2481,35 @@ export class DataLoaderManager implements AppModule {
     if (data.count === 0) return;
     ingestConflictsForCII(data.events);
     dataFreshness.recordUpdate('acled_conflict', data.count);
+    // Also populate protests layer for map display (ConflictEvent adapted to SocialUnrestEvent)
+    const protestEvents: SocialUnrestEvent[] = data.events.map((e) => ({
+      id: e.id,
+      title: e.location || e.country,
+      eventType: 'civil_unrest' as const,
+      country: e.country,
+      region: e.region,
+      lat: e.lat,
+      lon: e.lon,
+      time: e.time,
+      severity: (e.fatalities > 0 ? 'high' : 'medium') as import('@/types').ProtestSeverity,
+      sources: [e.source],
+      sourceType: 'acled' as const,
+      confidence: 'high' as const,
+      validated: false,
+    }));
+    this.ctx.intelligenceCache.protests = { events: protestEvents, sources: { acled: data.count, gdelt: 0 } };
+    if (this.ctx.mapLayers.protests) {
+      this.ctx.map?.setProtests(protestEvents);
+      this.ctx.map?.setLayerReady('protests', protestEvents.length > 0);
+    }
+    ingestProtests(protestEvents);
+    ingestProtestsForCII(protestEvents);
+    signalAggregator.ingestProtests(protestEvents);
+    const status = getProtestStatus();
+    this.ctx.statusPanel?.updateFeed('Protests', { status: 'ok', itemCount: protestEvents.length, errorMessage: status.acledConfigured === false ? 'ACLED not configured - using GDELT only' : undefined });
+    this.ctx.statusPanel?.updateApi('ACLED', status.acledConfigured === true ? { status: 'ok' } : status.acledConfigured === null ? { status: 'warning' } : { status: 'error' });
+    this.ctx.statusPanel?.updateApi('GDELT Doc', { status: 'ok' });
+    (this.ctx.panels['cii'] as CIIPanel)?.refresh();
   }
 
   applyUcdpEvents(payload: unknown): void {
