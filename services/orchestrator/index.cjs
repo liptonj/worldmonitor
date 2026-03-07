@@ -47,6 +47,28 @@ async function updateServiceStatus(supabase, serviceKey, result) {
 
 // --- Internal ---
 
+async function sendAlert(serviceKey, consecutiveFailures, lastError) {
+  const webhookUrl = process.env.ALERT_WEBHOOK_URL;
+  if (!webhookUrl) return;
+
+  const payload = {
+    content: `⚠️ Service **${serviceKey}** has failed ${consecutiveFailures} consecutive times.\nLast error: ${lastError || 'unknown'}`,
+  };
+
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      log.warn('Alert webhook returned non-2xx', { status: res.status });
+    }
+  } catch (err) {
+    log.warn('Failed to send alert webhook', { error: err.message });
+  }
+}
+
 function getSupabaseClient() {
   const url = process.env.SUPABASE_URL || config.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -105,6 +127,7 @@ async function triggerService(supabase, serviceConfig, workerClient, aiEngineCli
         consecutive_failures: failures,
         max: serviceConfig.max_consecutive_failures,
       });
+      await sendAlert(serviceConfig.service_key, failures, result.error);
     }
   }
 

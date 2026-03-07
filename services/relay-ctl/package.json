@@ -1,0 +1,11 @@
+{
+  "name": "@worldmonitor/relay-ctl",
+  "version": "1.0.0",
+  "private": true,
+  "bin": {
+    "relay-ctl": "./index.cjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2"
+  }
+}

@@ -72,6 +72,7 @@ services:
       - AI_ENGINE_HOST=ai-engine
       - AI_ENGINE_GRPC_PORT=50053
       - LOG_LEVEL=info
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
 
   worker:
     build:
