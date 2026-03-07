@@ -1031,6 +1031,7 @@ export interface CascadeResult {
 
 // Re-export port types
 export type { Port, PortType } from '@/config/ports';
+export type { RelayPushHandlers } from './relay-push-handlers';
 
 // AI Regulation Types
 export type RegulationType = 'comprehensive' | 'sectoral' | 'voluntary' | 'proposed';

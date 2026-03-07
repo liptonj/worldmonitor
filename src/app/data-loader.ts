@@ -1,6 +1,7 @@
 import type { AppContext, AppModule } from '@/app/app-context';
 import type { NewsItem, MapLayers, SocialUnrestEvent } from '@/types';
 import type { TimeRange } from '@/components';
+import type { RelayPushHandlers } from '@/types/relay-push-handlers';
 import {
   getFeeds,
   getIntelSources,
@@ -145,7 +146,7 @@ export interface DataLoaderCallbacks {
   renderCriticalBanner: (postures: TheaterPostureSummary[]) => void;
 }
 
-export class DataLoaderManager implements AppModule {
+export class DataLoaderManager implements AppModule, RelayPushHandlers {
   private ctx: AppContext;
   private callbacks: DataLoaderCallbacks;
 

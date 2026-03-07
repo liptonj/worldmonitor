@@ -596,37 +596,35 @@ export class App {
 
     initRelayPush(channels);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dl = this.dataLoader as any;
-    subscribeRelayPush(`news:${variant}`, (p) => { void dl.applyNewsDigest(p); });
-    subscribeRelayPush('markets',        (p) => { void dl.applyMarkets(p); });
-    subscribeRelayPush('predictions',    (p) => { void dl.applyPredictions(p); });
-    subscribeRelayPush('fred',           (p) => { void dl.applyFredData(p); });
-    subscribeRelayPush('oil',            (p) => { void dl.applyOilData(p); });
-    subscribeRelayPush('bis',            (p) => { void dl.applyBisData(p); });
-    subscribeRelayPush('intelligence',   (p) => { void dl.applyIntelligence(p); });
-    subscribeRelayPush('pizzint',        (p) => { void dl.applyPizzInt(p); });
-    subscribeRelayPush('trade',          (p) => { void dl.applyTradePolicy(p); });
-    subscribeRelayPush('supply-chain',   (p) => { void dl.applySupplyChain(p); });
-    subscribeRelayPush('natural',        (p) => { void dl.applyNatural(p); });
-    subscribeRelayPush('climate',        (p) => { void dl.applyClimate(p); });
-    subscribeRelayPush('conflict',       (p) => { void dl.applyConflict(p); });
-    subscribeRelayPush('ucdp-events',    (p) => { void dl.applyUcdpEvents(p); });
-    subscribeRelayPush('cyber',          (p) => { void dl.applyCyberThreats(p); });
-    subscribeRelayPush('cables',         (p) => { void dl.applyCableHealth(p); });
-    subscribeRelayPush('flights',        (p) => { void dl.applyFlightDelays(p); });
-    subscribeRelayPush('ais',            (p) => { void dl.applyAisSignals(p); });
-    subscribeRelayPush('weather',        (p) => { void dl.applyWeatherAlerts(p); });
-    subscribeRelayPush('spending',       (p) => { void dl.applySpending(p); });
-    subscribeRelayPush('giving',         (p) => { void dl.applyGiving(p); });
-    subscribeRelayPush('telegram',       (p) => { void dl.applyTelegramIntel(p); });
-    subscribeRelayPush('oref',           (p) => { void dl.applyOref(p); });
-    subscribeRelayPush('iran-events',    (p) => { void dl.applyIranEvents(p); });
-    subscribeRelayPush('tech-events',    (p) => { void dl.applyTechEvents(p); });
-    subscribeRelayPush('gulf-quotes',    (p) => { void dl.applyGulfQuotes(p); });
-    subscribeRelayPush('gps-interference', (p) => { void dl.applyGpsInterference(p); });
-    subscribeRelayPush('eonet',          (p) => { void dl.applyEonet(p); });
-    subscribeRelayPush('gdacs',          (p) => { void dl.applyGdacs(p); });
+    subscribeRelayPush(`news:${variant}`, (p) => { void this.dataLoader.applyNewsDigest(p); });
+    subscribeRelayPush('markets',        (p) => { void this.dataLoader.applyMarkets(p); });
+    subscribeRelayPush('predictions',    (p) => { void this.dataLoader.applyPredictions(p); });
+    subscribeRelayPush('fred',           (p) => { void this.dataLoader.applyFredData(p); });
+    subscribeRelayPush('oil',            (p) => { void this.dataLoader.applyOilData(p); });
+    subscribeRelayPush('bis',            (p) => { void this.dataLoader.applyBisData(p); });
+    subscribeRelayPush('intelligence',   (p) => { void this.dataLoader.applyIntelligence(p); });
+    subscribeRelayPush('pizzint',        (p) => { void this.dataLoader.applyPizzInt(p); });
+    subscribeRelayPush('trade',          (p) => { void this.dataLoader.applyTradePolicy(p); });
+    subscribeRelayPush('supply-chain',   (p) => { void this.dataLoader.applySupplyChain(p); });
+    subscribeRelayPush('natural',        (p) => { void this.dataLoader.applyNatural(p); });
+    subscribeRelayPush('climate',        (p) => { void this.dataLoader.applyClimate(p); });
+    subscribeRelayPush('conflict',       (p) => { void this.dataLoader.applyConflict(p); });
+    subscribeRelayPush('ucdp-events',    (p) => { void this.dataLoader.applyUcdpEvents(p); });
+    subscribeRelayPush('cyber',          (p) => { void this.dataLoader.applyCyberThreats(p); });
+    subscribeRelayPush('cables',         (p) => { void this.dataLoader.applyCableHealth(p); });
+    subscribeRelayPush('flights',        (p) => { void this.dataLoader.applyFlightDelays(p); });
+    subscribeRelayPush('ais',            (p) => { void this.dataLoader.applyAisSignals(p); });
+    subscribeRelayPush('weather',        (p) => { void this.dataLoader.applyWeatherAlerts(p); });
+    subscribeRelayPush('spending',       (p) => { void this.dataLoader.applySpending(p); });
+    subscribeRelayPush('giving',         (p) => { void this.dataLoader.applyGiving(p); });
+    subscribeRelayPush('telegram',       (p) => { void this.dataLoader.applyTelegramIntel(p); });
+    subscribeRelayPush('oref',           (p) => { void this.dataLoader.applyOref(p); });
+    subscribeRelayPush('iran-events',    (p) => { void this.dataLoader.applyIranEvents(p); });
+    subscribeRelayPush('tech-events',    (p) => { void this.dataLoader.applyTechEvents(p); });
+    subscribeRelayPush('gulf-quotes',    (p) => { void this.dataLoader.applyGulfQuotes(p); });
+    subscribeRelayPush('gps-interference', (p) => { void this.dataLoader.applyGpsInterference(p); });
+    subscribeRelayPush('eonet',          (p) => { void this.dataLoader.applyEonet(p); });
+    subscribeRelayPush('gdacs',          (p) => { void this.dataLoader.applyGdacs(p); });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const panel = (key: string) => (this.state.panels[key] as any)?.applyPush?.bind(this.state.panels[key]);
