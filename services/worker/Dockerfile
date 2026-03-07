@@ -1,3 +1,10 @@
 FROM relay-base:latest
-# Stub — implementation in Phase 3/4/5
-CMD ["node", "--version"]
+
+WORKDIR /app/worker
+
+COPY worker/package.json ./
+RUN npm install --omit=dev
+
+COPY worker/index.cjs ./
+
+CMD ["node", "index.cjs"]
