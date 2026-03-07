@@ -205,6 +205,16 @@ export class EventHandlerManager implements AppModule {
       if (e.key === STORAGE_KEYS.panels && e.newValue) {
         try {
           this.ctx.panelSettings = JSON.parse(e.newValue) as Record<string, PanelConfig>;
+          for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
+            const entry = this.ctx.panelSettings[key];
+            if (entry) {
+              if (config.channels) entry.channels = config.channels;
+              entry.requiredFeature = config.requiredFeature;
+              if (config.priority !== undefined) entry.priority = config.priority;
+            } else {
+              this.ctx.panelSettings[key] = { ...config };
+            }
+          }
           this.applyPanelSettings();
           this.ctx.unifiedSettings?.refreshPanelToggles();
         } catch (_) { }

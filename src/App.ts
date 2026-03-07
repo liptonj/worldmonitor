@@ -100,7 +100,7 @@ export class App {
         const entry = panelSettings[key];
         if (entry) {
           if (config.channels) entry.channels = config.channels;
-          if (config.requiredFeature) entry.requiredFeature = config.requiredFeature;
+          entry.requiredFeature = config.requiredFeature;
           if (config.priority !== undefined) entry.priority = config.priority;
         } else {
           panelSettings[key] = { ...config };
