@@ -62,10 +62,15 @@ services:
       - relay-internal
     environment:
       - REDIS_URL=redis://redis:6379
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - GATEWAY_HOST=gateway
       - GATEWAY_GRPC_PORT=50051
       - WORKER_HOST=worker
       - WORKER_GRPC_PORT=50052
+      - AI_ENGINE_HOST=ai-engine
+      - AI_ENGINE_GRPC_PORT=50053
       - LOG_LEVEL=info
 
   worker:

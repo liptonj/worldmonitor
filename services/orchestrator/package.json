@@ -1,5 +1,10 @@
 {
   "name": "@worldmonitor/orchestrator",
   "version": "1.0.0",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@supabase/supabase-js": "^2",
+    "@worldmonitor/shared": "file:../shared",
+    "node-cron": "^3"
+  }
 }

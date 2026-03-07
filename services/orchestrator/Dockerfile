@@ -1,3 +1,10 @@
 FROM relay-base:latest
-# Stub — implementation in Phase 3/4/5
-CMD ["node", "--version"]
+
+WORKDIR /app/orchestrator
+
+COPY orchestrator/package.json ./
+RUN npm install --omit=dev
+
+COPY orchestrator/index.cjs ./
+
+CMD ["node", "index.cjs"]

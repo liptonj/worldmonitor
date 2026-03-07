@@ -4,7 +4,7 @@ const path = require('path');
 const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 
-const PROTO_DIR = path.resolve(__dirname, '../../proto/relay/v1');
+const PROTO_DIR = path.resolve(__dirname, '../proto/relay/v1');
 const loaderOpts = { keepCase: true, longs: String, enums: String, defaults: true, oneofs: true };
 
 const workerPackage = protoLoader.loadSync(path.join(PROTO_DIR, 'worker.proto'), loaderOpts);
@@ -38,4 +38,21 @@ function broadcast(client, { channel, payload, timestampMs, triggerId }) {
   });
 }
 
-module.exports = { createGatewayClient, createWorkerClient, broadcast };
+function execute(client, { serviceKey, redisKey, ttlSeconds, settingsJson, triggerId, fetchType }) {
+  return new Promise((resolve, reject) => {
+    const req = {
+      service_key: serviceKey,
+      redis_key: redisKey || '',
+      ttl_seconds: ttlSeconds ?? 600,
+      settings_json: settingsJson || '{}',
+      trigger_id: triggerId || '',
+      fetch_type: fetchType || 'custom',
+    };
+    client.Execute(req, (err, res) => {
+      if (err) return reject(err);
+      resolve(res);
+    });
+  });
+}
+
+module.exports = { createGatewayClient, createWorkerClient, broadcast, execute };
