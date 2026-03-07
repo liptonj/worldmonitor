@@ -190,6 +190,29 @@ export class DataLoaderManager implements AppModule {
 
   destroy(): void {}
 
+  /**
+   * Unified data loading pattern:
+   * 1. Try hydrated data from bootstrap (instant)
+   * 2. If not available, fetch from /panel/:channel (fallback)
+   * 3. Subscribe to WebSocket for real-time updates (handled in App.ts)
+   */
+  private async loadChannelWithFallback<T>(
+    channel: string,
+    renderFn: (data: T) => void
+  ): Promise<boolean> {
+    const hydrated = getHydratedData(channel);
+    if (hydrated) {
+      renderFn(hydrated as T);
+      return true;
+    }
+    const panelData = await fetchRelayPanel<T>(channel);
+    if (panelData) {
+      renderFn(panelData);
+      return true;
+    }
+    return false;
+  }
+
   private async tryFetchDigest(): Promise<ListFeedDigestResponse | null> {
     const data = fetchNewsDigest(0);
     if (data) {
@@ -790,14 +813,11 @@ export class DataLoaderManager implements AppModule {
       if (hasCachedNatural && hasCachedEarthquakes) return;
     }
 
-    const [earthquakeResult, relayEonet, relayGdacs] = await Promise.all([
+    const [earthquakeResult, eonetLoaded, gdacsLoaded] = await Promise.all([
       fetchEarthquakes().then((v) => ({ status: 'fulfilled' as const, value: v })).catch((e) => ({ status: 'rejected' as const, reason: e })),
-      fetchRelayPanel('eonet'),
-      fetchRelayPanel('gdacs'),
+      this.loadChannelWithFallback('eonet', (data) => this.applyEonet(data)),
+      this.loadChannelWithFallback('gdacs', (data) => this.applyGdacs(data)),
     ]);
-
-    if (relayEonet) this.applyEonet(relayEonet);
-    if (relayGdacs) this.applyGdacs(relayGdacs);
 
     if (earthquakeResult.status === 'fulfilled') {
       this.ctx.intelligenceCache.earthquakes = earthquakeResult.value;
@@ -814,27 +834,22 @@ export class DataLoaderManager implements AppModule {
       }
     }
 
-    if (!relayEonet && !relayGdacs && !hasCachedNatural) {
+    if (!eonetLoaded && !gdacsLoaded && !hasCachedNatural) {
       this.ctx.map?.setNaturalEvents([]);
       this.ctx.statusPanel?.updateFeed('EONET', { status: 'error', errorMessage: 'No data from relay' });
       this.ctx.statusPanel?.updateApi('NASA EONET', { status: 'error' });
     }
 
     const hasEarthquakes = earthquakeResult.status === 'fulfilled' && earthquakeResult.value.length > 0;
-    const hasEonet = !!relayEonet || !!relayGdacs || hasCachedNatural;
+    const hasEonet = eonetLoaded || gdacsLoaded || hasCachedNatural;
     this.ctx.map?.setLayerReady('natural', hasEarthquakes || hasEonet);
   }
 
   async loadTechEvents(): Promise<void> {
     if (SITE_VARIANT !== 'tech' && !this.ctx.mapLayers.techEvents) return;
 
-    try {
-      const data = await fetchRelayPanel('tech-events');
-      if (data) {
-        this.applyTechEvents(data);
-        return;
-      }
-    } catch {}
+    const loaded = await this.loadChannelWithFallback('tech-events', (data) => this.applyTechEvents(data));
+    if (loaded) return;
     try {
       const data = await fetchTechEvents('conference', true, 90, 50);
       if (!data.success) throw new Error(data.error || 'Unknown error');
@@ -860,16 +875,12 @@ export class DataLoaderManager implements AppModule {
       this.renderWeatherAlerts(this.ctx.intelligenceCache.weatherAlerts);
       return;
     }
-    try {
-      const data = await fetchRelayPanel('weather');
-      if (data) {
-        this.applyWeatherAlerts(data);
-        return;
-      }
-    } catch {}
-    this.ctx.map?.setLayerReady('weather', false);
-    dataFreshness.recordError('weather', 'Relay data unavailable');
-    this.ctx.statusPanel?.updateFeed('Weather', { status: 'error' });
+    const loaded = await this.loadChannelWithFallback('weather', (data) => this.applyWeatherAlerts(data));
+    if (!loaded) {
+      this.ctx.map?.setLayerReady('weather', false);
+      dataFreshness.recordError('weather', 'Relay data unavailable');
+      this.ctx.statusPanel?.updateFeed('Weather', { status: 'error' });
+    }
   }
 
   async loadIntelligenceSignals(): Promise<void> {
@@ -895,13 +906,11 @@ export class DataLoaderManager implements AppModule {
 
     const protestsTask = (async (): Promise<SocialUnrestEvent[]> => {
       try {
-        const data = await fetchRelayPanel('conflict');
-        if (data) {
-          this.applyConflict(data);
-          return this.ctx.intelligenceCache.protests?.events || [];
-        }
-      } catch {}
-      return [];
+        await this.loadChannelWithFallback('conflict', (data) => this.applyConflict(data));
+        return this.ctx.intelligenceCache.protests?.events || [];
+      } catch {
+        return [];
+      }
     })();
     tasks.push(protestsTask.then(() => undefined));
 
@@ -1067,13 +1076,7 @@ export class DataLoaderManager implements AppModule {
     // OREF sirens — WebSocket push via relay (applyOref); initial load from hydration or fetch
     tasks.push((async () => {
       try {
-        const hydrated = getHydratedData('oref') as OrefAlertsResponse | undefined;
-        if (hydrated) {
-          this.renderOrefAlerts(hydrated);
-          return;
-        }
-        const panelData = await fetchRelayPanel<OrefAlertsResponse>('oref');
-        if (panelData) this.renderOrefAlerts(panelData);
+        await this.loadChannelWithFallback<OrefAlertsResponse>('oref', (data) => this.renderOrefAlerts(data));
       } catch (error) {
         console.error('[Intelligence] OREF alerts fetch failed:', error);
       }
@@ -1176,19 +1179,14 @@ export class DataLoaderManager implements AppModule {
       return;
     }
 
-    try {
-      const data = await fetchRelayPanel('cyber');
-      if (data) {
-        this.applyCyberThreats(data);
-        return;
+    const loaded = await this.loadChannelWithFallback('cyber', (data) => this.applyCyberThreats(data));
+    if (!loaded) {
+      const threats = fetchCyberThreats();
+      if (threats.length > 0) {
+        this.renderCyberThreats(threats);
+      } else {
+        this.ctx.map?.setLayerReady('cyberThreats', false);
       }
-    } catch {}
-
-    const threats = fetchCyberThreats();
-    if (threats.length > 0) {
-      this.renderCyberThreats(threats);
-    } else {
-      this.ctx.map?.setLayerReady('cyberThreats', false);
     }
   }
 
@@ -1197,14 +1195,10 @@ export class DataLoaderManager implements AppModule {
       this.renderIranEvents(this.ctx.intelligenceCache.iranEvents);
       return;
     }
-    try {
-      const data = await fetchRelayPanel('iran-events');
-      if (data) {
-        this.applyIranEvents(data);
-        return;
-      }
-    } catch {}
-    this.ctx.map?.setLayerReady('iranAttacks', false);
+    const loaded = await this.loadChannelWithFallback('iran-events', (data) => this.applyIranEvents(data));
+    if (!loaded) {
+      this.ctx.map?.setLayerReady('iranAttacks', false);
+    }
   }
 
   private renderAisSignals(disruptions: import('@/types').AisDisruptionEvent[], density: import('@/types').AisDensityZone[]): void {
@@ -1242,16 +1236,12 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadAisSignals(): Promise<void> {
-    try {
-      const data = await fetchRelayPanel('ais');
-      if (data) {
-        this.applyAisSignals(data);
-        return;
-      }
-    } catch {}
-    this.ctx.map?.setLayerReady('ais', false);
-    this.ctx.statusPanel?.updateFeed('Shipping', { status: 'error', errorMessage: 'No data from relay' });
-    this.ctx.statusPanel?.updateApi('AISStream', { status: 'error' });
+    const loaded = await this.loadChannelWithFallback('ais', (data) => this.applyAisSignals(data));
+    if (!loaded) {
+      this.ctx.map?.setLayerReady('ais', false);
+      this.ctx.statusPanel?.updateFeed('Shipping', { status: 'error', errorMessage: 'No data from relay' });
+      this.ctx.statusPanel?.updateApi('AISStream', { status: 'error' });
+    }
   }
 
   waitForAisData(): void {
@@ -1305,14 +1295,10 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadCableHealth(): Promise<void> {
-    try {
-      const data = await fetchRelayPanel('cables');
-      if (data) {
-        this.applyCableHealth(data);
-        return;
-      }
-    } catch {}
-    this.ctx.map?.setLayerReady('cables', false);
+    const loaded = await this.loadChannelWithFallback('cables', (data) => this.applyCableHealth(data));
+    if (!loaded) {
+      this.ctx.map?.setLayerReady('cables', false);
+    }
   }
 
   async loadProtests(): Promise<void> {
@@ -1335,18 +1321,13 @@ export class DataLoaderManager implements AppModule {
       if (protestData.sources.gdelt > 0) dataFreshness.recordUpdate('gdelt_doc', protestData.sources.gdelt);
       return;
     }
-    try {
-      const data = await fetchRelayPanel('conflict');
-      if (data) {
-        this.applyConflict(data);
-        return;
-      }
-    } catch {}
-
-    this.ctx.map?.setLayerReady('protests', false);
-    this.ctx.statusPanel?.updateFeed('Protests', { status: 'error', errorMessage: 'No data from relay' });
-    this.ctx.statusPanel?.updateApi('ACLED', { status: 'error' });
-    this.ctx.statusPanel?.updateApi('GDELT Doc', { status: 'error' });
+    const loaded = await this.loadChannelWithFallback('conflict', (data) => this.applyConflict(data));
+    if (!loaded) {
+      this.ctx.map?.setLayerReady('protests', false);
+      this.ctx.statusPanel?.updateFeed('Protests', { status: 'error', errorMessage: 'No data from relay' });
+      this.ctx.statusPanel?.updateApi('ACLED', { status: 'error' });
+      this.ctx.statusPanel?.updateApi('GDELT Doc', { status: 'error' });
+    }
   }
 
   private renderFlightDelays(delays: import('@/services/aviation').AirportDelayAlert[]): void {
@@ -1367,16 +1348,12 @@ export class DataLoaderManager implements AppModule {
       this.renderFlightDelays(this.ctx.intelligenceCache.flightDelays);
       return;
     }
-    try {
-      const data = await fetchRelayPanel('flights');
-      if (data) {
-        this.applyFlightDelays(data);
-        return;
-      }
-    } catch {}
-    this.ctx.map?.setLayerReady('flights', false);
-    this.ctx.statusPanel?.updateFeed('Flights', { status: 'error', errorMessage: 'No data from relay' });
-    this.ctx.statusPanel?.updateApi('FAA', { status: 'error' });
+    const loaded = await this.loadChannelWithFallback('flights', (data) => this.applyFlightDelays(data));
+    if (!loaded) {
+      this.ctx.map?.setLayerReady('flights', false);
+      this.ctx.statusPanel?.updateFeed('Flights', { status: 'error', errorMessage: 'No data from relay' });
+      this.ctx.statusPanel?.updateApi('FAA', { status: 'error' });
+    }
   }
 
   async loadMilitary(): Promise<void> {
@@ -1585,17 +1562,12 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadGovernmentSpending(): Promise<void> {
-    try {
-      const data = await fetchRelayPanel('spending');
-      if (data) {
-        this.applySpending(data);
-        return;
-      }
-    } catch (e) {
-      console.error('[App] Government spending failed:', e);
+    const loaded = await this.loadChannelWithFallback('spending', (data) => this.applySpending(data));
+    if (!loaded) {
+      console.error('[App] Government spending failed: No data from relay');
+      this.ctx.statusPanel?.updateApi('USASpending', { status: 'error' });
+      dataFreshness.recordError('spending', 'No data from relay');
     }
-    this.ctx.statusPanel?.updateApi('USASpending', { status: 'error' });
-    dataFreshness.recordError('spending', 'No data from relay');
   }
 
   private renderBisData(data: BisData): void {
@@ -1784,14 +1756,10 @@ export class DataLoaderManager implements AppModule {
       this.renderNatural(this.firesCache);
       return;
     }
-    try {
-      const data = await fetchRelayPanel('natural');
-      if (data) {
-        this.applyNatural(data);
-        return;
-      }
-    } catch {}
-    this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
+    const loaded = await this.loadChannelWithFallback('natural', (data) => this.applyNatural(data));
+    if (!loaded) {
+      this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
+    }
   }
 
   private renderNatural(data: ListFireDetectionsResponse): void {
