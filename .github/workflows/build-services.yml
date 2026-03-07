@@ -5,10 +5,22 @@ on:
     branches: [main]
     paths:
       - 'services/**'
+      - '.github/workflows/build-services.yml'
   pull_request:
     branches: [main]
     paths:
       - 'services/**'
+      - '.github/workflows/build-services.yml'
+  workflow_dispatch:
+    inputs:
+      push_images:
+        description: 'Push images to Docker Hub'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 concurrency:
   group: relay-services-${{ github.ref }}
@@ -19,26 +31,25 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
+        if: (github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.push_images == 'true')
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - uses: docker/build-push-action@v5.4.0
         with:
           context: ./services
           file: ./services/Dockerfile.base
-          push: ${{ github.event_name == 'push' }}
+          push: ${{ (github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.push_images == 'true') }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/relay-base:${{ github.sha }}
-            ghcr.io/${{ github.repository_owner }}/relay-base:latest
+            sliptronic/worldrelay_base:${{ github.sha }}
+            sliptronic/worldrelay_base:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -57,31 +68,30 @@ jobs:
           - ai-engine
     permissions:
       contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
+        if: (github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.push_images == 'true')
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Prepare base image
         run: |
-          docker pull ghcr.io/${{ github.repository_owner }}/relay-base:latest && \
-            docker tag ghcr.io/${{ github.repository_owner }}/relay-base:latest relay-base:latest || \
+          docker pull sliptronic/worldrelay_base:latest && \
+            docker tag sliptronic/worldrelay_base:latest relay-base:latest || \
             docker build -f services/Dockerfile.base -t relay-base:latest ./services
 
       - uses: docker/build-push-action@v5.4.0
         with:
           context: ./services
           file: ./services/${{ matrix.service }}/Dockerfile
-          push: ${{ github.event_name == 'push' }}
+          push: ${{ (github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.push_images == 'true') }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/relay-${{ matrix.service }}:${{ github.sha }}
-            ghcr.io/${{ github.repository_owner }}/relay-${{ matrix.service }}:latest
+            sliptronic/worldrelay_${{ matrix.service }}:${{ github.sha }}
+            sliptronic/worldrelay_${{ matrix.service }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

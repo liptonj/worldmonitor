@@ -6,8 +6,6 @@ const log = createLogger('http');
 const USER_AGENT = 'WorldMonitor-Relay/1.0';
 const DEFAULT_TIMEOUT_MS = 30000;
 
-// URLs may contain sensitive query parameters — callers should use non-sensitive URLs or strip credentials before passing.
-
 async function fetchJson(url, options = {}) {
   const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();

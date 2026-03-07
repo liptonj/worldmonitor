@@ -719,7 +719,6 @@ export class DataLoaderManager implements AppModule {
   async loadMarkets(): Promise<void> {
     const commoditiesPanel = this.ctx.panels['commodities'] as CommoditiesPanel;
 
-    // Instant hydration from bootstrap cache (shows stale data immediately)
     const hydratedCommodities = getHydratedData('commodities') as { quotes: Array<{ display?: string; symbol: string; price?: number; change?: number; sparkline?: number[] }> } | undefined;
     if (hydratedCommodities?.quotes?.length) {
       const mapped = hydratedCommodities.quotes.map((q) => ({
@@ -737,7 +736,6 @@ export class DataLoaderManager implements AppModule {
       const dashboard = await fetchMarketDashboard();
       this.renderMarketDashboard(dashboard);
 
-      // Prefer hydrated sectors from bootstrap when available (startup optimization)
       const hydratedSectors = getHydratedData('sectors') as GetSectorSummaryResponse | undefined;
       if (hydratedSectors?.sectors?.length) {
         (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(

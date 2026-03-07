@@ -10,8 +10,6 @@ const log = createLogger('orchestrator');
 
 const SERVICE_NAME = 'orchestrator';
 
-// --- Exported for tests ---
-
 function shouldRouteToAiEngine(serviceKey) {
   return typeof serviceKey === 'string' && serviceKey.startsWith('ai:');
 }
@@ -44,8 +42,6 @@ async function updateServiceStatus(supabase, serviceKey, result) {
     log.error('Failed to update service_config', { serviceKey, error: error.message });
   }
 }
-
-// --- Internal ---
 
 async function sendAlert(serviceKey, consecutiveFailures, lastError) {
   const webhookUrl = process.env.ALERT_WEBHOOK_URL;

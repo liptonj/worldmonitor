@@ -6,7 +6,7 @@ services:
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
 
   gateway:
-    image: ghcr.io/worldmonitor/relay-gateway:latest
+    image: sliptronic/worldrelay_gateway:latest
     restart: always
     logging:
       driver: splunk
@@ -19,7 +19,7 @@ services:
         tag: "{{.Name}}"
 
   orchestrator:
-    image: ghcr.io/worldmonitor/relay-orchestrator:latest
+    image: sliptronic/worldrelay_orchestrator:latest
     restart: always
     logging:
       driver: splunk
@@ -32,7 +32,7 @@ services:
         tag: "{{.Name}}"
 
   worker:
-    image: ghcr.io/worldmonitor/relay-worker:latest
+    image: sliptronic/worldrelay_worker:latest
     restart: always
     deploy:
       replicas: 4
@@ -47,7 +47,7 @@ services:
         tag: "{{.Name}}"
 
   ais-processor:
-    image: ghcr.io/worldmonitor/relay-ais-processor:latest
+    image: sliptronic/worldrelay_ais-processor:latest
     restart: always
     logging:
       driver: splunk
@@ -60,7 +60,7 @@ services:
         tag: "{{.Name}}"
 
   ingest-telegram:
-    image: ghcr.io/worldmonitor/relay-ingest-telegram:latest
+    image: sliptronic/worldrelay_ingest-telegram:latest
     restart: always
     logging:
       driver: splunk
@@ -73,7 +73,7 @@ services:
         tag: "{{.Name}}"
 
   ai-engine:
-    image: ghcr.io/worldmonitor/relay-ai-engine:latest
+    image: sliptronic/worldrelay_ai-engine:latest
     restart: always
     logging:
       driver: splunk
