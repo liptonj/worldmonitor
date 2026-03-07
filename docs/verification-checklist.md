@@ -6,7 +6,7 @@
 
 ### Network Tab (HTTP)
 - [ ] Single `/bootstrap?channels=...` request on page load
-- [ ] No polling to `/panel/aviation`, `/panel/markets`, etc.
+- [ ] No polling to `/panel/flights`, `/panel/markets`, etc.
 - [ ] No requests to `/opensky`, `/polymarket`, `/gdelt`, `/oref`
 - [ ] No repeated `/rss?url=...` polling
 
