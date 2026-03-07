@@ -96,9 +96,13 @@ export class App {
         STORAGE_KEYS.panels,
         DEFAULT_PANELS
       );
-      // Merge in any new panels that didn't exist when settings were saved
       for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
-        if (!(key in panelSettings)) {
+        const entry = panelSettings[key];
+        if (entry) {
+          if (config.channels) entry.channels = config.channels;
+          if (config.requiredFeature) entry.requiredFeature = config.requiredFeature;
+          if (config.priority !== undefined) entry.priority = config.priority;
+        } else {
           panelSettings[key] = { ...config };
         }
       }
