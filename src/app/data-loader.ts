@@ -66,7 +66,7 @@ import { fetchClimateAnomalies, mapClimatePayload } from '@/services/climate';
 import { fetchSecurityAdvisories } from '@/services/security-advisories';
 import { fetchTelegramFeed } from '@/services/telegram-intel';
 import { protoToGivingSummary, fetchGivingSummary } from '@/services/giving';
-import { fetchOrefAlerts, startOrefPolling, stopOrefPolling, onOrefAlertsUpdate } from '@/services/oref-alerts';
+import type { OrefAlertsResponse } from '@/services/oref-alerts';
 import { enrichEventsWithExposure } from '@/services/population-exposure';
 import { debounce, getCircuitBreakerCooldownInfo } from '@/utils';
 import { isFeatureAvailable, isFeatureEnabled } from '@/services/runtime-config';
@@ -188,9 +188,7 @@ export class DataLoaderManager implements AppModule {
 
   init(): void {}
 
-  destroy(): void {
-    stopOrefPolling();
-  }
+  destroy(): void {}
 
   private async tryFetchDigest(): Promise<ListFeedDigestResponse | null> {
     const data = fetchNewsDigest(0);
@@ -1066,25 +1064,16 @@ export class DataLoaderManager implements AppModule {
     // Telegram Intel
     tasks.push(this.loadTelegramIntel());
 
-    // OREF sirens
+    // OREF sirens — WebSocket push via relay (applyOref); initial load from hydration or fetch
     tasks.push((async () => {
       try {
-        const data = await fetchOrefAlerts();
-        (this.ctx.panels['oref-sirens'] as OrefSirensPanel)?.setData(data);
-        const alertCount = data.alerts?.length ?? 0;
-        const historyCount24h = data.historyCount24h ?? 0;
-        ingestOrefForCII(alertCount, historyCount24h);
-        this.ctx.intelligenceCache.orefAlerts = { alertCount, historyCount24h };
-        if (data.alerts?.length) dispatchOrefBreakingAlert(data.alerts);
-        onOrefAlertsUpdate((update) => {
-          (this.ctx.panels['oref-sirens'] as OrefSirensPanel)?.setData(update);
-          const updAlerts = update.alerts?.length ?? 0;
-          const updHistory = update.historyCount24h ?? 0;
-          ingestOrefForCII(updAlerts, updHistory);
-          this.ctx.intelligenceCache.orefAlerts = { alertCount: updAlerts, historyCount24h: updHistory };
-          if (update.alerts?.length) dispatchOrefBreakingAlert(update.alerts);
-        });
-        startOrefPolling();
+        const hydrated = getHydratedData('oref') as OrefAlertsResponse | undefined;
+        if (hydrated) {
+          this.renderOrefAlerts(hydrated);
+          return;
+        }
+        const panelData = await fetchRelayPanel<OrefAlertsResponse>('oref');
+        if (panelData) this.renderOrefAlerts(panelData);
       } catch (error) {
         console.error('[Intelligence] OREF alerts fetch failed:', error);
       }
@@ -2495,7 +2484,7 @@ export class DataLoaderManager implements AppModule {
     this.renderTelegramIntel(data);
   }
 
-  private renderOrefAlerts(data: import('@/services/oref-alerts').OrefAlertsResponse): void {
+  private renderOrefAlerts(data: OrefAlertsResponse): void {
     (this.ctx.panels['oref-sirens'] as OrefSirensPanel)?.setData(data);
     const alertCount = data.alerts?.length ?? 0;
     const historyCount24h = data.historyCount24h ?? 0;
@@ -2506,7 +2495,7 @@ export class DataLoaderManager implements AppModule {
 
   applyOref(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const data = payload as import('@/services/oref-alerts').OrefAlertsResponse;
+    const data = payload as OrefAlertsResponse;
     if (!('configured' in data) && !('alerts' in data)) return;
     this.renderOrefAlerts(data);
   }

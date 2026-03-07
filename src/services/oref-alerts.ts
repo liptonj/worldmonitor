@@ -292,7 +292,12 @@ export function onOrefAlertsUpdate(cb: (data: OrefAlertsResponse) => void): void
   updateCallbacks.push(cb);
 }
 
+/**
+ * @deprecated Use relay WebSocket push instead. OREF updates are delivered via
+ * subscribeRelayPush('oref', applyOref) in App.ts. Kept for backward compatibility only.
+ */
 export function startOrefPolling(): void {
+  console.warn('[OREF] startOrefPolling is deprecated - use relay WebSocket push');
   if (pollingInterval) return;
   pollingInterval = setInterval(async () => {
     const data = await fetchOrefAlerts();

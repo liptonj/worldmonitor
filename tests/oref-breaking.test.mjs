@@ -60,15 +60,16 @@ describe('data-loader oref breaking news wiring', () => {
     assert.ok(DL.includes('dispatchOrefBreakingAlert'), 'data-loader should import dispatchOrefBreakingAlert');
   });
 
-  it('calls dispatchOrefBreakingAlert on initial fetch', () => {
+  it('calls renderOrefAlerts on initial load (which dispatches breaking alerts)', () => {
     const orefSection = DL.slice(DL.indexOf('// OREF sirens'), DL.indexOf('// GPS/GNSS'));
-    const initialCall = orefSection.indexOf('dispatchOrefBreakingAlert');
-    assert.ok(initialCall > -1, 'should call on initial fetch');
+    assert.ok(orefSection.includes('renderOrefAlerts'), 'initial load should call renderOrefAlerts');
+    const renderOrefBody = DL.slice(DL.indexOf('private renderOrefAlerts'), DL.indexOf('applyOref(payload'));
+    assert.ok(renderOrefBody.includes('dispatchOrefBreakingAlert'), 'renderOrefAlerts should call dispatchOrefBreakingAlert');
   });
 
-  it('calls dispatchOrefBreakingAlert in onOrefAlertsUpdate callback', () => {
-    const orefSection = DL.slice(DL.indexOf('// OREF sirens'), DL.indexOf('// GPS/GNSS'));
-    const callbackSection = orefSection.slice(orefSection.indexOf('onOrefAlertsUpdate'));
-    assert.ok(callbackSection.includes('dispatchOrefBreakingAlert'), 'should call in update callback');
+  it('applyOref calls renderOrefAlerts for WebSocket updates', () => {
+    const applyOrefStart = DL.indexOf('applyOref(payload');
+    const applyOrefBody = DL.slice(applyOrefStart, applyOrefStart + 400);
+    assert.ok(applyOrefBody.includes('renderOrefAlerts'), 'applyOref should call renderOrefAlerts');
   });
 });
