@@ -625,6 +625,12 @@ canvas,
   gap: 12px;
 }
 
+.header-icon-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .hamburger-btn {
   display: none;
 }
@@ -9904,11 +9910,13 @@ a.prediction-link:hover {
     font-size: 14px;
   }
 
-  /* Icon-only row: theme, fullscreen, settings, admin aligned left in a flex row */
-  .header.mobile-nav-open .icon-row {
+  /* Icon row: horizontal group of icon-only buttons at bottom of dropdown */
+  .header.mobile-nav-open .header-icon-row {
     display: flex;
+    flex-direction: row;
     gap: 8px;
     align-items: center;
+    align-self: flex-start;
   }
   .header.mobile-nav-open .theme-toggle-btn,
   .header.mobile-nav-open .fullscreen-btn,
@@ -9923,7 +9931,7 @@ a.prediction-link:hover {
     justify-content: center;
   }
 
-  /* Settings mount: make it full-width in dropdown */
+  /* Settings mount: full-width in dropdown */
   .header.mobile-nav-open #unifiedSettingsMount {
     width: 100%;
   }
