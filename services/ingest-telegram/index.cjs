@@ -118,4 +118,10 @@ if (require.main === module) {
   });
 }
 
-module.exports = { addMessage, getMessageBuffer, persistBuffer, _resetBuffer };
+module.exports = {
+  addMessage,
+  getMessageBuffer,
+  persistBuffer,
+  startTelegramClient,
+  _resetBuffer,
+};

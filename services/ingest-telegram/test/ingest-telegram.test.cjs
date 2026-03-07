@@ -3,13 +3,14 @@
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://test.supabase.co';
 process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'test-anon-key';
 
-const { describe, it, beforeEach } = require('node:test');
+const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
   addMessage,
   getMessageBuffer,
   persistBuffer,
+  startTelegramClient,
   _resetBuffer,
 } = require('../index.cjs');
 
@@ -53,14 +54,61 @@ describe('getMessageBuffer', () => {
   });
 });
 
-describe('periodic persistence', () => {
-  it('periodic persistence is set up', () => {
+describe('buffer structure after addMessage', () => {
+  beforeEach(() => {
     _resetBuffer();
+  });
+
+  it('returns correct count and messages array', () => {
     addMessage({ id: 1, text: 'test', timestamp: Date.now() });
     const buffer = getMessageBuffer();
     assert.strictEqual(buffer.count, 1);
     assert.strictEqual(buffer.messages.length, 1);
+  });
+});
+
+describe('startTelegramClient cleanup', () => {
+  const prevSession = process.env.TELEGRAM_SESSION;
+  const prevChannels = process.env.TELEGRAM_CHANNELS;
+  const prevRedis = process.__REDIS_TEST_CLIENT__;
+
+  beforeEach(() => {
+    process.env.TELEGRAM_SESSION = 'test-session';
+    process.env.TELEGRAM_CHANNELS = 'test-channel';
     _resetBuffer();
+  });
+
+  afterEach(() => {
+    process.env.TELEGRAM_SESSION = prevSession;
+    process.env.TELEGRAM_CHANNELS = prevChannels;
+    process.__REDIS_TEST_CLIENT__ = prevRedis;
+  });
+
+  it('returns cleanup function and clearing it stops the interval', async (t) => {
+    const setexCalls = { count: 0 };
+    const mockClient = {
+      setex: async () => {
+        setexCalls.count += 1;
+      },
+    };
+    process.__REDIS_TEST_CLIENT__ = mockClient;
+
+    t.mock.timers.enable(['setInterval']);
+
+    const cleanup = await startTelegramClient(null);
+    assert.strictEqual(typeof cleanup, 'function', 'startTelegramClient returns cleanup function');
+
+    t.mock.timers.tick(65_000);
+    await Promise.resolve();
+    assert.strictEqual(setexCalls.count, 1, 'persistBuffer called once after 65s');
+
+    cleanup();
+
+    t.mock.timers.tick(65_000);
+    await Promise.resolve();
+    assert.strictEqual(setexCalls.count, 1, 'persistBuffer not called again after cleanup');
+
+    t.mock.timers.reset();
   });
 });
 
