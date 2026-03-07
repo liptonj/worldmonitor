@@ -89,6 +89,9 @@ function getAiEngineClient() {
 async function triggerService(supabase, serviceConfig, workerClient, aiEngineClient, triggerRequestId = null, executeFn = execute) {
   const client = shouldRouteToAiEngine(serviceConfig.service_key) ? aiEngineClient : workerClient;
   const req = buildTriggerRequest(serviceConfig);
+  if (triggerRequestId) {
+    req.triggerId = String(triggerRequestId);
+  }
 
   const start = Date.now();
   let result;
