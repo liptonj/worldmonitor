@@ -9804,11 +9804,12 @@ a.prediction-link:hover {
   .header {
     position: relative;
     z-index: 1002;
-    height: 48px;
+    height: auto;
     min-height: 48px;
     justify-content: flex-start;
     gap: 12px;
     padding: 0 12px;
+    padding-top: env(safe-area-inset-top, 0px);
     overflow: visible;
   }
   .hamburger-btn {
@@ -10079,9 +10080,6 @@ a.prediction-link:hover {
   }
 
   /* === Safe area insets === */
-  .header {
-    padding-top: calc(8px + env(safe-area-inset-top, 0px));
-  }
   .header.mobile-nav-open .header-right {
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
@@ -10172,8 +10170,8 @@ a.prediction-link:hover {
 
   /* Extra small: just adjust padding, stacking handled at 768px */
   .header {
-    padding: 6px 8px;
-    padding-top: calc(6px + env(safe-area-inset-top, 0px));
+    padding: 0 8px;
+    padding-top: env(safe-area-inset-top, 0px);
   }
 
   /* Hide non-essential header items */
