@@ -4,11 +4,80 @@
 
 **Goal:** Fix two bugs (panels not receiving data, AIS flooding all clients), reduce default-enabled panels from 45 to 21, build a new aggregate Latest Headlines panel, and eliminate god-function patterns in touched code.
 
-**Architecture:** The app is a vanilla TypeScript SPA (Vite + Tauri). Panel configuration lives in `src/config/panels.ts` as `DEFAULT_PANELS`. On startup, `App.ts` loads settings from localStorage and merges with defaults — but the merge is shallow, losing new properties like `channels`. The relay server (`scripts/ais-relay.cjs`) has a raw AIS message fanout that bypasses the demand-driven channel subscription system. The new Headlines panel aggregates `ctx.allNews` into a reverse-chronological feed.
+**Architecture:** The app is a vanilla TypeScript SPA (Vite + Tauri). Panel configuration lives in `src/config/panels.ts` as `DEFAULT_PANELS`. On startup, `src/App.ts` loads settings from localStorage and merges with defaults — but the merge is shallow, losing new properties like `channels`. The relay server (`scripts/ais-relay.cjs`) has a raw AIS message fanout that bypasses the demand-driven channel subscription system. The new Headlines panel aggregates `ctx.allNews` into a reverse-chronological feed.
 
 **Tech Stack:** Vanilla TypeScript, Vite, WebSocket relay (Node.js/Express), CSS
 
 **Worktree:** `.worktrees/fix-panels-headlines` on branch `fix/panels-headlines-defaults`
+
+---
+
+## Key Architecture Notes (read before implementing)
+
+### Panel System
+
+- **Base class:** `Panel` in `src/components/Panel.ts`. Constructor takes `PanelOptions { id, title, showCount?, className?, trackActivity?, infoTooltip? }`.
+- **DOM helper imports:** `import { h, text } from '@/utils/dom-utils'` — `h()` creates elements, `text()` creates text nodes. There is **no** `safeText()`. For HTML escaping, use `import { escapeHtml } from '@/utils/sanitize'`.
+- **Content area:** `this.content` is a `div.panel-content`. Use `this.content.innerHTML`, `this.content.replaceChildren()`, or `this.content.appendChild()`. `setContent(html)` is debounced (150ms) — avoid for real-time updates.
+- **Loading state:** `this.showLoading()` (not `setLoading()`).
+- **Show/hide:** `toggle(visible)`, `show()`, `hide()`. Uses CSS class `hidden`.
+
+### Panel Grid & Order
+
+- Panels register in `this.ctx.panels[key]` during `createPanels()` in `src/app/panel-layout.ts`.
+- After all panels are created (line 782), the order is resolved:
+  - `defaultOrder = Object.keys(DEFAULT_PANELS).filter(k => k !== 'map')` — **order in `DEFAULT_PANELS` determines default display order**.
+  - Saved order from localStorage is merged: new panels are inserted after `'politics'`.
+  - Panels are appended to `panelsGrid` via `panelOrder.forEach(key => panelsGrid.appendChild(panel.getElement()))` (line 840).
+- **Key insight:** Adding `'headlines'` to `DEFAULT_PANELS` at position 3 (after `live-news`) automatically places it there for new users. Existing users get it inserted after `'politics'` (the merge logic at line 797).
+
+### NewsItem Type
+
+```typescript
+// src/types/index.ts:23-39
+interface NewsItem {
+  source: string;       // feed/source name
+  title: string;
+  link: string;
+  pubDate: Date;        // publication date — this is the ONLY time field
+  isAlert: boolean;
+  tier?: number;
+  lat?: number;
+  lon?: number;
+  locationName?: string;
+  lang?: string;
+  imageUrl?: string;
+  // ... other optional fields
+}
+```
+
+- **No `fetchedAt` field.** Only `pubDate: Date`.
+- **No `category` field.** Category comes from the key in `newsByCategory` map. The `source` field has the feed name.
+
+### Styles
+
+- All panel CSS is centralized in `src/styles/panels.css` (imported via `main.css`).
+- No per-panel CSS files.
+
+### Localization
+
+- Panel names use `t('panels.camelCaseKey')` — locale files at `src/locales/*.json`.
+- The `panels` section in `en.json` uses camelCase keys (e.g., `"strategicRisk"`, `"gdeltIntel"`).
+- New panels need entries in all locale files (at minimum `en.json`).
+
+### Data Flow
+
+- `ctx.allNews` is populated in two places in `src/app/data-loader.ts`:
+  - `loadNews()` at line 664: `this.ctx.allNews = collectedNews`
+  - `processDigestData()` at line 2149: `this.ctx.allNews = collectedNews`
+- After each assignment, these consumers run: `updateHotspotActivity()`, `updateMonitorResults()`, `clusterNews()` → `InsightsPanel`.
+
+### Channel Subscription
+
+- `subscribedChannels` array in `src/services/relay-push.ts` tracks what's subscribed.
+- On reconnect, all `subscribedChannels` are re-sent to the relay.
+- `subscribeChannel(ch)` / `unsubscribeChannel(ch)` update the array and send WS messages.
+- `setupRelayPush()` in `App.ts` (line 573) computes initial channels from `alwaysOn` + `demandChannels` (panels with `config.channels`).
 
 ---
 
@@ -33,27 +102,22 @@ for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
 }
 ```
 
-Result: `panelSettings['strategic-posture'].channels` is `undefined` for returning users → no channel subscription → no push data.
+Result: `panelSettings['strategic-posture'].channels` is `undefined` for returning users → `setupRelayPush()` builds `demandChannels` without these channels → no channel subscription → no push data.
 
 ### Bug 2: AIS data flooding all clients
 
 **Root cause:** `scripts/ais-relay.cjs` lines 2564-2576 — raw AIS message fanout.
 
-Every 50th raw AIS message is sent to **all connected WebSocket clients** (`clients` set) regardless of whether they subscribed to the `ais` channel. The demand-driven system uses `channelSubscribers.get('ais')`, but this fanout uses the global `clients` set.
+Every 50th raw AIS message is sent to **all connected WebSocket clients** (`clients` set) regardless of whether they subscribed to the `ais` channel. The demand-driven system uses `channelSubscribers.get('ais')`, but this fanout iterates the global `clients` set.
 
 ```javascript
 // CURRENT (broken) — ais-relay.cjs:2566
 if (clients.size > 0 && messageCount % 50 === 0) {
   const message = raw.toString();
   for (const client of clients) { // ← sends to ALL clients
-    if (client.readyState === WebSocket.OPEN) {
-      if (client.bufferedAmount < 1024 * 1024) {
-        client.send(message);
-      }
-    }
-  }
-}
 ```
+
+The only other iteration of `clients` is in `gracefulShutdown()` (line 7862) which is correct.
 
 ### Bug 3: Dead code risk
 
@@ -66,20 +130,17 @@ if (clients.size > 0 && messageCount % 50 === 0) {
 **Files:**
 - Modify: `src/App.ts:95-104`
 
-**Step 1: Modify the merge logic to backfill new properties**
+**Step 1: Replace the shallow merge with a deep-merge that backfills structural properties**
 
-In `src/App.ts`, replace the shallow merge loop with a deep-merge that always hydrates `channels`, `requiredFeature`, and `priority` from `DEFAULT_PANELS` for existing panels:
+In `src/App.ts`, replace lines 95-104 with:
 
 ```typescript
-// FIXED — App.ts:95-110 (replace lines 95-104)
 panelSettings = loadFromStorage<Record<string, PanelConfig>>(
   STORAGE_KEYS.panels,
   DEFAULT_PANELS
 );
 for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
   if (key in panelSettings) {
-    // Backfill structural properties that may have been added after
-    // the user's settings were saved — never overwrite user's enabled choice
     if (config.channels) panelSettings[key].channels = config.channels;
     if (config.requiredFeature) panelSettings[key].requiredFeature = config.requiredFeature;
     if (config.priority !== undefined) panelSettings[key].priority = config.priority;
@@ -89,10 +150,12 @@ for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
 }
 ```
 
+**Why:** Always hydrate `channels`, `requiredFeature`, and `priority` from `DEFAULT_PANELS` for existing panels. Never overwrite the user's `enabled` choice.
+
 **Step 2: Verify type-check passes**
 
 Run: `npx tsc --noEmit`
-Expected: No errors
+Expected: Clean (0 errors)
 
 **Step 3: Commit**
 
@@ -110,11 +173,10 @@ git commit -m "fix: deep-merge panel settings to hydrate channels from defaults"
 
 **Step 1: Gate the fanout on AIS channel subscribers**
 
-Replace the raw message fanout to only send to clients subscribed to the `ais` channel:
+Replace the raw message fanout block (lines 2564-2576 of `scripts/ais-relay.cjs`) with:
 
 ```javascript
-// FIXED — ais-relay.cjs:2564-2576 (replace entire block)
-  // Heavily throttled WS fanout: every 50th message only, AIS subscribers only
+  // Heavily throttled WS fanout: every 50th message, AIS subscribers only
   if (messageCount % 50 === 0) {
     const aisSubs = channelSubscribers.get('ais');
     if (aisSubs && aisSubs.size > 0) {
@@ -128,6 +190,8 @@ Replace the raw message fanout to only send to clients subscribed to the `ais` c
   }
 ```
 
+**Why:** Uses `channelSubscribers.get('ais')` instead of `clients`. Only clients that explicitly subscribed to `ais` via `wm-subscribe` receive raw AIS data.
+
 **Step 2: Commit**
 
 ```bash
@@ -137,17 +201,16 @@ git commit -m "fix(relay): gate raw AIS fanout on channel subscribers only"
 
 ---
 
-## Task 3: Remove dead `startPolling()` call from deprecated function
+## Task 3: Remove dead `startPolling()` from deprecated function
 
 **Files:**
 - Modify: `src/services/maritime/index.ts:415-430`
 
-**Step 1: Remove `startPolling()` from `fetchAisSignals()`**
+**Step 1: Remove `startPolling()` call from `fetchAisSignals()`**
 
-The function is marked `@deprecated` and unused. Remove the `startPolling()` call so it doesn't accidentally restart AIS polling if someone calls it:
+In `src/services/maritime/index.ts`, delete the `startPolling();` call at line 420 inside `fetchAisSignals()`. The function should become:
 
 ```typescript
-// FIXED — maritime/index.ts:415-430
 export async function fetchAisSignals(): Promise<{ disruptions: AisDisruptionEvent[]; density: AisDensityZone[] }> {
   if (!aisConfigured) {
     return { disruptions: [], density: [] };
@@ -168,7 +231,7 @@ export async function fetchAisSignals(): Promise<{ disruptions: AisDisruptionEve
 **Step 2: Verify type-check passes**
 
 Run: `npx tsc --noEmit`
-Expected: No errors
+Expected: Clean
 
 **Step 3: Commit**
 
@@ -183,20 +246,13 @@ git commit -m "fix: remove startPolling from deprecated fetchAisSignals"
 
 **Files:**
 - Modify: `src/config/panels.ts:10-59` (FULL_PANELS)
-- Modify: `src/config/panels.ts:611-703` (PANEL_CATEGORY_MAP — add `headlines` to core)
+- Modify: `src/config/panels.ts:611-616` (PANEL_CATEGORY_MAP core panelKeys)
+- Modify: `src/App.ts` (one-time migration for existing users)
+- Modify: `src/locales/en.json` (add `headlines` key)
 
 **Step 1: Update FULL_PANELS defaults**
 
-Change `FULL_PANELS` so only 21 panels are `enabled: true` by default. All others become `enabled: false`. The 21 enabled panels are:
-
-```
-map, live-news, headlines, insights, strategic-posture, cii, strategic-risk,
-intel, gdelt-intel, global-digest, cascade, telegram-intel, politics,
-markets, commodities, finance, crypto, trade-policy, security-advisories,
-world-clock, monitors
-```
-
-Replace lines 10-59 of `src/config/panels.ts`:
+Replace lines 10-59 of `src/config/panels.ts` with the following. **21 panels** have `enabled: true`; everything else is `enabled: false`. The key order determines default grid display order — `headlines` is placed at position 3:
 
 ```typescript
 const FULL_PANELS: Record<string, PanelConfig> = {
@@ -252,9 +308,9 @@ const FULL_PANELS: Record<string, PanelConfig> = {
 };
 ```
 
-**Step 2: Add `headlines` to `PANEL_CATEGORY_MAP`**
+**Step 2: Add `headlines` to `PANEL_CATEGORY_MAP` core category**
 
-In `src/config/panels.ts`, add `'headlines'` to the `core` category's `panelKeys` array:
+In `src/config/panels.ts`, update the `core` entry in `PANEL_CATEGORY_MAP` (around line 613):
 
 ```typescript
 core: {
@@ -263,14 +319,21 @@ core: {
 },
 ```
 
-**Step 3: Add a one-time migration for existing users**
+**Step 3: Add locale entry for headlines**
 
-In `src/App.ts`, after the deep-merge loop (Task 1), add a one-time migration to reset panel defaults for users who have never seen the new defaults. This ensures existing users get the new sane defaults without losing custom toggles if they've already seen them:
+In `src/locales/en.json`, inside the `"panels"` section (after line 200), add:
+
+```json
+"headlines": "Latest Headlines",
+```
+
+**Step 4: Add one-time migration for existing users**
+
+In `src/App.ts`, after the deep-merge loop from Task 1 (and after the existing `PANEL_ORDER_MIGRATION_KEY` migrations), add:
 
 ```typescript
 const PANEL_DEFAULTS_V2_KEY = 'worldmonitor-panel-defaults-v2';
 if (!localStorage.getItem(PANEL_DEFAULTS_V2_KEY)) {
-  // Reset to new defaults for existing users — they had 45 panels enabled
   for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
     if (key in panelSettings) {
       panelSettings[key].enabled = config.enabled;
@@ -280,15 +343,17 @@ if (!localStorage.getItem(PANEL_DEFAULTS_V2_KEY)) {
 }
 ```
 
-**Step 4: Verify type-check passes**
+**Why:** Existing users had 45 panels enabled. This one-time migration resets their `enabled` states to the new defaults. The migration key prevents it from running again.
+
+**Step 5: Verify type-check passes**
 
 Run: `npx tsc --noEmit`
-Expected: No errors
+Expected: Clean
 
-**Step 5: Commit**
+**Step 6: Commit**
 
 ```bash
-git add src/config/panels.ts src/App.ts
+git add src/config/panels.ts src/App.ts src/locales/en.json
 git commit -m "feat: reduce default-enabled panels from 45 to 21, add headlines to config"
 ```
 
@@ -298,87 +363,79 @@ git commit -m "feat: reduce default-enabled panels from 45 to 21, add headlines 
 
 **Files:**
 - Create: `src/components/HeadlinesPanel.ts`
-- Modify: `src/app/panel-layout.ts` (register in createPanels)
-- Modify: `src/app/data-loader.ts` (feed data into Headlines on news load)
-- Modify: `src/types/index.ts` (only if `NewsItem` needs a check — likely already has `pubDate`)
+- Modify: `src/styles/panels.css` (add headlines styles)
+- Modify: `src/app/panel-layout.ts` (register panel in `createPanels()`)
+- Modify: `src/app/data-loader.ts` (feed allNews into Headlines after both assignment points)
 
 ### Step 1: Create `src/components/HeadlinesPanel.ts`
 
-The panel extends `Panel` and renders a reverse-chronological list of headlines from `NewsItem[]`. It deduplicates by URL and limits display to the most recent 50. It auto-updates when `renderItems()` is called.
-
 ```typescript
 import { Panel } from './Panel';
-import { h, safeText } from '@/utils/dom';
+import { h, text } from '@/utils/dom-utils';
+import { escapeHtml } from '@/utils/sanitize';
+import { t } from '@/locales';
 import type { NewsItem } from '@/types';
 
 const MAX_ITEMS = 50;
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export class HeadlinesPanel extends Panel {
-  private seenUrls = new Set<string>();
+  private seenKeys = new Set<string>();
   private items: NewsItem[] = [];
 
   constructor() {
-    super('headlines', {
-      title: 'Latest Headlines',
-      icon: '📰',
-      collapsible: true,
+    super({
+      id: 'headlines',
+      title: t('panels.headlines'),
+      showCount: true,
+      trackActivity: true,
     });
-    this.setLoading();
+    this.showLoading();
   }
 
   renderItems(allNews: NewsItem[]): void {
     const cutoff = Date.now() - DEDUP_WINDOW_MS;
-    this.seenUrls.clear();
+    this.seenKeys.clear();
     this.items = [];
 
     const sorted = allNews
-      .filter(item => {
-        const ts = new Date(item.pubDate ?? item.fetchedAt ?? 0).getTime();
-        return ts > cutoff;
-      })
-      .sort((a, b) => {
-        const ta = new Date(a.pubDate ?? a.fetchedAt ?? 0).getTime();
-        const tb = new Date(b.pubDate ?? b.fetchedAt ?? 0).getTime();
-        return tb - ta;
-      });
+      .filter(item => item.pubDate.getTime() > cutoff)
+      .sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
 
     for (const item of sorted) {
       const key = item.link || item.title;
-      if (this.seenUrls.has(key)) continue;
-      this.seenUrls.add(key);
+      if (this.seenKeys.has(key)) continue;
+      this.seenKeys.add(key);
       this.items.push(item);
       if (this.items.length >= MAX_ITEMS) break;
     }
 
-    this.render();
+    this.setCount(this.items.length);
+    this.renderList();
   }
 
-  private render(): void {
+  private renderList(): void {
     if (this.items.length === 0) {
-      this.setContent('<div class="panel-empty">No headlines yet</div>');
+      this.content.innerHTML = '<div class="panel-empty">No headlines yet</div>';
       return;
     }
 
     const list = h('div', { className: 'headlines-list' });
 
     for (const item of this.items) {
-      const ts = new Date(item.pubDate ?? item.fetchedAt ?? 0);
-      const ago = this.timeAgo(ts);
-      const source = item.source || item.category || '';
+      const ago = this.timeAgo(item.pubDate);
 
       const row = h('div', { className: 'headline-row' });
 
       const meta = h('div', { className: 'headline-meta' });
-      if (source) {
+      if (item.source) {
         const badge = h('span', { className: 'headline-source' });
-        badge.appendChild(safeText(source));
+        badge.appendChild(text(item.source));
         meta.appendChild(badge);
       }
-      const time = h('span', { className: 'headline-time' });
-      time.appendChild(safeText(ago));
-      meta.appendChild(time);
-
+      const timeEl = h('span', { className: 'headline-time' });
+      timeEl.appendChild(text(ago));
+      meta.appendChild(timeEl);
       row.appendChild(meta);
 
       if (item.link) {
@@ -388,19 +445,18 @@ export class HeadlinesPanel extends Panel {
           target: '_blank',
           rel: 'noopener noreferrer',
         });
-        link.appendChild(safeText(item.title));
+        link.appendChild(text(item.title));
         row.appendChild(link);
       } else {
         const span = h('span', { className: 'headline-title' });
-        span.appendChild(safeText(item.title));
+        span.appendChild(text(item.title));
         row.appendChild(span);
       }
 
       list.appendChild(row);
     }
 
-    this.content.innerHTML = '';
-    this.content.appendChild(list);
+    this.content.replaceChildren(list);
   }
 
   private timeAgo(date: Date): string {
@@ -416,15 +472,15 @@ export class HeadlinesPanel extends Panel {
 }
 ```
 
-### Step 2: Add CSS for Headlines panel
+### Step 2: Add CSS to `src/styles/panels.css`
 
-Add to the existing panel styles file (or create `src/styles/headlines.css` if panel styles are modular). The styles should match the existing panel aesthetic:
+Append to the end of `src/styles/panels.css`:
 
 ```css
+/* ── Headlines Panel ── */
 .headlines-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
   max-height: 500px;
   overflow-y: auto;
 }
@@ -472,9 +528,9 @@ a.headline-title:hover {
 }
 ```
 
-### Step 3: Register the panel in `panel-layout.ts`
+### Step 3: Register in `panel-layout.ts` `createPanels()`
 
-In `src/app/panel-layout.ts`, inside `createPanels()`, add the Headlines panel creation. Place it near the other core panels (after the map, before news panels). Use dynamic import to keep bundle lean:
+In `src/app/panel-layout.ts`, inside `createPanels()`, add the HeadlinesPanel creation. Place it in the `SITE_VARIANT === 'full'` block (after line 583, near the other full-variant panels) since it only applies to the full variant:
 
 ```typescript
 const { HeadlinesPanel } = await import('@/components/HeadlinesPanel');
@@ -482,25 +538,31 @@ const headlinesPanel = new HeadlinesPanel();
 this.ctx.panels['headlines'] = headlinesPanel;
 ```
 
-Add the panel element to the grid in the same manner as other panels — it will be attached to `panelsGrid` via the existing `attachPanelsToGrid()` method.
+The panel will be automatically attached to the grid by the existing `panelOrder.forEach` loop (line 840) since `'headlines'` is now a key in `DEFAULT_PANELS`.
 
-### Step 4: Feed data into the Headlines panel from data-loader
+### Step 4: Feed allNews into HeadlinesPanel from data-loader
 
-In `src/app/data-loader.ts`, after `this.ctx.allNews = collectedNews;` (appears twice — in `loadNews()` ~line 664 and in `processDigestData()` ~line 2149), add:
+In `src/app/data-loader.ts`, add a helper method to the `DataLoaderManager` class and call it after each `allNews` assignment.
+
+Add the method:
 
 ```typescript
-const headlinesPanel = this.ctx.panels['headlines'];
-if (headlinesPanel && 'renderItems' in headlinesPanel) {
-  (headlinesPanel as import('@/components/HeadlinesPanel').HeadlinesPanel).renderItems(this.ctx.allNews);
+private updateHeadlinesPanel(): void {
+  const panel = this.ctx.panels['headlines'];
+  if (panel && 'renderItems' in panel) {
+    (panel as import('@/components/HeadlinesPanel').HeadlinesPanel).renderItems(this.ctx.allNews);
+  }
 }
 ```
 
-This ensures the Headlines panel updates both on initial load and when digest data pushes arrive.
+Call it after `this.updateMonitorResults()` in both places:
+- In `loadNews()` (after line 678): add `this.updateHeadlinesPanel();`
+- In `processDigestData()` (after line 2163): add `this.updateHeadlinesPanel();`
 
 ### Step 5: Verify type-check and build
 
 Run: `npx tsc --noEmit`
-Expected: No errors
+Expected: Clean
 
 Run: `npx vite build`
 Expected: Build succeeds
@@ -508,29 +570,34 @@ Expected: Build succeeds
 ### Step 6: Commit
 
 ```bash
-git add src/components/HeadlinesPanel.ts src/app/panel-layout.ts src/app/data-loader.ts
+git add src/components/HeadlinesPanel.ts src/styles/panels.css src/app/panel-layout.ts src/app/data-loader.ts
 git commit -m "feat: add Latest Headlines aggregate panel"
 ```
 
 ---
 
-## Task 6: Refactor `createPanels()` — extract panel registry (god-function fix)
+## Task 6: Refactor `createPanels()` — extract NewsPanel registry (god-function fix)
 
 **Files:**
-- Modify: `src/app/panel-layout.ts:381-740`
+- Modify: `src/app/panel-layout.ts:396-569`
 
-The `createPanels()` method is ~360 lines of repetitive inline panel construction. This task extracts the repetitive `NewsPanel` creation pattern into a data-driven loop.
+The `createPanels()` method has ~25 identical blocks of:
+```typescript
+const xxxPanel = new NewsPanel('xxx', t('panels.xxx'));
+this.attachRelatedAssetHandlers(xxxPanel);
+this.ctx.newsPanels['xxx'] = xxxPanel;
+this.ctx.panels['xxx'] = xxxPanel;
+```
 
-### Step 1: Create a news panel registry array
+### Step 1: Define a news panel keys array
 
-At the top of `panel-layout.ts` (or in a new helper), define the list of simple `NewsPanel` instances:
+Near the top of `src/app/panel-layout.ts` (after imports), add:
 
 ```typescript
 const NEWS_PANEL_KEYS = [
   'politics', 'tech', 'finance', 'gov', 'intel', 'energy',
   'africa', 'latam', 'asia', 'us', 'europe', 'middleeast',
   'ai', 'layoffs', 'thinktanks',
-  // Tech variant
   'startups', 'vcblogs', 'regionalStartups', 'unicorns',
   'accelerators', 'funding', 'producthunt', 'security',
   'policy', 'hardware', 'cloud', 'dev', 'github', 'ipo',
@@ -539,7 +606,7 @@ const NEWS_PANEL_KEYS = [
 
 ### Step 2: Replace repetitive NewsPanel blocks with a loop
 
-Replace the ~25 individual `new NewsPanel(key, t('panels.key'))` blocks with:
+Remove the ~25 individual `new NewsPanel(key, ...)` blocks (lines 396-569) and replace with:
 
 ```typescript
 for (const key of NEWS_PANEL_KEYS) {
@@ -551,17 +618,29 @@ for (const key of NEWS_PANEL_KEYS) {
 }
 ```
 
-Keep the specialized panels (MarketPanel, CommoditiesPanel, HeatmapPanel, etc.) as explicit instantiations since they have unique constructors and setup.
+**Keep the following as explicit instantiations** (they have unique constructors/setup):
+- `HeatmapPanel`, `MarketPanel`, `MonitorPanel`, `CommoditiesPanel`, `PredictionPanel`, `CryptoPanel`, `EconomicPanel`, `TradePolicyPanel`, `SupplyChainPanel`
 
-### Step 3: Verify no behavioral change
+### Step 3: Preserve the dynamic feed-based panel loop (lines 569-581)
+
+The existing loop that creates panels for any feed categories not already registered should remain as-is:
+
+```typescript
+for (const key of Object.keys(feeds)) {
+  if (this.ctx.newsPanels[key]) continue;
+  // ... dynamic panel creation
+}
+```
+
+### Step 4: Verify no behavioral change
 
 Run: `npx tsc --noEmit`
-Expected: No errors
+Expected: Clean
 
 Run: `npx vite build`
-Expected: Build succeeds, no regression in panel creation
+Expected: Build succeeds
 
-### Step 4: Commit
+### Step 5: Commit
 
 ```bash
 git add src/app/panel-layout.ts
@@ -570,23 +649,31 @@ git commit -m "refactor: extract NewsPanel creation into data-driven loop"
 
 ---
 
-## Task 7: Final verification
+## Task 7: Final verification and deslop
 
 **Step 1: Full type-check**
 
 Run: `npx tsc --noEmit`
-Expected: No errors
+Expected: Clean
 
 **Step 2: Full build**
 
 Run: `npx vite build`
 Expected: Build succeeds
 
-**Step 3: Verify panel count**
+**Step 3: Verify enabled panel count**
 
-Manually verify `FULL_PANELS` has exactly 21 panels with `enabled: true` and the rest are `enabled: false`. Count in the source file.
+Count panels with `enabled: true` in FULL_PANELS. Expected: 21.
 
-**Step 4: Commit any remaining cleanup**
+**Step 4: Deslop check**
+
+Review all commits for:
+- Extra comments that narrate code
+- Unnecessary defensive checks
+- Casts to `any`
+- Deeply nested code that should use early returns
+
+**Step 5: Commit any cleanup**
 
 ```bash
 git add -A
@@ -595,15 +682,13 @@ git commit -m "chore: final verification and cleanup"
 
 ---
 
-## God-File Assessment (out of scope but documented)
-
-These files warrant future decomposition but are **not** in scope for this plan:
+## God-File Assessment (out of scope, documented for future)
 
 | File | Lines | Issue | Recommended Split |
 |------|-------|-------|-------------------|
-| `scripts/ais-relay.cjs` | 7,873 | Monolithic relay: Redis, LLM, Telegram, WebSocket, HTTP, 30+ fetchers | Split into `relay-core.cjs`, `relay-llm.cjs`, `relay-telegram.cjs`, `relay-fetchers/` directory |
-| `src/app/data-loader.ts` | 2,637 | God class with 170+ methods — all `apply*` + `load*` + `render*` | Split apply handlers into per-domain modules (e.g., `data-loader-markets.ts`, `data-loader-intelligence.ts`) |
-| `src/components/LiveNewsPanel.ts` | 1,526 | YouTube API + channel management + drag-drop + HLS all in one | Extract `YouTubePlayer`, `ChannelManager`, `HlsPlayer` |
-| `src/app/event-handlers.ts` | 1,012 | All event wiring in one class | Group into domain-specific handler modules |
+| `scripts/ais-relay.cjs` | 7,873 | Monolithic relay: Redis, LLM, Telegram, WebSocket, HTTP, 30+ fetchers | `relay-core.cjs`, `relay-llm.cjs`, `relay-telegram.cjs`, `relay-fetchers/` |
+| `src/app/data-loader.ts` | 2,637 | 170+ methods — all `apply*` + `load*` + `render*` in one class | Per-domain modules: `data-loader-markets.ts`, `data-loader-intelligence.ts`, etc. |
+| `src/components/LiveNewsPanel.ts` | 1,526 | YouTube API + channel management + drag-drop + HLS | `YouTubePlayer`, `ChannelManager`, `HlsPlayer` |
+| `src/app/event-handlers.ts` | 1,012 | All event wiring in one class | Domain-specific handler modules |
 
-The refactor in Task 6 (`createPanels()` loop) is the one god-function fix directly relevant to this plan.
+Task 6 (createPanels loop) is the targeted god-function fix in this plan.
