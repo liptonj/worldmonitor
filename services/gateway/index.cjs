@@ -58,6 +58,7 @@ const PHASE4_CHANNEL_KEYS = {
   'ai:panel-summary': 'ai:panel-summary:v1',
   'ai:article-summaries': 'ai:article-summaries:v1',
   'ai:country-briefs': 'ai:country-briefs:v1',
+  'ai:classifications': 'ai:classifications:v1',
   'ai:posture-analysis': 'ai:posture-analysis:v1',
   'ai:instability-analysis': 'ai:instability-analysis:v1',
   'ai:risk-overview': 'ai:risk-overview:v1',
