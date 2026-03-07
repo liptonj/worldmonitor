@@ -121,13 +121,13 @@ function routeHttpRequest(pathname, redis) {
   if (pathname === '/bootstrap') {
     return (async () => {
       const channels = Object.keys(PHASE4_CHANNEL_KEYS);
-      const results = await Promise.all(
+      const settled = await Promise.allSettled(
         channels.map((ch) => redis.get(PHASE4_CHANNEL_KEYS[ch]))
       );
       const out = {};
       for (let i = 0; i < channels.length; i++) {
         const hydrationKey = CHANNEL_TO_HYDRATION_KEY[channels[i]] || channels[i];
-        out[hydrationKey] = results[i] ?? null;
+        out[hydrationKey] = settled[i].status === 'fulfilled' ? (settled[i].value ?? null) : null;
       }
       return {
         status: 200,
@@ -270,10 +270,16 @@ function main() {
       return;
     }
 
-    const result = routeHttpRequest(pathname, redis);
-    const resolved = await Promise.resolve(result);
-    res.writeHead(resolved.status, resolved.headers);
-    res.end(resolved.body);
+    try {
+      const result = routeHttpRequest(pathname, redis);
+      const resolved = await Promise.resolve(result);
+      res.writeHead(resolved.status, resolved.headers);
+      res.end(resolved.body);
+    } catch (err) {
+      log.error('HTTP route error', { pathname, error: err.message });
+      res.writeHead(500, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+    }
   });
 
   const wss = new WebSocketServer({ server });
