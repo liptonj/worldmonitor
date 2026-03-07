@@ -195,7 +195,7 @@ export async function fetchFredDashboard(): Promise<FredSeries[]> {
 
 /**
  * Convert FRED API response (dashboard or single series) to client FredSeries[].
- * Used by loadFredData and applyFredData (relay push).
+ * Used by applyFredData (relay push).
  */
 export function fredResponseToClientSeries(
   resp: GetFredDashboardResponse | GetFredSeriesResponse,
@@ -302,7 +302,7 @@ export async function checkEiaStatus(): Promise<boolean> {
 }
 
 /**
- * Convert GetEnergyPricesResponse to OilAnalytics. Used by loadOilAnalytics and applyOilData (relay push).
+ * Convert GetEnergyPricesResponse to OilAnalytics. Used by applyOilData (relay push).
  */
 export function energyPricesToOilAnalytics(resp: GetEnergyPricesResponse): OilAnalytics {
   const byId = new Map<string, ProtoEnergyPrice>();
