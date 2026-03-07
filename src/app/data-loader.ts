@@ -93,6 +93,7 @@ import { fetchTechEvents } from '@/services/research';
 import type { MarketPanel, HeatmapPanel, CommoditiesPanel, CryptoPanel } from '@/components/MarketPanel';
 import type { PredictionPanel } from '@/components/PredictionPanel';
 import type { MonitorPanel } from '@/components/MonitorPanel';
+import type { HeadlinesPanel } from '@/components/HeadlinesPanel';
 import type { InsightsPanel } from '@/components/InsightsPanel';
 import type { CIIPanel } from '@/components/CIIPanel';
 import type { StrategicPosturePanel } from '@/components/StrategicPosturePanel';
@@ -676,6 +677,7 @@ export class DataLoaderManager implements AppModule {
     this.ctx.map?.updateHotspotActivity(this.ctx.allNews);
 
     this.updateMonitorResults();
+    this.updateHeadlinesPanel();
 
     void (mlWorker.isAvailable
       ? clusterNewsHybrid(this.ctx.allNews)
@@ -1744,6 +1746,13 @@ export class DataLoaderManager implements AppModule {
     monitorPanel.renderResults(this.ctx.allNews);
   }
 
+  private updateHeadlinesPanel(): void {
+    const panel = this.ctx.panels['headlines'];
+    if (panel && 'renderItems' in panel) {
+      (panel as HeadlinesPanel).renderItems(this.ctx.allNews);
+    }
+  }
+
   async runCorrelationAnalysis(): Promise<void> {
     try {
       if (this.ctx.latestClusters.length === 0 && this.ctx.allNews.length > 0) {
@@ -2161,6 +2170,7 @@ export class DataLoaderManager implements AppModule {
 
     this.ctx.map?.updateHotspotActivity(this.ctx.allNews);
     this.updateMonitorResults();
+    this.updateHeadlinesPanel();
 
     void (mlWorker.isAvailable
       ? clusterNewsHybrid(this.ctx.allNews)

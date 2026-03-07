@@ -96,9 +96,13 @@ export class App {
         STORAGE_KEYS.panels,
         DEFAULT_PANELS
       );
-      // Merge in any new panels that didn't exist when settings were saved
       for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
-        if (!(key in panelSettings)) {
+        const entry = panelSettings[key];
+        if (entry) {
+          if (config.channels) entry.channels = config.channels;
+          entry.requiredFeature = config.requiredFeature;
+          if (config.priority !== undefined) entry.priority = config.priority;
+        } else {
           panelSettings[key] = { ...config };
         }
       }
@@ -147,6 +151,19 @@ export class App {
           }
           localStorage.setItem(TECH_INSIGHTS_MIGRATION_KEY, 'done');
         }
+      }
+
+      // One-time migration: reset enabled states to new panel defaults (45 → 21)
+      const PANEL_DEFAULTS_V2_KEY = 'worldmonitor-panel-defaults-v2';
+      if (!localStorage.getItem(PANEL_DEFAULTS_V2_KEY)) {
+        for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
+          const entry = panelSettings[key];
+          if (entry) {
+            entry.enabled = config.enabled;
+          }
+        }
+        saveToStorage(STORAGE_KEYS.panels, panelSettings);
+        localStorage.setItem(PANEL_DEFAULTS_V2_KEY, 'done');
       }
     }
 

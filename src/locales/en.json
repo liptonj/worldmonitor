@@ -270,7 +270,8 @@
     "gulfEconomies": "Gulf Economies",
     "gulfIndices": "Gulf Indices",
     "gulfCurrencies": "Gulf Currencies",
-    "gulfOil": "Gulf Oil"
+    "gulfOil": "Gulf Oil",
+    "headlines": "Latest Headlines"
   },
   "commands": {
     "prefixes": {

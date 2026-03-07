@@ -2561,15 +2561,14 @@ function processRawUpstreamMessage(raw) {
     // Ignore malformed upstream payloads
   }
 
-  // Heavily throttled WS fanout: every 50th message only
-  // The app primarily uses HTTP snapshot polling, WS is for rare external consumers
-  if (clients.size > 0 && messageCount % 50 === 0) {
-    const message = raw.toString();
-    for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        // Per-client backpressure: skip if client buffer is backed up
-        if (client.bufferedAmount < 1024 * 1024) {
-          client.send(message);
+  // Heavily throttled WS fanout: every 50th message, AIS subscribers only
+  if (messageCount % 50 === 0) {
+    const aisSubs = channelSubscribers.get('ais');
+    if (aisSubs && aisSubs.size > 0) {
+      const message = raw.toString();
+      for (const ws of aisSubs) {
+        if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 1024 * 1024) {
+          ws.send(message);
         }
       }
     }
