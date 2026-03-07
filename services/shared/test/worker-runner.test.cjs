@@ -77,6 +77,93 @@ describe('runWorker', () => {
     assert.strictEqual(mockRedis._store.size, 0);
   });
 
+  it('returns error for invalid/malformed settings_json', async () => {
+    const result = await runWorker(
+      {
+        service_key: 'svc1',
+        redis_key: 'rk1',
+        ttl_seconds: 60,
+        trigger_id: 't1',
+        fetch_type: 'simple_http',
+        settings_json: 'not valid json {{{',
+      },
+      { redis: mockRedis, grpcBroadcast: () => {}, log }
+    );
+
+    assert.strictEqual(result.status, 'error');
+    assert.ok(result.error.includes('Invalid settings_json'));
+    assert.strictEqual(result.service_key, 'svc1');
+    assert.strictEqual(mockRedis._store.size, 0);
+  });
+
+  it('returns error for missing required field service_key', async () => {
+    const result = await runWorker(
+      {
+        redis_key: 'rk1',
+        ttl_seconds: 60,
+        trigger_id: 't1',
+        fetch_type: 'simple_http',
+        settings_json: JSON.stringify({ url: 'http://example.com' }),
+      },
+      { redis: mockRedis, grpcBroadcast: () => {}, log }
+    );
+
+    assert.strictEqual(result.status, 'error');
+    assert.ok(result.error.includes('Missing required fields'));
+    assert.strictEqual(mockRedis._store.size, 0);
+  });
+
+  it('returns error for unknown fetch_type', async () => {
+    const result = await runWorker(
+      {
+        service_key: 'svc1',
+        redis_key: 'rk1',
+        ttl_seconds: 60,
+        trigger_id: 't1',
+        fetch_type: 'unknown_type',
+      },
+      { redis: mockRedis, grpcBroadcast: () => {}, log }
+    );
+
+    assert.strictEqual(result.status, 'error');
+    assert.ok(result.error.includes('Unknown fetch_type'));
+    assert.strictEqual(result.service_key, 'svc1');
+    assert.strictEqual(mockRedis._store.size, 0);
+  });
+
+  it('simple_rss path uses _simple-fetcher and parses RSS', async () => {
+    const rssBody = `<?xml version="1.0"?><rss><channel><item><title>T1</title><link>http://a.com</link><pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate><description>Desc1</description></item></channel></rss>`;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      status: 200,
+      ok: true,
+      text: () => rssBody,
+    });
+
+    const result = await runWorker(
+      {
+        service_key: 'svc4',
+        redis_key: 'rk4',
+        ttl_seconds: 60,
+        trigger_id: 't4',
+        fetch_type: 'simple_rss',
+        settings_json: JSON.stringify({ url: 'http://example.com/feed.xml' }),
+      },
+      { redis: mockRedis, grpcBroadcast: () => {}, log }
+    );
+
+    globalThis.fetch = origFetch;
+
+    assert.strictEqual(result.status, 'ok');
+    assert.strictEqual(result.service_key, 'svc4');
+    const stored = mockRedis._store.get('rk4');
+    assert.ok(Array.isArray(stored));
+    assert.strictEqual(stored.length, 1);
+    assert.strictEqual(stored[0].title, 'T1');
+    assert.strictEqual(stored[0].link, 'http://a.com');
+    assert.strictEqual(stored[0].description, 'Desc1');
+  });
+
   it('simple_http path uses _simple-fetcher', async () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {

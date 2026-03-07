@@ -20,6 +20,16 @@ async function fetchSimple(settings, { log, http }) {
     return { ok: false, error: 'Invalid settings: url required' };
   }
 
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(settings.url);
+  } catch {
+    return { ok: false, error: 'Invalid settings: url is not a valid URL' };
+  }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    return { ok: false, error: 'Invalid settings: url must use http or https' };
+  }
+
   const url = settings.url;
   const method = (settings.method || 'GET').toUpperCase();
   const headers = settings.headers && typeof settings.headers === 'object' ? settings.headers : {};

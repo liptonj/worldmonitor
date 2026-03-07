@@ -1,5 +1,6 @@
 'use strict';
 
+// Run with --test-concurrency=1: process.__REDIS_TEST_CLIENT__ is process-global.
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 

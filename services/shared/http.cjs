@@ -6,6 +6,8 @@ const log = createLogger('http');
 const USER_AGENT = 'WorldMonitor-Relay/1.0';
 const DEFAULT_TIMEOUT_MS = 30000;
 
+// URLs may contain sensitive query parameters — callers should use non-sensitive URLs or strip credentials before passing.
+
 async function fetchJson(url, options = {}) {
   const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -77,11 +79,11 @@ async function fetchText(url, options = {}) {
 async function fetchWithRetry(url, options = {}, retries = 3, backoffMs = 500) {
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeout);
+    const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
 
+    try {
       log.debug('fetchWithRetry', { url, attempt });
       const res = await fetch(url, {
         ...options,
@@ -96,6 +98,7 @@ async function fetchWithRetry(url, options = {}, retries = 3, backoffMs = 500) {
 
       if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
         if (attempt < retries) {
+          await Promise.resolve(res.text()).catch(() => {}); // drain body to avoid connection leaks
           const delay = backoffMs * Math.pow(2, attempt) * (0.5 + Math.random() * 0.5);
           log.debug('fetchWithRetry retrying', { url, status: res.status, delayMs: Math.round(delay) });
           await new Promise((r) => setTimeout(r, delay));
@@ -110,6 +113,7 @@ async function fetchWithRetry(url, options = {}, retries = 3, backoffMs = 500) {
 
       return res;
     } catch (err) {
+      clearTimeout(id);
       lastErr = err;
       if (attempt < retries && (err.message?.includes('429') || err.message?.includes('5') || err.name === 'AbortError')) {
         const delay = backoffMs * Math.pow(2, attempt) * (0.5 + Math.random() * 0.5);
