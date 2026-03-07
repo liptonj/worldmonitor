@@ -9804,6 +9804,12 @@ a.prediction-link:hover {
   .header {
     position: relative;
     z-index: 1002;
+    height: 48px;
+    min-height: 48px;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 12px;
+    overflow: visible;
   }
   .hamburger-btn {
     display: flex;
@@ -9838,14 +9844,25 @@ a.prediction-link:hover {
     transform: rotate(-45deg) translate(4px, -4px);
   }
   /* Header layout: hamburger left, logo/variant centered */
-  .header {
-    justify-content: flex-start;
-    gap: 12px;
-  }
   .header-left {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
     justify-content: flex-start;
+    align-items: center;
     gap: 10px;
+  }
+  .variant-switcher {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .logo {
+    flex-shrink: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
   /* Hide clutter items; hamburger reveals them */
   .header-right,
@@ -10034,7 +10051,7 @@ a.prediction-link:hover {
   }
   /* === Critical posture banner — match mobile header height === */
   .critical-posture-banner {
-    top: 40px;
+    top: 48px;
   }
   .banner-content {
     flex-wrap: wrap;
