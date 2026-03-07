@@ -15,6 +15,10 @@ const CANONICAL_VARIANT_HOSTS: Record<string, string> = {
   'tech.worldmonitor.app': 'tech',
   'finance.worldmonitor.app': 'finance',
   'happy.worldmonitor.app': 'happy',
+  'info.5ls.us': 'full',
+  'tech.5ls.us': 'tech',
+  'finance.5ls.us': 'finance',
+  'happy.5ls.us': 'happy',
 };
 
 function resolveVariantFromHost(host: string): string | null {
@@ -25,25 +29,36 @@ function resolveVariantFromHost(host: string): string | null {
   return null;
 }
 
+const URL_FULL = process.env.VITE_URL_FULL ?? 'https://info.5ls.us';
+const URL_TECH = process.env.VITE_URL_TECH ?? 'https://tech.5ls.us';
+const URL_FINANCE = process.env.VITE_URL_FINANCE ?? 'https://finance.5ls.us';
+const URL_HAPPY = process.env.VITE_URL_HAPPY ?? 'https://happy.5ls.us';
+
 // Source of truth: src/config/variant-meta.ts — keep in sync when variant metadata changes.
 const VARIANT_OG: Record<string, { title: string; description: string; image: string; url: string }> = {
+  full: {
+    title: 'World Monitor - Real-Time Global Intelligence Dashboard',
+    description: 'Real-time global intelligence dashboard with live news, markets, military tracking, infrastructure monitoring, and geopolitical data. OSINT in one view.',
+    image: `${URL_FULL}/favico/og-image.png`,
+    url: `${URL_FULL}/`,
+  },
   tech: {
     title: 'Tech Monitor - Real-Time AI & Tech Industry Dashboard',
     description: 'Real-time AI and tech industry dashboard tracking tech giants, AI labs, startup ecosystems, funding rounds, and tech events worldwide.',
-    image: 'https://tech.worldmonitor.app/favico/tech/og-image.png',
-    url: 'https://tech.worldmonitor.app/',
+    image: `${URL_TECH}/favico/tech/og-image.png`,
+    url: `${URL_TECH}/`,
   },
   finance: {
     title: 'Finance Monitor - Real-Time Markets & Trading Dashboard',
     description: 'Real-time finance and trading dashboard tracking global markets, stock exchanges, central banks, commodities, forex, crypto, and economic indicators worldwide.',
-    image: 'https://finance.worldmonitor.app/favico/finance/og-image.png',
-    url: 'https://finance.worldmonitor.app/',
+    image: `${URL_FINANCE}/favico/finance/og-image.png`,
+    url: `${URL_FINANCE}/`,
   },
   happy: {
     title: 'Happy Monitor - Good News & Global Progress',
     description: 'Curated positive news, progress data, and uplifting stories from around the world.',
-    image: 'https://happy.worldmonitor.app/favico/happy/og-image.png',
-    url: 'https://happy.worldmonitor.app/',
+    image: `${URL_HAPPY}/favico/happy/og-image.png`,
+    url: `${URL_HAPPY}/`,
   },
 };
 

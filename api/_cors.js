@@ -17,7 +17,7 @@ function isAllowedOrigin(origin) {
 
 export function getCorsHeaders(req, methods = 'GET, OPTIONS') {
   const origin = req.headers.get('origin') || '';
-  const allowOrigin = isAllowedOrigin(origin) ? origin : 'https://worldmonitor.app';
+  const allowOrigin = isAllowedOrigin(origin) ? origin : (process.env.VITE_URL_FULL || 'https://info.5ls.us');
   return {
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': methods,

@@ -67,7 +67,7 @@ export class DesktopUpdater implements AppModule {
 
   private async checkForUpdate(): Promise<void> {
     try {
-      const res = await fetch('https://worldmonitor.app/api/version');
+      const res = await fetch(`${__URL_FULL__}/api/version`);
       if (!res.ok) {
         this.logUpdaterOutcome('fetch_failed', { status: res.status });
         return;
@@ -148,7 +148,7 @@ export class DesktopUpdater implements AppModule {
       const platform = this.mapDesktopDownloadPlatform(runtimeInfo.os, runtimeInfo.arch);
       if (platform) {
         const variant = this.getDesktopBuildVariant();
-        return `https://worldmonitor.app/api/download?platform=${platform}&variant=${variant}`;
+        return `${__URL_FULL__}/api/download?platform=${platform}&variant=${variant}`;
       }
     } catch {
       // Silent fallback to release page when desktop runtime info is unavailable.

@@ -39,7 +39,7 @@ function sanitizeAllowedOrigin(raw, fallback, allowList = ALLOWED_ORIGINS) {
 }
 
 function sanitizeOrigin(raw) {
-  return sanitizeAllowedOrigin(raw, 'https://worldmonitor.app', ALLOWED_ORIGINS);
+  return sanitizeAllowedOrigin(raw, process.env.VITE_URL_FULL || 'https://info.5ls.us', ALLOWED_ORIGINS);
 }
 
 function sanitizeParentOrigin(raw, fallback) {

@@ -604,10 +604,10 @@ function devCspStripPlugin(): Plugin {
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
-    __URL_FULL__: JSON.stringify(process.env.VITE_URL_FULL || 'https://worldmonitor.app'),
-    __URL_TECH__: JSON.stringify(process.env.VITE_URL_TECH || 'https://tech.worldmonitor.app'),
-    __URL_FINANCE__: JSON.stringify(process.env.VITE_URL_FINANCE || 'https://finance.worldmonitor.app'),
-    __URL_HAPPY__: JSON.stringify(process.env.VITE_URL_HAPPY || 'https://happy.worldmonitor.app'),
+    __URL_FULL__: JSON.stringify(process.env.VITE_URL_FULL || 'https://info.5ls.us'),
+    __URL_TECH__: JSON.stringify(process.env.VITE_URL_TECH || 'https://tech.5ls.us'),
+    __URL_FINANCE__: JSON.stringify(process.env.VITE_URL_FINANCE || 'https://finance.5ls.us'),
+    __URL_HAPPY__: JSON.stringify(process.env.VITE_URL_HAPPY || 'https://happy.5ls.us'),
   },
   plugins: [
     devCspStripPlugin(),

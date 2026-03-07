@@ -1,4 +1,4 @@
-// Full geopolitical variant - worldmonitor.app
+// Full geopolitical variant - info.5ls.us
 import type { PanelConfig, MapLayers } from '@/types';
 import type { VariantConfig } from './base';
 
