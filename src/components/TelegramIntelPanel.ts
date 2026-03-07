@@ -117,7 +117,7 @@ export class TelegramIntelPanel extends Panel {
   }
 
   public async refresh(): Promise<void> {
-    // Handled by DataLoader + RefreshScheduler
+    // Handled by DataLoader + WebSocket relay-push
   }
 
   public destroy(): void {

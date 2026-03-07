@@ -7,6 +7,14 @@ export interface RefreshRegistration {
   condition?: () => boolean;
 }
 
+/**
+ * @deprecated RefreshScheduler is no longer used after relay migration.
+ * All relay channels now use WebSocket push (relay-push.ts) for real-time updates.
+ * Non-relay RSS feeds are loaded via bootstrap and updated through WebSocket or manual refresh.
+ * 
+ * This class is preserved for backward compatibility but is not instantiated.
+ * Consider removing in a future major version.
+ */
 export class RefreshScheduler implements AppModule {
   private ctx: AppContext;
   private refreshTimeoutIds: Map<string, ReturnType<typeof setTimeout>> = new Map();
