@@ -6,7 +6,6 @@ import {
   MOBILE_DEFAULT_MAP_LAYERS,
   STORAGE_KEYS,
   SITE_VARIANT,
-  CHANNEL_TO_LAYER,
 } from '@/config';
 import { initDB, cleanOldSnapshots, isAisConfigured, initAisStream, isOutagesConfigured, disconnectAisStream } from '@/services';
 import { mlWorker } from '@/services/ml-worker';
@@ -24,7 +23,7 @@ import { initI18n } from '@/services/i18n';
 
 import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, loadNewsSources, applyNewsSources } from '@/services/feed-client';
 import { loadFeatureFlags, applyFeatureFlags } from '@/services/feature-flag-client';
-import { fetchBootstrapData } from '@/services/bootstrap';
+import { fetchBootstrapData, RELAY_CHANNELS } from '@/services/bootstrap';
 import { DesktopUpdater } from '@/app/desktop-updater';
 import { CountryIntelManager } from '@/app/country-intel';
 import { SearchManager } from '@/app/search-manager';
@@ -590,25 +589,10 @@ export class App {
   private setupRelayPush(): void {
     const variant = SITE_VARIANT || 'full';
 
-    const alwaysOn = [
-      `news:${variant}`, 'markets', 'intelligence', 'conflict', 'climate',
-      'config:news-sources', 'config:feature-flags',
-    ];
-    if (variant === 'full') alwaysOn.push('pizzint');
+    const channels = [...RELAY_CHANNELS, `news:${variant}`];
+    if (variant === 'full') channels.push('pizzint');
 
-    const demandChannels: string[] = [];
-    for (const [ch, layer] of Object.entries(CHANNEL_TO_LAYER)) {
-      if (this.state.mapLayers[layer]) demandChannels.push(ch);
-    }
-    for (const config of Object.values(this.state.panelSettings)) {
-      if (config.enabled && config.channels) {
-        for (const ch of config.channels) {
-          if (!demandChannels.includes(ch)) demandChannels.push(ch);
-        }
-      }
-    }
-
-    initRelayPush([...alwaysOn, ...demandChannels]);
+    initRelayPush(channels);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dl = this.dataLoader as any;

@@ -4,8 +4,8 @@ import { RELAY_HTTP_BASE, getRelayFetchHeaders } from '@/services/relay-http';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
-/** All relay channels to request in bootstrap for instant panel hydration. Must match relay PHASE4_CHANNEL_KEYS. */
-const RELAY_CHANNELS = [
+/** All relay channels to request in bootstrap and subscribe via WebSocket. Must match relay PHASE4_CHANNEL_KEYS. */
+export const RELAY_CHANNELS = [
   'markets',
   'predictions',
   'fred',
