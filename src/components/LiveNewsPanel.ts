@@ -481,9 +481,7 @@ export class LiveNewsPanel extends Panel {
   }
 
   private static resolveYouTubeOrigin(): string | null {
-    const fallbackOrigin = SITE_VARIANT === 'tech'
-      ? __URL_FULL__
-      : __URL_FULL__;
+    const fallbackOrigin = __URL_FULL__;
 
     try {
       const { protocol, origin, host } = window.location;

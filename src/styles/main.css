@@ -9857,7 +9857,6 @@ a.prediction-link:hover {
   .header.mobile-nav-open .hamburger-btn span:nth-child(3) {
     transform: rotate(-45deg) translate(4px, -4px);
   }
-  /* Header layout: hamburger left, logo/variant centered */
   .header-left {
     flex: 1;
     min-width: 0;
@@ -9902,7 +9901,6 @@ a.prediction-link:hover {
     box-shadow: 0 8px 24px var(--shadow-color);
     align-items: stretch;
   }
-  /* Dropdown action buttons: full-width, proper touch targets */
   .header.mobile-nav-open .search-btn,
   .header.mobile-nav-open .summarize-view-btn,
   .header.mobile-nav-open .copy-link-btn {
@@ -9917,7 +9915,6 @@ a.prediction-link:hover {
     font-size: 14px;
   }
 
-  /* Icon row: horizontal group of icon-only buttons at bottom of dropdown */
   .header.mobile-nav-open .header-icon-row {
     display: flex;
     flex-direction: row;
@@ -9938,12 +9935,10 @@ a.prediction-link:hover {
     justify-content: center;
   }
 
-  /* Settings mount: full-width in dropdown */
   .header.mobile-nav-open #unifiedSettingsMount {
     width: 100%;
   }
 
-  /* Region selector in dropdown: full-width */
   .header.mobile-nav-open .region-selector {
     display: flex !important;
     width: 100%;
@@ -10184,7 +10179,6 @@ a.prediction-link:hover {
     right: 8px !important;
   }
 
-  /* Extra small: just adjust padding, stacking handled at 768px */
   .header {
     padding: 0 8px;
     padding-top: env(safe-area-inset-top, 0px);

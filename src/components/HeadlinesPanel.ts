@@ -74,11 +74,11 @@ export class HeadlinesPanel extends Panel {
           target: '_blank',
           rel: 'noopener noreferrer',
         });
-        link.appendChild(text(item.title ?? ''));
+        link.appendChild(text(item.title));
         row.appendChild(link);
       } else {
         const span = h('span', { className: 'headline-title' });
-        span.appendChild(text(item.title ?? ''));
+        span.appendChild(text(item.title));
         row.appendChild(span);
       }
 
