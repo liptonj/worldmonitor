@@ -93,6 +93,7 @@ import { fetchTechEvents } from '@/services/research';
 import type { MarketPanel, HeatmapPanel, CommoditiesPanel, CryptoPanel } from '@/components/MarketPanel';
 import type { PredictionPanel } from '@/components/PredictionPanel';
 import type { MonitorPanel } from '@/components/MonitorPanel';
+import type { HeadlinesPanel } from '@/components/HeadlinesPanel';
 import type { InsightsPanel } from '@/components/InsightsPanel';
 import type { CIIPanel } from '@/components/CIIPanel';
 import type { StrategicPosturePanel } from '@/components/StrategicPosturePanel';
@@ -1748,7 +1749,7 @@ export class DataLoaderManager implements AppModule {
   private updateHeadlinesPanel(): void {
     const panel = this.ctx.panels['headlines'];
     if (panel && 'renderItems' in panel) {
-      (panel as import('@/components/HeadlinesPanel').HeadlinesPanel).renderItems(this.ctx.allNews);
+      (panel as HeadlinesPanel).renderItems(this.ctx.allNews);
     }
   }
 
