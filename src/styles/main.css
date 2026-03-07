@@ -307,9 +307,15 @@ canvas,
 }
 
 .variant-option .variant-icon {
-  font-size: 11px;
-  filter: grayscale(80%);
-  transition: filter 0.25s ease;
+  display: flex;
+  align-items: center;
+  opacity: 0.5;
+  transition: opacity 0.25s ease;
+}
+
+.variant-option .variant-icon svg {
+  width: 14px;
+  height: 14px;
 }
 
 .variant-option .variant-label {
@@ -330,7 +336,7 @@ canvas,
 }
 
 .variant-option:hover .variant-icon {
-  filter: grayscale(0%);
+  opacity: 1;
 }
 
 .variant-option.active {
@@ -341,7 +347,7 @@ canvas,
 
 
 .variant-option.active .variant-icon {
-  filter: grayscale(0%) drop-shadow(0 0 4px var(--green));
+  opacity: 1;
 }
 
 .variant-option[data-variant="tech"].active {
@@ -350,7 +356,8 @@ canvas,
 }
 
 .variant-option[data-variant="tech"].active .variant-icon {
-  filter: grayscale(0%) drop-shadow(0 0 4px var(--semantic-info));
+  opacity: 1;
+  color: var(--semantic-info);
 }
 
 .variant-divider {
@@ -10109,8 +10116,9 @@ a.prediction-link:hover {
   .variant-option:not(.active) .variant-label {
     display: none;
   }
-  .variant-option:not(.active) .variant-icon {
-    font-size: 14px;
+  .variant-option:not(.active) .variant-icon svg {
+    width: 16px;
+    height: 16px;
   }
   .variant-option.active .variant-label {
     display: inline;

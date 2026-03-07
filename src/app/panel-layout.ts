@@ -87,7 +87,7 @@ export class PanelLayoutManager implements AppModule {
                data-variant="full"
                ${vTarget('full')}
                title="${t('header.world')}${SITE_VARIANT === 'full' ? ` ${t('common.currentVariant')}` : ''}">
-              <span class="variant-icon">🌍</span>
+              <span class="variant-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
               <span class="variant-label">${t('header.world')}</span>
             </a>
             <span class="variant-divider"></span>
@@ -96,7 +96,7 @@ export class PanelLayoutManager implements AppModule {
                data-variant="tech"
                ${vTarget('tech')}
                title="${t('header.tech')}${SITE_VARIANT === 'tech' ? ` ${t('common.currentVariant')}` : ''}">
-              <span class="variant-icon">💻</span>
+              <span class="variant-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
               <span class="variant-label">${t('header.tech')}</span>
             </a>
             <span class="variant-divider"></span>
@@ -105,7 +105,7 @@ export class PanelLayoutManager implements AppModule {
                data-variant="finance"
                ${vTarget('finance')}
                title="${t('header.finance')}${SITE_VARIANT === 'finance' ? ` ${t('common.currentVariant')}` : ''}">
-              <span class="variant-icon">📈</span>
+              <span class="variant-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span>
               <span class="variant-label">${t('header.finance')}</span>
             </a>
             ${SITE_VARIANT === 'happy' ? `<span class="variant-divider"></span>
@@ -114,7 +114,7 @@ export class PanelLayoutManager implements AppModule {
                data-variant="happy"
                ${vTarget('happy')}
                title="Good News ${t('common.currentVariant')}">
-              <span class="variant-icon">☀️</span>
+              <span class="variant-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg></span>
               <span class="variant-label">Good News</span>
             </a>` : ''}`;
       })()}</div>
