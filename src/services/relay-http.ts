@@ -5,7 +5,11 @@
 
 export const RELAY_HTTP_BASE = import.meta.env.VITE_RELAY_HTTP_URL || 'https://relay.5ls.us';
 
-/** Build a relay RSS proxy URL for the given feed URL. */
+/**
+ * Builds a relay RSS proxy URL for the given feed URL.
+ * Use this only for non-relay RSS feeds (e.g. government travel advisories, external news).
+ * For relay channels, prefer fetchRelayPanel() + WebSocket push instead.
+ */
 export function relayRssUrl(feedUrl: string): string {
   return `${RELAY_HTTP_BASE}/rss?url=${encodeURIComponent(feedUrl)}`;
 }

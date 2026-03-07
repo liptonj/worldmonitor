@@ -3,11 +3,11 @@ import { proxyUrl } from '@/utils';
 import { getPersistentCache, setPersistentCache } from './persistent-cache';
 import { dataFreshness } from './data-freshness';
 import { nameToCountryCode, matchCountryNamesInText } from './country-geometry';
-import { RELAY_HTTP_BASE, getRelayFetchHeaders } from '@/services/relay-http';
+import { relayRssUrl, getRelayFetchHeaders } from '@/services/relay-http';
 
 function advisoryFeedUrl(feedUrl: string): string {
   if (isDesktopRuntime()) return proxyUrl(feedUrl);
-  return `${RELAY_HTTP_BASE}/rss?url=${encodeURIComponent(feedUrl)}`;
+  return relayRssUrl(feedUrl);
 }
 
 export interface SecurityAdvisory {
