@@ -4,6 +4,53 @@ import { RELAY_HTTP_BASE, getRelayFetchHeaders } from '@/services/relay-http';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
+/** All relay channels to request in bootstrap for instant panel hydration. Must match relay PHASE4_CHANNEL_KEYS. */
+const RELAY_CHANNELS = [
+  'markets',
+  'predictions',
+  'fred',
+  'oil',
+  'bis',
+  'flights',
+  'weather',
+  'natural',
+  'eonet',
+  'gdacs',
+  'gps-interference',
+  'cables',
+  'cyber',
+  'climate',
+  'conflict',
+  'ucdp-events',
+  'telegram',
+  'oref',
+  'ais',
+  'intelligence',
+  'trade',
+  'supply-chain',
+  'giving',
+  'spending',
+  'gulf-quotes',
+  'tech-events',
+  'strategic-posture',
+  'strategic-risk',
+  'stablecoins',
+  'etf-flows',
+  'macro-signals',
+  'service-status',
+  'config:news-sources',
+  'config:feature-flags',
+  'iran-events',
+  'ai:intel-digest',
+  'ai:panel-summary',
+  'ai:article-summaries',
+  'ai:classifications',
+  'ai:country-briefs',
+  'ai:posture-analysis',
+  'ai:instability-analysis',
+  'ai:risk-overview',
+] as const;
+
 const hydrationCache = new Map<string, unknown>();
 
 export function getHydratedData(key: string): unknown | undefined {
@@ -32,9 +79,10 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
 
   // Phase 2: Fetch fresh data from relay
   try {
-    const url = `${RELAY_HTTP_BASE}/bootstrap?variant=${encodeURIComponent(variant)}`;
+    const channelsParam = [...RELAY_CHANNELS, `news:${variant}`].join(',');
+    const url = `${RELAY_HTTP_BASE}/bootstrap?variant=${encodeURIComponent(variant)}&channels=${encodeURIComponent(channelsParam)}`;
     const resp = await fetch(url, {
-      signal: AbortSignal.timeout(3_000),
+      signal: AbortSignal.timeout(5_000),
       headers: getRelayFetchHeaders(),
     });
     if (!resp.ok) return;
