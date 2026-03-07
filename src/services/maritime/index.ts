@@ -417,7 +417,6 @@ export async function fetchAisSignals(): Promise<{ disruptions: AisDisruptionEve
     return { disruptions: [], density: [] };
   }
 
-  startPolling();
   const shouldRefresh = Date.now() - lastPollAt > SNAPSHOT_STALE_MS;
   if (shouldRefresh) {
     await pollSnapshot(true);
