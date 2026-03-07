@@ -93,13 +93,17 @@ function connectAisStream(gatewayClient) {
   ws.on('open', () => {
     log.info('Connected to aisstream.io');
     // TODO: send subscription message with API key and bounding boxes
-    ws.send(
-      JSON.stringify({
-        APIKey: apiKey,
-        BoundingBoxes: [[[-90, -180], [90, 180]]], // global
-        FilterMessageTypes: ['PositionReport'],
-      })
-    );
+    try {
+      ws.send(
+        JSON.stringify({
+          APIKey: apiKey,
+          BoundingBoxes: [[[-90, -180], [90, 180]]], // global
+          FilterMessageTypes: ['PositionReport'],
+        })
+      );
+    } catch (err) {
+      log.warn('AIS stream send error on open', { error: err.message });
+    }
   });
 
   ws.on('message', (data) => {
