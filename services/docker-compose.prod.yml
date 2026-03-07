@@ -1,0 +1,89 @@
+services:
+  redis:
+    restart: always
+    volumes:
+      - redis-data:/data
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+
+  gateway:
+    image: ghcr.io/worldmonitor/relay-gateway:latest
+    restart: always
+    logging:
+      driver: splunk
+      options:
+        splunk-url: "${SPLUNK_HEC_URL}"
+        splunk-token: "${SPLUNK_HEC_TOKEN}"
+        splunk-insecureskipverify: "false"
+        splunk-format: "json"
+        splunk-sourcetype: "worldmonitor:relay"
+        tag: "{{.Name}}"
+
+  orchestrator:
+    image: ghcr.io/worldmonitor/relay-orchestrator:latest
+    restart: always
+    logging:
+      driver: splunk
+      options:
+        splunk-url: "${SPLUNK_HEC_URL}"
+        splunk-token: "${SPLUNK_HEC_TOKEN}"
+        splunk-insecureskipverify: "false"
+        splunk-format: "json"
+        splunk-sourcetype: "worldmonitor:relay"
+        tag: "{{.Name}}"
+
+  worker:
+    image: ghcr.io/worldmonitor/relay-worker:latest
+    restart: always
+    deploy:
+      replicas: 4
+    logging:
+      driver: splunk
+      options:
+        splunk-url: "${SPLUNK_HEC_URL}"
+        splunk-token: "${SPLUNK_HEC_TOKEN}"
+        splunk-insecureskipverify: "false"
+        splunk-format: "json"
+        splunk-sourcetype: "worldmonitor:relay"
+        tag: "{{.Name}}"
+
+  ais-processor:
+    image: ghcr.io/worldmonitor/relay-ais-processor:latest
+    restart: always
+    logging:
+      driver: splunk
+      options:
+        splunk-url: "${SPLUNK_HEC_URL}"
+        splunk-token: "${SPLUNK_HEC_TOKEN}"
+        splunk-insecureskipverify: "false"
+        splunk-format: "json"
+        splunk-sourcetype: "worldmonitor:relay"
+        tag: "{{.Name}}"
+
+  ingest-telegram:
+    image: ghcr.io/worldmonitor/relay-ingest-telegram:latest
+    restart: always
+    logging:
+      driver: splunk
+      options:
+        splunk-url: "${SPLUNK_HEC_URL}"
+        splunk-token: "${SPLUNK_HEC_TOKEN}"
+        splunk-insecureskipverify: "false"
+        splunk-format: "json"
+        splunk-sourcetype: "worldmonitor:relay"
+        tag: "{{.Name}}"
+
+  ai-engine:
+    image: ghcr.io/worldmonitor/relay-ai-engine:latest
+    restart: always
+    logging:
+      driver: splunk
+      options:
+        splunk-url: "${SPLUNK_HEC_URL}"
+        splunk-token: "${SPLUNK_HEC_TOKEN}"
+        splunk-insecureskipverify: "false"
+        splunk-format: "json"
+        splunk-sourcetype: "worldmonitor:relay"
+        tag: "{{.Name}}"
+
+volumes:
+  redis-data:
