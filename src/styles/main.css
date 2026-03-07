@@ -9807,8 +9807,8 @@ a.prediction-link:hover {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
     background: transparent;
     border: 1px solid var(--border);
     border-radius: 4px;
@@ -9834,6 +9834,16 @@ a.prediction-link:hover {
   }
   .header.mobile-nav-open .hamburger-btn span:nth-child(3) {
     transform: rotate(-45deg) translate(4px, -4px);
+  }
+  /* Header layout: hamburger left, logo/variant centered */
+  .header {
+    justify-content: flex-start;
+    gap: 12px;
+  }
+  .header-left {
+    flex: 1;
+    justify-content: flex-start;
+    gap: 10px;
   }
   /* Hide clutter items; hamburger reveals them */
   .header-right,
@@ -10092,23 +10102,10 @@ a.prediction-link:hover {
     right: 8px !important;
   }
 
-  /* Stack header on very small screens */
+  /* Extra small: just adjust padding, stacking handled at 768px */
   .header {
-    flex-wrap: wrap;
-    padding: 8px;
-    padding-top: calc(8px + env(safe-area-inset-top, 0px));
-  }
-
-  .header-left,
-  .header-center,
-  .header-right {
-    flex-basis: 100%;
-    justify-content: center;
-  }
-
-  .header-center {
-    order: -1;
-    margin-bottom: 8px;
+    padding: 6px 8px;
+    padding-top: calc(6px + env(safe-area-inset-top, 0px));
   }
 
   /* Hide non-essential header items */
