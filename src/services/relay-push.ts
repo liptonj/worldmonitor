@@ -15,6 +15,8 @@ const STALE_THRESHOLD_MS = 30_000;
 let destroyed = false;
 let relayUrl = '';
 let lastMessageAt = 0;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+const HEARTBEAT_INTERVAL_MS = 25_000;
 
 export function subscribe(channel: string, handler: ChannelHandler): () => void {
   if (!handlers.has(channel)) handlers.set(channel, new Set());
@@ -63,6 +65,7 @@ function connect(relayWsUrl: string, channels: string[]): void {
     reconnectDelayMs = 2_000;
     console.log('[relay-push] connected, subscribing to', subscribedChannels);
     sendSubscribe();
+    startHeartbeat();
   });
 
   socket.addEventListener('message', (event) => {
@@ -80,6 +83,7 @@ function connect(relayWsUrl: string, channels: string[]): void {
   });
 
   socket.addEventListener('close', () => {
+    stopHeartbeat();
     socket = null;
     if (!destroyed) scheduleReconnect(relayWsUrl);
   });
@@ -91,6 +95,7 @@ function connect(relayWsUrl: string, channels: string[]): void {
 
 function forceReconnect(): void {
   if (destroyed || !relayUrl) return;
+  stopHeartbeat();
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (socket) {
     try { socket.close(); } catch {}
@@ -105,13 +110,54 @@ function isConnectionStale(): boolean {
   return lastMessageAt > 0 && Date.now() - lastMessageAt > STALE_THRESHOLD_MS;
 }
 
+function startHeartbeat(): void {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    if (destroyed) { stopHeartbeat(); return; }
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      stopHeartbeat();
+      scheduleReconnect(relayUrl);
+      return;
+    }
+    if (isConnectionStale()) {
+      stopHeartbeat();
+      forceReconnect();
+      return;
+    }
+    try {
+      socket.send(JSON.stringify({ type: 'wm-ping' }));
+    } catch {
+      stopHeartbeat();
+      forceReconnect();
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
+function stopHeartbeat(): void {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
 function handleVisibilityChange(): void {
   if (destroyed || document.hidden) return;
   if (isConnectionStale()) {
-    console.log('[relay-push] tab visible, connection stale — reconnecting');
     forceReconnect();
   } else if (socket?.readyState === WebSocket.OPEN) {
     sendSubscribe();
+    startHeartbeat();
+  }
+}
+
+function handlePageHide(): void {
+  stopHeartbeat();
+}
+
+function handlePageShow(): void {
+  if (destroyed) return;
+  if (isConnectionStale()) {
+    forceReconnect();
+  } else if (socket?.readyState === WebSocket.OPEN) {
+    sendSubscribe();
+    startHeartbeat();
   }
 }
 
@@ -132,12 +178,17 @@ export function initRelayPush(channels: string[]): void {
   }
   relayUrl = url;
   document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('pagehide', handlePageHide);
+  window.addEventListener('pageshow', handlePageShow);
   connect(url, channels);
 }
 
 export function destroyRelayPush(): void {
   destroyed = true;
+  stopHeartbeat();
   document.removeEventListener('visibilitychange', handleVisibilityChange);
+  window.removeEventListener('pagehide', handlePageHide);
+  window.removeEventListener('pageshow', handlePageShow);
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   socket?.close();
   socket = null;
