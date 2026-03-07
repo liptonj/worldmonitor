@@ -198,6 +198,40 @@ describe('triggerService', () => {
     assert.equal(updates[0].last_status, 'error');
   });
 
+  it('updates trigger_requests when triggerRequestId is provided', async () => {
+    const executeFn = async () => ({ status: 'ok', duration_ms: 20 });
+    const triggerUpdates = [];
+    const serviceUpdates = [];
+
+    const mockSupabase = {
+      schema: () => ({
+        from: (table) => ({
+          update: (data) => {
+            if (table === 'trigger_requests') triggerUpdates.push(data);
+            else serviceUpdates.push(data);
+            return { eq: () => ({ error: null }) };
+          },
+        }),
+      }),
+    };
+
+    const cfg = {
+      service_key: 'markets',
+      redis_key: 'market:dashboard:v1',
+      ttl_seconds: 300,
+      fetch_type: 'custom',
+      settings: {},
+      consecutive_failures: 0,
+    };
+
+    await triggerService(mockSupabase, cfg, workerClient, aiEngineClient, 'req-uuid-123', executeFn);
+
+    assert.equal(triggerUpdates.length, 1);
+    assert.equal(triggerUpdates[0].status, 'completed');
+    assert.ok(triggerUpdates[0].completed_at);
+    assert.ok(triggerUpdates[0].result);
+  });
+
   it('resets consecutive_failures on success', async () => {
     const executeFn = async () => ({ status: 'ok', duration_ms: 10 });
 
