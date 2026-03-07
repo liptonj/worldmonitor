@@ -1,3 +1,10 @@
 FROM relay-base:latest
-# Stub — implementation in Phase 3/4/5
-CMD ["node", "--version"]
+
+WORKDIR /app/ais-processor
+
+COPY ais-processor/package.json ./
+RUN npm install --omit=dev
+
+COPY ais-processor/index.cjs ./
+
+CMD ["node", "index.cjs"]

@@ -1,3 +1,11 @@
 FROM relay-base:latest
-# Stub — implementation in Phase 3/4/5
-CMD ["node", "--version"]
+
+WORKDIR /app/ai-engine
+
+COPY ai-engine/package.json ./
+RUN npm install --omit=dev
+
+COPY ai-engine/generators/ ./generators/
+COPY ai-engine/index.cjs ./
+
+CMD ["node", "index.cjs"]

@@ -1,3 +1,10 @@
 FROM relay-base:latest
-# Stub — implementation in Phase 3/4/5
-CMD ["node", "--version"]
+
+WORKDIR /app/ingest-telegram
+
+COPY ingest-telegram/package.json ./
+RUN npm install --omit=dev
+
+COPY ingest-telegram/index.cjs ./
+
+CMD ["node", "index.cjs"]
