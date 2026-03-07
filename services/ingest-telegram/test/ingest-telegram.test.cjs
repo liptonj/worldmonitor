@@ -53,6 +53,17 @@ describe('getMessageBuffer', () => {
   });
 });
 
+describe('periodic persistence', () => {
+  it('periodic persistence is set up', () => {
+    _resetBuffer();
+    addMessage({ id: 1, text: 'test', timestamp: Date.now() });
+    const buffer = getMessageBuffer();
+    assert.strictEqual(buffer.count, 1);
+    assert.strictEqual(buffer.messages.length, 1);
+    _resetBuffer();
+  });
+});
+
 describe('persistBuffer', () => {
   beforeEach(() => {
     _resetBuffer();

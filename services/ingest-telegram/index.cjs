@@ -78,17 +78,32 @@ async function startTelegramClient(gatewayClient) {
   }
 
   log.info('Telegram client initialized (stub)', { channels: channelsEnv });
-  // TODO: replace with actual GramJS client
+
+  // Periodic persist: every 60 seconds
+  const persistInterval = setInterval(async () => {
+    try {
+      await persistBuffer(gatewayClient);
+    } catch (err) {
+      log.error('Periodic persist failed', { error: err.message });
+    }
+  }, 60_000);
+
+  // Return cleanup function
+  return () => {
+    clearInterval(persistInterval);
+  };
+  // TODO: replace with actual GramJS client that calls addMessage() on new messages
 }
 
 async function main() {
   log.info('Starting ingest-telegram');
   const gatewayClient = createGatewayClient(config.GATEWAY_HOST, config.GATEWAY_GRPC_PORT);
 
-  await startTelegramClient(gatewayClient);
+  const cleanup = await startTelegramClient(gatewayClient);
 
   const shutdown = () => {
     log.info('Shutting down ingest-telegram');
+    if (cleanup) cleanup();
     process.exit(0);
   };
 
