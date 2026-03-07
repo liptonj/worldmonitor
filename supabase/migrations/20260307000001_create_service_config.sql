@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS wm_admin.service_config (
   updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+DROP TRIGGER IF EXISTS service_config_updated_at ON wm_admin.service_config;
 CREATE TRIGGER service_config_updated_at
   BEFORE UPDATE ON wm_admin.service_config
   FOR EACH ROW EXECUTE FUNCTION wm_admin.set_updated_at();
@@ -28,9 +29,11 @@ CREATE TRIGGER service_config_updated_at
 CREATE INDEX IF NOT EXISTS idx_service_config_enabled
   ON wm_admin.service_config (enabled) WHERE enabled = true;
 
-ALTER TABLE wm_admin.service_config
-  ADD CONSTRAINT service_config_fetch_type_check
-  CHECK (fetch_type IN ('custom', 'simple_http', 'simple_rss'));
+DO $$ BEGIN
+  ALTER TABLE wm_admin.service_config
+    ADD CONSTRAINT service_config_fetch_type_check
+    CHECK (fetch_type IN ('custom', 'simple_http', 'simple_rss'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 ALTER TABLE wm_admin.service_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wm_admin.service_config FORCE ROW LEVEL SECURITY;

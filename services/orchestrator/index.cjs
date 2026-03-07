@@ -180,12 +180,22 @@ function subscribeRealtime(supabase, workerClient, aiEngineClient) {
         const row = payload.new;
         if (row.status !== 'pending') return;
 
-        const { data: configRow } = await supabase
+        const { data: configRow, error: configError } = await supabase
           .schema('wm_admin')
           .from('service_config')
           .select('*')
           .eq('service_key', row.service_key)
           .single();
+
+        if (configError && configError.code !== 'PGRST116') {
+          log.error('trigger_requests: DB error looking up service_key', { service_key: row.service_key, id: row.id, error: configError.message });
+          await supabase
+            .schema('wm_admin')
+            .from('trigger_requests')
+            .update({ status: 'failed', result: { error: 'Database error' }, completed_at: new Date().toISOString() })
+            .eq('id', row.id);
+          return;
+        }
 
         if (!configRow) {
           log.warn('trigger_requests: unknown service_key', { service_key: row.service_key, id: row.id });
@@ -214,7 +224,8 @@ function subscribeRealtime(supabase, workerClient, aiEngineClient) {
       { event: '*', schema: 'wm_admin', table: 'service_config' },
       () => {
         log.debug('service_config changed, reloading cron');
-        scheduleCronJobs(supabase, workerClient, aiEngineClient, jobsRef);
+        scheduleCronJobs(supabase, workerClient, aiEngineClient, jobsRef)
+          .catch((err) => log.error('Failed to reload cron jobs', { error: err.message }));
       }
     )
     .subscribe((status) => {
@@ -233,7 +244,7 @@ async function main() {
   const workerClient = getWorkerClient();
   const aiEngineClient = getAiEngineClient();
 
-  scheduleCronJobs(supabase, workerClient, aiEngineClient, jobsRef);
+  await scheduleCronJobs(supabase, workerClient, aiEngineClient, jobsRef);
   const channel = subscribeRealtime(supabase, workerClient, aiEngineClient);
 
   const shutdown = () => {

@@ -262,9 +262,59 @@ describe('triggerService', () => {
     assert.equal(updates[0].consecutive_failures, 0);
     assert.equal(updates[0].last_status, 'ok');
   });
+  it('sets trigger_requests to failed when gRPC throws and triggerRequestId provided', async () => {
+    const executeFn = async () => {
+      throw new Error('gRPC timeout');
+    };
+    const triggerUpdates = [];
+    const serviceUpdates = [];
+
+    const mockSupabase = {
+      schema: () => ({
+        from: (table) => ({
+          update: (data) => {
+            if (table === 'trigger_requests') triggerUpdates.push(data);
+            else serviceUpdates.push(data);
+            return { eq: () => ({ error: null }) };
+          },
+        }),
+      }),
+    };
+
+    const cfg = {
+      service_key: 'markets',
+      redis_key: 'market:dashboard:v1',
+      ttl_seconds: 300,
+      fetch_type: 'custom',
+      settings: {},
+      consecutive_failures: 0,
+    };
+
+    await triggerService(mockSupabase, cfg, workerClient, aiEngineClient, 'req-uuid-fail', executeFn);
+
+    assert.equal(triggerUpdates.length, 1);
+    assert.equal(triggerUpdates[0].status, 'failed');
+    assert.ok(triggerUpdates[0].completed_at);
+  });
 });
 
 describe('scheduleCronJobs / config reload', () => {
+  it('returns 0 when loadServiceConfigs returns empty array', async () => {
+    const jobsRef = { current: [] };
+    const mockSupabase = {
+      schema: () => ({
+        from: () => ({
+          select: () => ({
+            eq: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    };
+    const count = await scheduleCronJobs(mockSupabase, {}, {}, jobsRef);
+    assert.equal(count, 0);
+    assert.equal(jobsRef.current.length, 0);
+  });
+
   it('clears existing jobs and rebuilds from fresh DB read', async () => {
     const jobsRef = { current: [] };
     const workerClient = {};

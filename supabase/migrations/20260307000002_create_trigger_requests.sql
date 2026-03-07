@@ -9,9 +9,11 @@ CREATE TABLE IF NOT EXISTS wm_admin.trigger_requests (
   completed_at    TIMESTAMPTZ
 );
 
-ALTER TABLE wm_admin.trigger_requests
-  ADD CONSTRAINT trigger_requests_status_check
-  CHECK (status IN ('pending', 'accepted', 'completed', 'failed'));
+DO $$ BEGIN
+  ALTER TABLE wm_admin.trigger_requests
+    ADD CONSTRAINT trigger_requests_status_check
+    CHECK (status IN ('pending', 'accepted', 'completed', 'failed'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_trigger_requests_pending
   ON wm_admin.trigger_requests (status, created_at)
