@@ -676,6 +676,7 @@ export class DataLoaderManager implements AppModule {
     this.ctx.map?.updateHotspotActivity(this.ctx.allNews);
 
     this.updateMonitorResults();
+    this.updateHeadlinesPanel();
 
     void (mlWorker.isAvailable
       ? clusterNewsHybrid(this.ctx.allNews)
@@ -1744,6 +1745,13 @@ export class DataLoaderManager implements AppModule {
     monitorPanel.renderResults(this.ctx.allNews);
   }
 
+  private updateHeadlinesPanel(): void {
+    const panel = this.ctx.panels['headlines'];
+    if (panel && 'renderItems' in panel) {
+      (panel as import('@/components/HeadlinesPanel').HeadlinesPanel).renderItems(this.ctx.allNews);
+    }
+  }
+
   async runCorrelationAnalysis(): Promise<void> {
     try {
       if (this.ctx.latestClusters.length === 0 && this.ctx.allNews.length > 0) {
@@ -2161,6 +2169,7 @@ export class DataLoaderManager implements AppModule {
 
     this.ctx.map?.updateHotspotActivity(this.ctx.allNews);
     this.updateMonitorResults();
+    this.updateHeadlinesPanel();
 
     void (mlWorker.isAvailable
       ? clusterNewsHybrid(this.ctx.allNews)

@@ -613,6 +613,10 @@ export class PanelLayoutManager implements AppModule {
       const cascadePanel = new CascadePanel();
       this.ctx.panels['cascade'] = cascadePanel;
 
+      const { HeadlinesPanel } = await import('@/components/HeadlinesPanel');
+      const headlinesPanel = new HeadlinesPanel();
+      this.ctx.panels['headlines'] = headlinesPanel;
+
       const { SatelliteFiresPanel } = await import('@/components/SatelliteFiresPanel');
       const satelliteFiresPanel = new SatelliteFiresPanel();
       this.ctx.panels['satellite-fires'] = satelliteFiresPanel;
