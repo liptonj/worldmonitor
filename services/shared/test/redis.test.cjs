@@ -4,6 +4,7 @@ const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
 const redis = require('../redis.cjs');
+const { setClientForTesting } = require('./redis-test-helper.cjs');
 
 describe('redis', () => {
   const mockClient = {
@@ -18,12 +19,12 @@ describe('redis', () => {
   };
 
   beforeEach(() => {
-    redis.setClientForTesting(mockClient);
+    setClientForTesting(mockClient);
     mockClient._store.clear();
   });
 
   afterEach(() => {
-    redis.setClientForTesting(null);
+    setClientForTesting(null);
   });
 
   it('get returns null for missing key', async () => {

@@ -4,11 +4,12 @@ const Redis = require('ioredis');
 const { createLogger } = require('./logger.cjs');
 
 let _client = null;
-let _testClient = null;
 const log = createLogger('redis');
 
 function getClient() {
-  if (_testClient) return _testClient;
+  if (process.__REDIS_TEST_CLIENT__ != null) {
+    return process.__REDIS_TEST_CLIENT__;
+  }
   if (!_client) {
     const url = process.env.REDIS_URL || 'redis://localhost:6379';
     const opts = {};
@@ -41,8 +42,4 @@ async function setex(key, ttlSeconds, value) {
   await client.setex(key, ttlSeconds, str);
 }
 
-function setClientForTesting(client) {
-  _testClient = client;
-}
-
-module.exports = { get, setex, getClient, setClientForTesting };
+module.exports = { get, setex, getClient };
