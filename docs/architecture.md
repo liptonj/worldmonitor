@@ -21,8 +21,8 @@ High-level architecture and data flow for the frontend. See [architecture-relay-
 ### Fallback (Offline/Degraded Mode)
 
 1. If bootstrap fails: load from IndexedDB cache (stale data, max 10 min old)
-2. If WebSocket unavailable: fallback to `/panel/:channel` HTTP polling (rare)
-3. If both fail: show "Offline" indicator
+2. If WebSocket unavailable: fallback to on-demand `/panel/:channel` HTTP fetch (rare)
+3. If both fail: show per-panel error states (e.g. "No data from relay")
 
 ### Performance Benefits
 
