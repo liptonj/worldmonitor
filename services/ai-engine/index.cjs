@@ -124,8 +124,8 @@ function handleExecute(call, callback) {
 
     const supabase = createSupabaseClient();
     const channelFn = async (deps) => {
-      const { redis: r, log: l } = deps;
-      return generatorFn({ config, redis: r, log: l, supabase });
+      const { redis: r, log: l, http: h } = deps;
+      return generatorFn({ config, redis: r, log: l, supabase, http: h });
     };
 
     const grpcBroadcastFn = createGrpcBroadcast(config.GATEWAY_HOST, config.GATEWAY_GRPC_PORT);

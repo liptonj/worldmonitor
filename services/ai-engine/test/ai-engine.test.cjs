@@ -25,6 +25,7 @@ describe('Execute routing', () => {
     const prevRedis = process.__REDIS_TEST_CLIENT__;
     process.__REDIS_TEST_CLIENT__ = {
       setex: async () => {},
+      get: async () => null,
     };
 
     const mockCall = {
