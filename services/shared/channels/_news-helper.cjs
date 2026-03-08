@@ -4,10 +4,62 @@ const { parseString } = require('xml2js');
 const { promisify } = require('util');
 const parseXML = promisify(parseString);
 
-const THREAT_LEVEL_UNSPECIFIED = 'THREAT_LEVEL_UNSPECIFIED';
 const ITEMS_PER_FEED = 5;
-const MAX_ITEMS_PER_CATEGORY = 20;
 const FEED_TIMEOUT_MS = 8_000;
+
+// Keyword classification — extracted from scripts/ais-relay.cjs lines 7313–7326
+const NEWS_CRITICAL_KW = {
+  'nuclear strike': 'military',
+  'nuclear attack': 'military',
+  invasion: 'conflict',
+  coup: 'military',
+  genocide: 'conflict',
+  'mass casualty': 'conflict',
+};
+const NEWS_HIGH_KW = {
+  war: 'conflict',
+  airstrike: 'conflict',
+  missile: 'military',
+  bombing: 'conflict',
+  hostage: 'terrorism',
+  'cyber attack': 'cyber',
+  earthquake: 'disaster',
+};
+const NEWS_MEDIUM_KW = {
+  protest: 'protest',
+  riot: 'protest',
+  'military exercise': 'military',
+  'trade war': 'economic',
+  recession: 'economic',
+  flood: 'disaster',
+};
+const NEWS_LOW_KW = {
+  election: 'diplomatic',
+  summit: 'diplomatic',
+  treaty: 'diplomatic',
+  ceasefire: 'diplomatic',
+};
+const NEWS_EXCLUSIONS = ['protein', 'couples', 'dating', 'recipe', 'celebrity', 'sports', 'movie', 'vacation'];
+
+function classifyNewsTitle(title, variant) {
+  const lower = (title || '').toLowerCase();
+  if (NEWS_EXCLUSIONS.some((ex) => lower.includes(ex))) {
+    return { level: 'info', category: 'general', confidence: 0.3 };
+  }
+  for (const [kw, cat] of Object.entries(NEWS_CRITICAL_KW)) {
+    if (lower.includes(kw)) return { level: 'critical', category: cat, confidence: 0.9 };
+  }
+  for (const [kw, cat] of Object.entries(NEWS_HIGH_KW)) {
+    if (lower.includes(kw)) return { level: 'high', category: cat, confidence: 0.8 };
+  }
+  for (const [kw, cat] of Object.entries(NEWS_MEDIUM_KW)) {
+    if (lower.includes(kw)) return { level: 'medium', category: cat, confidence: 0.7 };
+  }
+  for (const [kw, cat] of Object.entries(NEWS_LOW_KW)) {
+    if (lower.includes(kw)) return { level: 'low', category: cat, confidence: 0.6 };
+  }
+  return { level: 'info', category: 'general', confidence: 0.3 };
+}
 
 function resolveFeedUrl(url) {
   if (typeof url === 'string') return url;
@@ -23,7 +75,7 @@ function firstVal(v) {
   return String(v).trim();
 }
 
-function parseRssItems(parsed, feedName, feedUrl) {
+function parseRssItems(parsed, feedName, feedUrl, variant) {
   const items = [];
   const channel = parsed?.rss?.channel?.[0] || parsed?.feed;
   if (!channel) return items;
@@ -31,7 +83,7 @@ function parseRssItems(parsed, feedName, feedUrl) {
   const rawItems = channel.item || channel['atom:item'] || [];
   const entries = parsed?.feed ? (parsed.feed.entry || []) : [];
   const isAtom = rawItems.length === 0 && entries.length > 0;
-  const source = firstVal(channel.title) || feedName || feedUrl;
+  const sourceName = firstVal(channel.title) || feedName || feedUrl;
 
   const list = isAtom ? entries : rawItems;
   for (let i = 0; i < Math.min(list.length, ITEMS_PER_FEED); i++) {
@@ -48,71 +100,73 @@ function parseRssItems(parsed, feedName, feedUrl) {
     }
 
     const pubDateStr = firstVal(item.pubDate) || firstVal(item.published) || firstVal(item.updated);
+    const description = firstVal(item.description) || firstVal(item.summary) || '';
     const parsedDate = pubDateStr ? new Date(pubDateStr) : new Date();
     const publishedAt = Number.isNaN(parsedDate.getTime()) ? Date.now() : parsedDate.getTime();
 
+    const threat = classifyNewsTitle(title, variant);
+    const isAlert = threat.level === 'critical' || threat.level === 'high';
+
     items.push({
-      source: feedName || source,
       title,
       link: String(link),
+      pubDate: pubDateStr || new Date().toISOString(),
+      description,
+      source: feedName || sourceName,
       publishedAt,
-      isAlert: false,
+      isAlert,
       threat: {
-        level: THREAT_LEVEL_UNSPECIFIED,
-        category: 'general',
-        confidence: 0,
+        level: threat.level,
+        category: threat.category,
+        confidence: threat.confidence,
         source: 'keyword',
       },
-      locationName: '',
     });
   }
   return items;
 }
 
-async function fetchAndParseFeed(feed, http, log) {
+async function fetchAndParseFeed(feed, variant, http, log) {
   const url = resolveFeedUrl(feed.url);
-  if (!url) return { items: [], status: 'empty' };
+  if (!url) return { items: [], error: null };
 
   try {
     const xml = await http.fetchText(url, { timeout: FEED_TIMEOUT_MS });
     const parsed = await parseXML(xml, { explicitArray: true });
-    const items = parseRssItems(parsed, feed.name, url);
-    return { items, status: items.length > 0 ? 'ok' : 'empty' };
+    const items = parseRssItems(parsed, feed.name, url, variant);
+    return { items, error: null };
   } catch (err) {
     log.warn('news feed error', { feed: feed.name, url, error: err.message });
-    return { items: [], status: 'timeout' };
+    return { items: [], error: { feed: url, error: err.message } };
   }
 }
 
-async function buildNewsDigest(feedsByCategory, { config, redis, log, http }) {
-  const categories = {};
-  const feedStatuses = {};
+/**
+ * Build news digest in worker channel format (matches markets.cjs pattern).
+ * Returns { timestamp, source, data, status, errors }.
+ */
+async function buildNewsDigest(feedsByCategory, source, { config, redis, log, http }) {
+  const timestamp = new Date().toISOString();
+  const articles = [];
+  const errors = [];
 
-  for (const [category, feeds] of Object.entries(feedsByCategory)) {
-    const categoryItems = [];
-
+  for (const feeds of Object.values(feedsByCategory)) {
     for (const feed of feeds) {
-      const { items, status } = await fetchAndParseFeed(feed, http, log);
-      feedStatuses[feed.name] = status;
-      for (const item of items) {
-        categoryItems.push({ ...item, _category: category });
-      }
-    }
-
-    if (categoryItems.length > 0) {
-      categoryItems.sort((a, b) => b.publishedAt - a.publishedAt);
-      const trimmed = categoryItems.slice(0, MAX_ITEMS_PER_CATEGORY);
-      categories[category] = {
-        items: trimmed.map(({ _category, ...item }) => item),
-      };
+      const { items, error } = await fetchAndParseFeed(feed, source.replace('news:', ''), http, log);
+      if (error) errors.push(error);
+      articles.push(...items);
     }
   }
 
+  articles.sort((a, b) => b.publishedAt - a.publishedAt);
+
   return {
-    categories,
-    feedStatuses,
-    generatedAt: new Date().toISOString(),
+    timestamp,
+    source,
+    data: articles,
+    status: articles.length > 0 ? 'success' : 'error',
+    errors: errors.length > 0 ? errors : undefined,
   };
 }
 
-module.exports = { buildNewsDigest, resolveFeedUrl };
+module.exports = { buildNewsDigest, resolveFeedUrl, classifyNewsTitle };

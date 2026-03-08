@@ -5,5 +5,5 @@ const { FULL_FEEDS } = require('./_news-feeds.cjs');
 
 module.exports = async function fetchNewsFull({ config, redis, log, http }) {
   log.debug('fetchNewsFull executing');
-  return buildNewsDigest(FULL_FEEDS, { config, redis, log, http });
+  return buildNewsDigest(FULL_FEEDS, 'news:full', { config, redis, log, http });
 };

@@ -23,91 +23,80 @@ const mockRssXml = `<?xml version="1.0"?>
   </channel>
 </rss>`;
 
-const mockHttp = {
-  fetchText: async () => mockRssXml,
-};
+// Single-feed mock: returns mock XML for first URL only, fails rest — yields exactly 1 article
+function createSingleFeedMock(xml = mockRssXml) {
+  let first = true;
+  return {
+    fetchText: async () => {
+      if (first) {
+        first = false;
+        return xml;
+      }
+      throw new Error('Network error');
+    },
+  };
+}
 
-test('fetchNewsFull returns ListFeedDigestResponse format', async () => {
+test('fetchNewsFull returns spec format with status and data', async () => {
   const result = await fetchNewsFull({
     config: mockConfig,
     redis: mockRedis,
     log: mockLog,
-    http: mockHttp,
+    http: createSingleFeedMock(),
   });
 
-  assert.ok(result.categories, 'has categories');
-  assert.ok(result.feedStatuses, 'has feedStatuses');
-  assert.ok(result.generatedAt, 'has generatedAt');
-  assert.strictEqual(typeof result.categories, 'object');
-  assert.strictEqual(typeof result.feedStatuses, 'object');
-
-  const allItems = [];
-  for (const cat of Object.values(result.categories)) {
-    if (cat?.items) allItems.push(...cat.items);
-  }
-  assert.ok(allItems.length >= 1, 'has at least one article');
-  const first = allItems[0];
-  assert.strictEqual(first.title, 'Test Article');
-  assert.strictEqual(first.link, 'https://example.com/article');
-  assert.ok(first.source);
-  assert.ok(typeof first.publishedAt === 'number');
+  assert.strictEqual(result.status, 'success');
+  assert.ok(Array.isArray(result.data));
+  assert.strictEqual(result.data.length, 1);
+  assert.strictEqual(result.data[0].title, 'Test Article');
+  assert.strictEqual(result.data[0].link, 'https://example.com/article');
+  assert.ok(result.timestamp);
+  assert.strictEqual(result.source, 'news:full');
 });
 
-test('fetchNewsTech returns ListFeedDigestResponse format', async () => {
+test('fetchNewsTech returns spec format', async () => {
   const result = await fetchNewsTech({
     config: mockConfig,
     redis: mockRedis,
     log: mockLog,
-    http: mockHttp,
+    http: createSingleFeedMock(),
   });
 
-  assert.ok(result.categories);
-  assert.ok(result.feedStatuses);
-  assert.ok(result.generatedAt);
-  const allItems = [];
-  for (const cat of Object.values(result.categories)) {
-    if (cat?.items) allItems.push(...cat.items);
-  }
-  assert.ok(allItems.length >= 1);
-  assert.strictEqual(allItems[0].title, 'Test Article');
+  assert.strictEqual(result.status, 'success');
+  assert.ok(Array.isArray(result.data));
+  assert.strictEqual(result.data.length, 1);
+  assert.strictEqual(result.data[0].title, 'Test Article');
+  assert.strictEqual(result.source, 'news:tech');
 });
 
-test('fetchNewsFinance returns ListFeedDigestResponse format', async () => {
+test('fetchNewsFinance returns spec format', async () => {
   const result = await fetchNewsFinance({
     config: mockConfig,
     redis: mockRedis,
     log: mockLog,
-    http: mockHttp,
+    http: createSingleFeedMock(),
   });
 
-  assert.ok(result.categories);
-  assert.ok(result.feedStatuses);
-  assert.ok(result.generatedAt);
-  const allItems = [];
-  for (const cat of Object.values(result.categories)) {
-    if (cat?.items) allItems.push(...cat.items);
-  }
-  assert.ok(allItems.length >= 1);
-  assert.strictEqual(allItems[0].title, 'Test Article');
+  assert.strictEqual(result.status, 'success');
+  assert.ok(Array.isArray(result.data));
+  assert.strictEqual(result.data.length, 1);
+  assert.strictEqual(result.data[0].title, 'Test Article');
+  assert.strictEqual(result.source, 'news:finance');
 });
 
-test('fetchNewsHappy returns ListFeedDigestResponse format', async () => {
+test('fetchNewsHappy returns spec format', async () => {
   const result = await fetchNewsHappy({
     config: mockConfig,
     redis: mockRedis,
     log: mockLog,
-    http: mockHttp,
+    http: createSingleFeedMock(),
   });
 
-  assert.ok(result.categories);
-  assert.ok(result.feedStatuses);
-  assert.ok(result.generatedAt);
-  const allItems = [];
-  for (const cat of Object.values(result.categories)) {
-    if (cat?.items) allItems.push(...cat.items);
-  }
-  assert.ok(allItems.length >= 1);
-  assert.strictEqual(allItems[0].title, 'Test Article');
+  assert.strictEqual(result.status, 'success');
+  assert.ok(Array.isArray(result.data));
+  assert.strictEqual(result.data.length, 1);
+  assert.strictEqual(result.data[0].title, 'Test Article');
+  assert.strictEqual(result.source, 'news:happy');
 });
 
 test('fetchNewsFull handles malformed RSS gracefully', async () => {
@@ -122,10 +111,10 @@ test('fetchNewsFull handles malformed RSS gracefully', async () => {
     http: badHttp,
   });
 
-  assert.ok(result.categories);
-  assert.ok(result.feedStatuses);
-  assert.ok(result.generatedAt);
-  assert.strictEqual(typeof result.categories, 'object');
+  assert.ok(['success', 'error'].includes(result.status));
+  assert.ok(Array.isArray(result.data));
+  assert.ok(result.timestamp);
+  assert.strictEqual(result.source, 'news:full');
 });
 
 test('fetchNewsFull handles feed fetch error gracefully', async () => {
@@ -142,12 +131,36 @@ test('fetchNewsFull handles feed fetch error gracefully', async () => {
     http: errorHttp,
   });
 
-  assert.ok(result.categories);
-  assert.ok(result.feedStatuses);
-  assert.ok(result.generatedAt);
-  const allItems = [];
-  for (const cat of Object.values(result.categories)) {
-    if (cat?.items) allItems.push(...cat.items);
-  }
-  assert.strictEqual(allItems.length, 0);
+  assert.strictEqual(result.status, 'error');
+  assert.ok(Array.isArray(result.data));
+  assert.strictEqual(result.data.length, 0);
+  assert.ok(Array.isArray(result.errors));
+  assert.ok(result.errors.length > 0);
+});
+
+test('classifyNewsTitle sets isAlert for high-threat keywords', async () => {
+  const warXml = `<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>War breaks out in region</title>
+      <link>https://example.com/war</link>
+      <pubDate>Mon, 07 Mar 2026 12:00:00 GMT</pubDate>
+      <description>Conflict</description>
+    </item>
+  </channel>
+</rss>`;
+
+  const result = await fetchNewsFull({
+    config: mockConfig,
+    redis: mockRedis,
+    log: mockLog,
+    http: createSingleFeedMock(warXml),
+  });
+
+  assert.strictEqual(result.status, 'success');
+  assert.strictEqual(result.data.length, 1);
+  assert.strictEqual(result.data[0].isAlert, true);
+  assert.strictEqual(result.data[0].threat.level, 'high');
+  assert.strictEqual(result.data[0].threat.category, 'conflict');
 });
