@@ -2,9 +2,19 @@
 
 // AI generator: Article summarization
 // Fetches articles from relay:news:full:v1, calls LLM to generate summaries and key points per article.
-// Returns structured summaries in worker-compatible format.
+// Returns hash-map keyed by FNV-1a hash of title (matches frontend lookupRelaySummary expectations).
 
 const REDIS_NEWS_KEY = 'relay:news:full:v1';
+
+// FNV-1a — matches fnv1aHash() in src/services/summarization.ts and simpleHash() in ais-relay.cjs
+function fnv1aHash(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
 const MAX_ARTICLES = 10;
 
 async function fetchLLMProvider(supabase) {
@@ -75,6 +85,10 @@ async function callLLM(provider, systemPrompt, userPrompt, http) {
 }
 
 module.exports = async function generateArticleSummaries({ supabase, redis, log, http }) {
+  if (!supabase || !redis || !http) {
+    throw new Error('supabase, redis, and http are required');
+  }
+
   log.debug('generateArticleSummaries executing');
 
   try {
@@ -87,7 +101,7 @@ module.exports = async function generateArticleSummaries({ supabase, redis, log,
       return {
         timestamp: new Date().toISOString(),
         source: 'ai:article-summaries',
-        data: { summaries: [] },
+        data: {},
         status: 'success',
       };
     }
@@ -116,11 +130,24 @@ module.exports = async function generateArticleSummaries({ supabase, redis, log,
     }
 
     const summaries = Array.isArray(parsed.summaries) ? parsed.summaries : [];
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    const summariesMap = {};
+    for (const s of summaries) {
+      const title = s.title ?? '';
+      if (!title) continue;
+      const hash = fnv1aHash(title.toLowerCase());
+      summariesMap[hash] = {
+        text: s.summary ?? '',
+        title,
+        generatedAt: dateStr,
+      };
+    }
 
     return {
       timestamp: new Date().toISOString(),
       source: 'ai:article-summaries',
-      data: { summaries },
+      data: summariesMap,
       status: 'success',
     };
   } catch (err) {

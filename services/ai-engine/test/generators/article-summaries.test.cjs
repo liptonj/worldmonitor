@@ -4,6 +4,23 @@ const test = require('node:test');
 const assert = require('node:assert');
 const generateArticleSummaries = require('../../generators/article-summaries.cjs');
 
+test('generateArticleSummaries throws when supabase, redis, or http missing', async () => {
+  const mockLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+
+  await assert.rejects(
+    async () => generateArticleSummaries({ redis: {}, log: mockLog, http: {} }),
+    /supabase, redis, and http are required/
+  );
+  await assert.rejects(
+    async () => generateArticleSummaries({ supabase: {}, log: mockLog, http: {} }),
+    /supabase, redis, and http are required/
+  );
+  await assert.rejects(
+    async () => generateArticleSummaries({ supabase: {}, redis: {}, log: mockLog }),
+    /supabase, redis, and http are required/
+  );
+});
+
 test('generateArticleSummaries returns summaries', async () => {
   const mockSupabase = {
     rpc: async (name) => {
@@ -50,8 +67,8 @@ test('generateArticleSummaries returns summaries', async () => {
           message: {
             content: JSON.stringify({
               summaries: [
-                { url: 'https://example.com/1', summary: 'Summary of article 1', keyPoints: ['Point 1', 'Point 2'] },
-                { url: 'https://example.com/2', summary: 'Summary of article 2', keyPoints: ['Point A', 'Point B'] },
+                { url: 'https://example.com/1', title: 'Test Article 1', summary: 'Summary of article 1', keyPoints: ['Point 1', 'Point 2'] },
+                { url: 'https://example.com/2', title: 'Test Article 2', summary: 'Summary of article 2', keyPoints: ['Point A', 'Point B'] },
               ],
             }),
           },
@@ -69,11 +86,27 @@ test('generateArticleSummaries returns summaries', async () => {
 
   assert.strictEqual(result.status, 'success');
   assert.ok(result.data);
-  assert.ok(Array.isArray(result.data.summaries));
-  assert.strictEqual(result.data.summaries.length, 2);
-  assert.strictEqual(result.data.summaries[0].summary, 'Summary of article 1');
-  assert.ok(Array.isArray(result.data.summaries[0].keyPoints));
   assert.strictEqual(result.source, 'ai:article-summaries');
+
+  // Output must be hash-map keyed by FNV-1a hash of title (not { summaries: [...] })
+  assert.ok(!Array.isArray(result.data));
+  assert.strictEqual(typeof result.data, 'object');
+  const keys = Object.keys(result.data);
+  assert.strictEqual(keys.length, 2);
+
+  const entries = Object.values(result.data);
+  assert.strictEqual(entries.length, 2);
+
+  for (const entry of entries) {
+    assert.strictEqual(typeof entry.text, 'string', 'entry has text field');
+    assert.strictEqual(typeof entry.title, 'string', 'entry has title field');
+    assert.strictEqual(typeof entry.generatedAt, 'string', 'entry has generatedAt field');
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(entry.generatedAt), 'generatedAt is YYYY-MM-DD');
+  }
+
+  const byTitle = Object.fromEntries(entries.map((e) => [e.title, e]));
+  assert.strictEqual(byTitle['Test Article 1'].text, 'Summary of article 1');
+  assert.strictEqual(byTitle['Test Article 2'].text, 'Summary of article 2');
 });
 
 test('generateArticleSummaries returns empty summaries when no articles', async () => {
@@ -97,8 +130,9 @@ test('generateArticleSummaries returns empty summaries when no articles', async 
 
   assert.strictEqual(result.status, 'success');
   assert.ok(result.data);
-  assert.ok(Array.isArray(result.data.summaries));
-  assert.strictEqual(result.data.summaries.length, 0);
+  assert.strictEqual(typeof result.data, 'object');
+  assert.strictEqual(Object.keys(result.data).length, 0);
+  assert.deepStrictEqual(result.data, {});
 });
 
 test('generateArticleSummaries handles LLM API error', async () => {
