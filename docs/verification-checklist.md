@@ -163,3 +163,16 @@ Note: You may also see `wm-ping` heartbeat frames every 30 seconds. These are no
 
 - Network waterfall showing parallel bootstrap + WebSocket init.
 - Console output showing no errors or reconnect loops during normal operation.
+
+---
+
+## Task 15: Test Update (Completed)
+
+**Objective:** Find tests that mock HTTP polling and update them to mock WebSocket push.
+
+**Finding:** No tests needed updating.
+
+- **Search scope:** `src/**/*.test.ts`, `src/**/*.spec.ts`, `tests/**/*.test.mjs`
+- **Result:** No test files in `src/`. Tests in `tests/` do not mock `fetchRelayPanel` or `relay-http`.
+- **Existing tests:** `relay-push-wiring.test.mjs`, `zero-browser-api-calls.test.mjs` are migration guards (assert App.ts does NOT call `scheduleRefresh`). They remain valid post-migration.
+- **Reference:** See `docs/test-migration-status.md` for full audit.
