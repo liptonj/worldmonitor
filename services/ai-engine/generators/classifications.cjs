@@ -2,9 +2,20 @@
 
 // AI generator: Event classifications
 // Fetches events from telegram, news, and cyber Redis channels, calls LLM to classify by type,
-// severity, and region. Returns structured classifications in worker-compatible format.
+// severity, and region. Returns hash-map keyed by FNV-1a hash of title (matches frontend
+// lookupRelayClassification in threat-classifier.ts).
 
 const MAX_EVENTS = 20;
+
+// FNV-1a — matches fnv1aHash() in src/services/threat-classifier.ts and simpleHash() in ais-relay.cjs
+function fnv1aHash(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
 
 async function fetchLLMProvider(supabase) {
   const { data: providerRows, error: providerError } = await supabase.rpc('get_active_llm_provider');
@@ -93,7 +104,7 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
       for (const m of telegramData.data.messages) {
         const text = m.text ?? m.content ?? '';
         if (text) {
-          events.push({ id: m.id ?? `tg_${events.length}`, text, source: 'telegram' });
+          events.push({ id: m.id ?? `tg_${events.length}`, text, title: text, source: 'telegram' });
         }
       }
     }
@@ -106,7 +117,7 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
       const desc = a.description ?? a.content ?? '';
       const text = title ? (desc ? `${title} - ${desc}` : title) : desc;
       if (text) {
-        events.push({ id: `news_${i}`, text, source: 'news' });
+        events.push({ id: `news_${i}`, text, title: title || text, source: 'news' });
       }
     }
 
@@ -116,7 +127,7 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
       const c = cyberArr[i];
       const text = c.summary ?? c.title ?? c.description ?? JSON.stringify(c);
       if (text) {
-        events.push({ id: `cyber_${i}`, text, source: 'cyber' });
+        events.push({ id: `cyber_${i}`, text, title: text, source: 'cyber' });
       }
     }
 
@@ -125,7 +136,7 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
       return {
         timestamp: new Date().toISOString(),
         source: 'ai:classifications',
-        data: { classifications: [] },
+        data: {},
         status: 'success',
       };
     }
@@ -148,12 +159,30 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
       throw new Error('LLM returned invalid JSON');
     }
 
-    const classifications = Array.isArray(parsed.classifications) ? parsed.classifications : [];
+    const parsedClassifications = Array.isArray(parsed.classifications) ? parsed.classifications : [];
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    const classificationsMap = {};
+    for (const c of parsedClassifications) {
+      const event = events.find((e) => String(e.id) === String(c.id));
+      if (!event) continue;
+
+      const title = event.title ?? event.text ?? '';
+      if (!title) continue;
+
+      const hash = fnv1aHash(title.toLowerCase());
+      classificationsMap[hash] = {
+        level: c.severity ?? 'medium',
+        category: c.type ?? 'unknown',
+        title,
+        generatedAt: dateStr,
+      };
+    }
 
     return {
       timestamp: new Date().toISOString(),
       source: 'ai:classifications',
-      data: { classifications },
+      data: classificationsMap,
       status: 'success',
     };
   } catch (err) {

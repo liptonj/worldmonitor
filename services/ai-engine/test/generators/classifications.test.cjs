@@ -71,9 +71,18 @@ test('generateClassifications returns event classifications', async () => {
 
   assert.strictEqual(result.status, 'success');
   assert.ok(result.data);
-  assert.ok(Array.isArray(result.data.classifications));
-  assert.strictEqual(result.data.classifications.length, 2);
-  assert.strictEqual(result.data.classifications[0].type, 'cyber');
+  assert.strictEqual(typeof result.data, 'object');
+  assert.ok(!Array.isArray(result.data));
+  const keys = Object.keys(result.data);
+  assert.strictEqual(keys.length, 2, 'expected 2 hash-map entries');
+
+  const entries = Object.values(result.data);
+  const cyberEntry = entries.find((e) => e.category === 'cyber');
+  assert.ok(cyberEntry, 'expected cyber classification');
+  assert.strictEqual(cyberEntry.level, 'high');
+  assert.ok(cyberEntry.title);
+  assert.ok(cyberEntry.generatedAt);
+  assert.match(cyberEntry.generatedAt, /^\d{4}-\d{2}-\d{2}$/, 'generatedAt should be YYYY-MM-DD');
 });
 
 test('generateClassifications handles empty input', async () => {
@@ -104,8 +113,9 @@ test('generateClassifications handles empty input', async () => {
 
   assert.strictEqual(result.status, 'success');
   assert.ok(result.data);
-  assert.ok(Array.isArray(result.data.classifications));
-  assert.strictEqual(result.data.classifications.length, 0);
+  assert.strictEqual(typeof result.data, 'object');
+  assert.ok(!Array.isArray(result.data));
+  assert.strictEqual(Object.keys(result.data).length, 0, 'empty input should return data: {}');
 });
 
 test('generateClassifications handles missing deps', async () => {
