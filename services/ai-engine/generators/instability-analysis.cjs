@@ -1,0 +1,147 @@
+'use strict';
+
+// AI generator: Regional instability assessment
+// Fetches conflict, political, economic data from Redis, calls LLM to assess instability.
+// Frontend: StrategicRiskPanel.applyInstabilityAnalysis(payload) — expects regions array.
+// Relay broadcasts full { timestamp, source, data, status }; data.regions is the array.
+
+const REDIS_KEYS = ['relay:conflict:v1', 'relay:strategic-risk:v1', 'relay:news:full:v1'];
+
+async function fetchLLMProvider(supabase) {
+  const { data: providerRows, error: providerError } = await supabase.rpc('get_active_llm_provider');
+  if (providerError || !providerRows || providerRows.length === 0) {
+    throw new Error('No active LLM provider found');
+  }
+  const row = providerRows[0];
+  const apiUrl = row.api_url ?? '';
+  const model = row.default_model ?? '';
+  const secretName = row.api_key_secret_name ?? '';
+
+  let apiKey = '';
+  if (secretName) {
+    const { data: secretData, error: secretError } = await supabase.rpc('get_vault_secret_value', {
+      secret_name: secretName,
+    });
+    if (!secretError && secretData != null) {
+      apiKey = String(secretData);
+    }
+  }
+  if (!apiKey) {
+    apiKey = process.env[secretName] ?? '';
+  }
+  if (!apiKey) {
+    throw new Error(`Could not resolve API key for provider ${row.name ?? 'unknown'}`);
+  }
+
+  return {
+    api_key: apiKey,
+    base_url: apiUrl,
+    model_name: model,
+    provider_type: row.provider_type ?? 'openai',
+  };
+}
+
+async function callLLM(provider, systemPrompt, userPrompt, http) {
+  const { api_key, base_url, model_name } = provider;
+  const url = base_url.includes('/chat/completions') ? base_url : base_url.replace(/\/+$/, '') + '/chat/completions';
+
+  const response = await http.fetchJson(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${api_key}`,
+    },
+    body: JSON.stringify({
+      model: model_name,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.4,
+      max_tokens: 2500,
+    }),
+  });
+
+  if (response.error) {
+    throw new Error(response.error.message || 'LLM API error');
+  }
+
+  const content = response.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('LLM returned empty or invalid response');
+  }
+
+  return content;
+}
+
+module.exports = async function generateInstabilityAnalysis({ supabase, redis, log, http }) {
+  if (!supabase || !redis || !http) {
+    throw new Error('supabase, redis, and http are required');
+  }
+
+  log.debug('generateInstabilityAnalysis executing');
+
+  try {
+    const [conflictData, riskData, newsData] = await Promise.all(
+      REDIS_KEYS.map((k) => redis.get(k))
+    );
+
+    const conflictItems = conflictData?.data ?? conflictData?.events ?? [];
+    const conflictArr = Array.isArray(conflictItems) ? conflictItems.slice(0, 30) : [];
+    const riskItems = riskData?.ciiScores ?? riskData?.data ?? [];
+    const riskArr = Array.isArray(riskItems) ? riskItems.slice(0, 20) : [];
+    const newsItems = newsData?.items ?? newsData?.data ?? [];
+    const newsArr = Array.isArray(newsItems) ? newsItems.slice(0, 15) : [];
+
+    const context = {
+      conflict: conflictArr.map((c) => ({ country: c.country ?? c.actor1, event: c.event_type ?? c.sub_event_type, fatalities: c.fatalities, date: c.event_date })),
+      risk: riskArr.map((r) => ({ country: r.country ?? r.code, score: r.score ?? r.cii, level: r.level })),
+      news: newsArr.map((n) => ({ title: n.title, source: n.source, description: (n.description ?? n.content ?? '').slice(0, 200) })),
+    };
+
+    if (conflictArr.length === 0 && newsArr.length === 0) {
+      log.warn('No conflict or news data for instability analysis');
+      return {
+        timestamp: new Date().toISOString(),
+        source: 'ai:instability-analysis',
+        data: { regions: [] },
+        status: 'success',
+      };
+    }
+
+    const provider = await fetchLLMProvider(supabase);
+
+    const systemPrompt =
+      'You are a geopolitical risk analyst. Assess regional instability from the data. For each region, identify: instability level (low/medium/high/critical), primary drivers, affected countries, trajectory (stable/increasing/decreasing). Output valid JSON: { "regions": [{ "region", "level", "drivers", "countries", "trajectory" }] }.';
+
+    const userPrompt = `Assess regional instability:\n\n${JSON.stringify(context, null, 2)}`;
+
+    const responseText = await callLLM(provider, systemPrompt, userPrompt, http);
+
+    let parsed;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch (parseErr) {
+      log.error('generateInstabilityAnalysis malformed LLM JSON', { error: parseErr.message });
+      throw new Error('LLM returned invalid JSON');
+    }
+
+    const regions = Array.isArray(parsed.regions) ? parsed.regions : [];
+
+    return {
+      timestamp: new Date().toISOString(),
+      source: 'ai:instability-analysis',
+      data: { regions },
+      status: 'success',
+    };
+  } catch (err) {
+    log.error('generateInstabilityAnalysis error', { error: err.message });
+    return {
+      timestamp: new Date().toISOString(),
+      source: 'ai:instability-analysis',
+      data: null,
+      status: 'error',
+      error: err.message,
+    };
+  }
+};

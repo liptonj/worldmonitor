@@ -39,6 +39,7 @@ import {
   fredResponseToClientSeries,
   energyPricesToOilAnalytics,
   parsePizzintResponse,
+  fetchMarketDashboard,
 } from '@/services';
 import { checkBatchForBreakingAlerts, dispatchOrefBreakingAlert } from '@/services/breaking-news-alerts';
 import { mlWorker } from '@/services/ml-worker';
@@ -70,7 +71,7 @@ import { canQueueAiClassification, AI_CLASSIFY_MAX_PER_FEED } from '@/services/a
 import { classifyWithAI } from '@/services/threat-classifier';
 import { ingestHeadlines } from '@/services/trending-keywords';
 import type { ListFeedDigestResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
-import type { GetMarketDashboardResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
+import type { GetMarketDashboardResponse, GetSectorSummaryResponse, SectorPerformance } from '@/generated/client/worldmonitor/market/v1/service_client';
 import type { GetBisPolicyRatesResponse, GetFredDashboardResponse, GetFredSeriesResponse, GetEnergyPricesResponse } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import type { GetGlobalIntelDigestResponse } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import type { GetTradeBarriersResponse, GetTradeDashboardResponse } from '@/generated/client/worldmonitor/trade/v1/service_client';
@@ -729,6 +730,40 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
     }
   }
 
+  async loadMarkets(): Promise<void> {
+    const commoditiesPanel = this.ctx.panels['commodities'] as CommoditiesPanel;
+
+    const hydratedCommodities = getHydratedData('commodities') as { quotes: Array<{ display?: string; symbol: string; price?: number; change?: number; sparkline?: number[] }> } | undefined;
+    if (hydratedCommodities?.quotes?.length) {
+      const mapped = hydratedCommodities.quotes.map((q) => ({
+        display: q.display || q.symbol,
+        price: q.price != null ? q.price : null,
+        change: q.change ?? null,
+        sparkline: (q.sparkline?.length ?? 0) > 0 ? q.sparkline : undefined,
+      }));
+      if (mapped.some((d) => d.price !== null)) {
+        commoditiesPanel.renderCommodities(mapped);
+      }
+    }
+
+    try {
+      const dashboard = await fetchMarketDashboard();
+      this.renderMarketDashboard(dashboard);
+
+      const hydratedSectors = getHydratedData('sectors') as GetSectorSummaryResponse | undefined;
+      if (hydratedSectors?.sectors?.length) {
+        (this.ctx.panels['heatmap'] as HeatmapPanel).renderHeatmap(
+          hydratedSectors.sectors.map((s: SectorPerformance) => ({ name: s.name, change: s.change })),
+        );
+      }
+    } catch {
+      this.ctx.statusPanel?.updateApi('Finnhub', { status: 'error' });
+      this.ctx.statusPanel?.updateApi('CoinGecko', { status: 'error' });
+      if (this.lastCommodityData.length > 0) {
+        commoditiesPanel.renderCommodities(this.lastCommodityData, true);
+      }
+    }
+  }
   private renderPredictions(predictions: import('@/services/prediction').PredictionMarket[]): void {
     this.ctx.latestPredictions = predictions;
     (this.ctx.panels['polymarket'] as PredictionPanel).renderPredictions(predictions);

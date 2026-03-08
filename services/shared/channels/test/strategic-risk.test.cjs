@@ -73,3 +73,39 @@ test('fetchStrategicRisk handles fetch error gracefully', async () => {
   assert.ok(result.errors);
   assert.ok(result.errors.length > 0);
 });
+
+test('fetchStrategicRisk returns error when ACLED returns null or invalid response', async () => {
+  const mockHttp = {
+    fetchJson: async () => null,
+  };
+
+  const result = await fetchStrategicRisk({
+    config: { ACLED_ACCESS_TOKEN: 'test-token' },
+    redis: mockRedis,
+    log: mockLog,
+    http: mockHttp,
+  });
+
+  assert.strictEqual(result.status, 'error');
+  assert.strictEqual(result.source, 'strategic-risk');
+  assert.ok(Array.isArray(result.data.ciiScores));
+  assert.strictEqual(result.data.ciiScores.length, 0);
+  assert.ok(Array.isArray(result.errors));
+  assert.ok(result.errors.includes('ACLED API returned invalid or empty response'));
+});
+
+test('fetchStrategicRisk returns error when ACLED returns data without array', async () => {
+  const mockHttp = {
+    fetchJson: async () => ({ data: null }),
+  };
+
+  const result = await fetchStrategicRisk({
+    config: { ACLED_ACCESS_TOKEN: 'test-token' },
+    redis: mockRedis,
+    log: mockLog,
+    http: mockHttp,
+  });
+
+  assert.strictEqual(result.status, 'error');
+  assert.ok(result.errors.includes('ACLED API returned invalid or empty response'));
+});

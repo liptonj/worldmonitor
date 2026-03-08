@@ -1,0 +1,38 @@
+services:
+  gateway:
+    ports:
+      - "127.0.0.1:3004:3004"
+    environment:
+      - LOG_LEVEL=debug
+      - NODE_ENV=development
+
+  orchestrator:
+    environment:
+      - LOG_LEVEL=debug
+      - NODE_ENV=development
+
+  worker:
+    environment:
+      - LOG_LEVEL=debug
+      - NODE_ENV=development
+    deploy:
+      replicas: 1
+
+  ais-processor:
+    environment:
+      - LOG_LEVEL=debug
+      - NODE_ENV=development
+
+  ingest-telegram:
+    environment:
+      - LOG_LEVEL=debug
+      - NODE_ENV=development
+
+  ai-engine:
+    environment:
+      - LOG_LEVEL=debug
+      - NODE_ENV=development
+
+  watchtower:
+    profiles:
+      - prod-only

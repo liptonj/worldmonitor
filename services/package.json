@@ -1,0 +1,5 @@
+{
+  "name": "@worldmonitor/services",
+  "private": true,
+  "workspaces": ["shared"]
+}

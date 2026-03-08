@@ -1,0 +1,11 @@
+{
+  "name": "@worldmonitor/gateway",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@worldmonitor/shared": "file:../shared",
+    "@grpc/grpc-js": "^1",
+    "@grpc/proto-loader": "^0.7",
+    "ws": "^8"
+  }
+}

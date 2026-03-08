@@ -78,16 +78,17 @@ module.exports = async function fetchStrategicRisk({ config, redis, log, http })
       timeout: PHASE3C_TIMEOUT_MS,
     });
 
-    if (!data) {
+    if (!data || !Array.isArray(data.data)) {
       return {
         timestamp,
         source: 'strategic-risk',
         data: { ciiScores: [], strategicRisks: [] },
-        status: 'success',
+        status: 'error',
+        errors: ['ACLED API returned invalid or empty response'],
       };
     }
 
-    const protests = (data.data || []).map((e) => ({ country: e.country || '', event_type: e.event_type || '' }));
+    const protests = data.data.map((e) => ({ country: e.country || '', event_type: e.event_type || '' }));
 
     const countryEvents = new Map();
     for (const e of protests) {

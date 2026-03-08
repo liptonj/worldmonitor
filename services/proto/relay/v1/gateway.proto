@@ -1,0 +1,17 @@
+syntax = "proto3";
+package relay.v1;
+
+service GatewayService {
+  rpc Broadcast(BroadcastRequest) returns (BroadcastResponse);
+}
+
+message BroadcastRequest {
+  string channel = 1;
+  bytes payload = 2;
+  int64 timestamp_ms = 3;
+  string trigger_id = 4;
+}
+
+message BroadcastResponse {
+  int32 clients_notified = 1;
+}
