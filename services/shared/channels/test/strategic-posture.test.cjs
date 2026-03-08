@@ -38,7 +38,7 @@ test('fetchStrategicPosture returns worker-compatible format on success', async 
   assert.ok(['critical', 'elevated', 'normal'].includes(result.data.theaters[0].postureLevel));
 });
 
-test('fetchStrategicPosture handles fetch error gracefully', async () => {
+test('fetchStrategicPosture returns error when all region fetches fail', async () => {
   const mockHttp = {
     fetchJson: async () => {
       throw new Error('Network error');
@@ -52,10 +52,12 @@ test('fetchStrategicPosture handles fetch error gracefully', async () => {
     http: mockHttp,
   });
 
-  assert.strictEqual(result.status, 'success');
+  assert.strictEqual(result.status, 'error');
   assert.strictEqual(result.source, 'strategic-posture');
   assert.ok(Array.isArray(result.data.theaters));
-  assert.ok(result.data.theaters.every((t) => t.postureLevel === 'normal'));
+  assert.strictEqual(result.data.theaters.length, 0);
+  assert.ok(Array.isArray(result.errors));
+  assert.ok(result.errors.includes('All OpenSky region fetches failed'));
 });
 
 test('fetchStrategicPosture uses relay URL when WS_RELAY_URL configured', async () => {

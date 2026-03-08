@@ -47,6 +47,7 @@ module.exports = async function fetchStrategicPosture({ config, redis, log, http
   }
 
   let flights = [];
+  let anySuccess = false;
   for (const region of THEATER_QUERY_REGIONS) {
     const params = `lamin=${region.lamin}&lamax=${region.lamax}&lomin=${region.lomin}&lomax=${region.lomax}`;
     const url = `${openskyUrl}?${params}`;
@@ -55,6 +56,7 @@ module.exports = async function fetchStrategicPosture({ config, redis, log, http
         headers,
         timeout: POSTURE_TIMEOUT_MS,
       });
+      anySuccess = true;
       const states = data?.states || [];
       for (const s of states) {
         const [icao24, callsign, , , , lon, lat, altitude, onGround, velocity, heading] = s;
@@ -73,6 +75,16 @@ module.exports = async function fetchStrategicPosture({ config, redis, log, http
     } catch {
       // Continue with other regions
     }
+  }
+
+  if (!anySuccess && flights.length === 0) {
+    return {
+      timestamp,
+      source: 'strategic-posture',
+      data: { theaters: [] },
+      status: 'error',
+      errors: ['All OpenSky region fetches failed'],
+    };
   }
 
   const seen = new Set();
