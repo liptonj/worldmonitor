@@ -1,10 +1,8 @@
-# Relay Migration Architecture
+# World Monitor Architecture
 
-Post-migration data flow for the frontend relay integration. All relay channels use bootstrap + WebSocket push instead of per-channel polling.
+High-level architecture and data flow for the frontend. See [architecture-relay-migration.md](./architecture-relay-migration.md) for relay-specific migration details.
 
-See [architecture.md](./architecture.md) for the canonical data flow overview.
-
-## Data Flow (Post-Migration)
+## Data Flow (Relay Architecture)
 
 ### Initial Page Load
 
@@ -20,13 +18,13 @@ See [architecture.md](./architecture.md) for the canonical data flow overview.
 3. Relay gateway broadcasts updates via `wm-push` messages
 4. Panels re-render with new data (no HTTP polling)
 
-### Fallback (Offline/Degraded)
+### Fallback (Offline/Degraded Mode)
 
 1. If bootstrap fails: load from IndexedDB cache (stale data, max 10 min old)
 2. If WebSocket unavailable: fallback to `/panel/:channel` HTTP polling (rare)
 3. If both fail: show "Offline" indicator
 
-### Performance Wins
+### Performance Benefits
 
 - **Before:** N channels × M polls/minute = 100s of HTTP requests/min
 - **After:** 1 bootstrap + 1 WebSocket = ~2 connections total
