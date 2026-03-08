@@ -8,15 +8,17 @@
 
 ### Network Tab (HTTP)
 - [ ] Single `/bootstrap?variant=full&channels=...` request on page load
-- [ ] No polling to `/panel/aviation`, `/panel/markets`, etc.
+- [ ] No polling to `/panel/flights`, `/panel/markets`, etc.
 - [ ] No requests to `/opensky`, `/polymarket`, `/gdelt`, `/oref`
 - [ ] No repeated `/rss?url=...` polling
 
-### WebSocket Tab
+### WebSocket (Network → WS)
 - [ ] Single WebSocket connection to relay
 - [ ] `wm-subscribe` message sent with all channels
 - [ ] `wm-push` messages received with correct `channel` field
 - [ ] No disconnects or reconnects under normal conditions
+
+Note: You may also see `wm-ping` heartbeat frames every 30 seconds. These are normal and keep the connection alive.
 
 ### UI Behavior
 - [ ] All panels load on page load (from bootstrap or fallback)
@@ -43,11 +45,11 @@
 | Item | How to verify |
 |------|---------------|
 | Single bootstrap request | Open DevTools → **Network** tab → Filter by `bootstrap` → Reload page. You should see exactly **one** request matching `/bootstrap?variant=full&channels=...` |
-| No panel polling | Filter by `panel` or search for `aviation`, `markets`, `gdelt`, etc. After initial load, no repeated requests to `/panel/*` should appear over 2–3 minutes. |
+| No panel polling | Filter by `panel` or search for `flights`, `markets`, `gdelt`, etc. After initial load, no repeated requests to `/panel/*` should appear over 2–3 minutes. |
 | No direct proxy requests | Filter or search for `opensky`, `polymarket`, `gdelt`, `oref`. These should not appear; all data flows through relay bootstrap/WebSocket. |
 | No RSS polling | Filter by `rss` or search for `rss?url=`. No repeated `/rss?url=...` requests. |
 
-### WebSocket Tab
+### WebSocket (Network → WS)
 
 | Item | How to verify |
 |------|---------------|
@@ -77,7 +79,7 @@
 
 | Item | How to verify |
 |------|---------------|
-| Offline reload | DevTools → **Network** → **Offline** → Reload. Panels should load from IndexedDB cache (may show stale data). |
+| Offline reload | DevTools → **Network** → **Offline** → Reload. Panels should load from IndexedDB cache (may show stale data). Note: Offline panels load from IndexedDB only if the cache was populated within the last 10 minutes. |
 | WebSocket disconnect | DevTools → **Network** → Right-click WebSocket → **Close connection**, or use a proxy to drop WS. Panels should fall back to `/panel/:channel` requests. |
 | WebSocket reconnect | After closing WS, wait for reconnect (or reload). New connection should send `wm-subscribe` again; updates should resume. |
 
@@ -90,11 +92,11 @@
 | Scenario | Expected | Unexpected |
 |----------|----------|------------|
 | Page load | 1 `/bootstrap?variant=full&channels=...` request | Multiple bootstrap requests, or polling to `/panel/*` |
-| Ongoing traffic | WebSocket frames only; no repeated HTTP | Repeated `/panel/aviation`, `/panel/markets`, etc. |
+| Ongoing traffic | WebSocket frames only; no repeated HTTP | Repeated `/panel/flights`, `/panel/markets`, etc. |
 | Proxy endpoints | None | Requests to `/opensky`, `/polymarket`, `/gdelt`, `/oref` |
 | RSS | None or minimal | Repeated `/rss?url=...` polling |
 
-### WebSocket Tab
+### WebSocket (Network → WS)
 
 | Scenario | Expected | Unexpected |
 |----------|----------|------------|
@@ -135,7 +137,7 @@
 
 ### Polling still visible
 
-- **Search for `scheduleRefresh`** — Ensure no `scheduleRefresh` calls remain for relay channels in `data-loader.ts`.
+- **Polling still visible?** Search for `scheduleRefresh` or polling logic in `data-loader.ts` or `refresh-scheduler.ts`. Ensure `RefreshScheduler` is not being instantiated (it's deprecated).
 - **Search for direct fetches** — Ensure no direct `fetch` to `/opensky`, `/polymarket`, etc.
 - **Check relay-push** — `initRelayPush()` should be called with all channel names; subscriptions should handle updates.
 
