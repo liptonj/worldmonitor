@@ -62,7 +62,7 @@ Note: You may also see `wm-ping` heartbeat frames every 30 seconds. These are no
 
 | Item | How to verify |
 |------|---------------|
-| Panels load on load | All dashboard panels (aviation, markets, GDELT, OREF, etc.) render within a few seconds of page load. |
+| Panels load on load | All dashboard panels (flights, markets, GDELT, OREF, etc.) render within a few seconds of page load. |
 | Real-time updates | Wait for a known-updating channel (e.g. markets, OREF). Panel content should update without a full page reload. |
 | No polling spinners | No recurring loading indicators or repeated fetch animations. |
 | Graceful degradation | Simulate WebSocket failure (e.g. block WebSocket in DevTools or use offline mode). Panels should still load from bootstrap or fallback `/panel` requests. |
