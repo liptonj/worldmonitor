@@ -29,7 +29,12 @@ async function fetchLLMProvider(supabase) {
     throw new Error(`Could not resolve API key for provider ${row.name ?? 'unknown'}`);
   }
 
-  return { api_key: apiKey, base_url: apiUrl, model_name: model };
+  return {
+    api_key: apiKey,
+    base_url: apiUrl,
+    model_name: model,
+    provider_type: row.provider_type ?? 'openai',
+  };
 }
 
 async function callLLM(provider, systemPrompt, userPrompt, http) {
@@ -53,7 +58,16 @@ async function callLLM(provider, systemPrompt, userPrompt, http) {
     }),
   });
 
-  return response.choices[0].message.content;
+  if (response.error) {
+    throw new Error(response.error.message || 'LLM API error');
+  }
+
+  const content = response.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('LLM returned empty or invalid response');
+  }
+
+  return content;
 }
 
 module.exports = async function generateIntelDigest({ supabase, redis, log, http }) {
@@ -76,6 +90,8 @@ module.exports = async function generateIntelDigest({ supabase, redis, log, http
       cyber: cyberData?.data ?? cyberData?.items ?? [],
     };
 
+    // TODO: Load prompt from wm_admin.llm_prompts via get_llm_prompt RPC
+    // Falling back to this hardcoded prompt if none is found
     const systemPrompt =
       'You are an intelligence analyst. Synthesize the following data sources into a concise global intelligence digest. Focus on significant developments, emerging patterns, and potential risks. Output valid JSON with fields: summary (string), highlights (array of strings), regions (array of strings).';
 
@@ -85,11 +101,30 @@ module.exports = async function generateIntelDigest({ supabase, redis, log, http
     const responseText = await callLLM(provider, systemPrompt, userPrompt, http);
 
     const parsed = JSON.parse(responseText);
+    const summary = parsed.summary ?? '';
+    const highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
+    const regions = Array.isArray(parsed.regions) ? parsed.regions : [];
+
+    const digest = [
+      summary,
+      highlights.length ? `\n\n## Highlights\n${highlights.map((h) => `- ${h}`).join('\n')}` : '',
+      regions.length ? `\n\n## Regions\n${regions.join(', ')}` : '',
+    ]
+      .filter(Boolean)
+      .join('');
 
     return {
       timestamp: new Date().toISOString(),
       source: 'ai:intel-digest',
-      data: parsed,
+      data: {
+        digest,
+        summary,
+        highlights,
+        regions,
+        model: provider.model_name,
+        provider: provider.provider_type || 'openai',
+        generatedAt: new Date().toISOString(),
+      },
       status: 'success',
     };
   } catch (err) {

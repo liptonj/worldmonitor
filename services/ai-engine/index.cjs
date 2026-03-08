@@ -29,9 +29,9 @@ const WorkerService = grpc.loadPackageDefinition(packageDef).relay.v1.WorkerServ
 
 function createSupabaseClient() {
   const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
   if (!url || !key) {
-    log.warn('SUPABASE_URL or SUPABASE_SERVICE_KEY not set — Supabase disabled');
+    log.warn('SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set — Supabase disabled');
     return null;
   }
   return createClient(url, key);
