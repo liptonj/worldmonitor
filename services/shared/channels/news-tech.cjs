@@ -1,13 +1,9 @@
 'use strict';
 
-// Fetches data from tech news digest APIs
+const { buildNewsDigest } = require('./_news-helper.cjs');
+const { TECH_FEEDS } = require('./_news-feeds.cjs');
+
 module.exports = async function fetchNewsTech({ config, redis, log, http }) {
   log.debug('fetchNewsTech executing');
-  // TODO: implement - extract from scripts/ais-relay.cjs
-  return {
-    timestamp: new Date().toISOString(),
-    source: 'news:tech',
-    data: [],
-    status: 'stub',
-  };
+  return buildNewsDigest(TECH_FEEDS, { config, redis, log, http });
 };

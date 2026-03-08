@@ -1,13 +1,9 @@
 'use strict';
 
-// Fetches data from full news digest (multiple sources)
+const { buildNewsDigest } = require('./_news-helper.cjs');
+const { FULL_FEEDS } = require('./_news-feeds.cjs');
+
 module.exports = async function fetchNewsFull({ config, redis, log, http }) {
   log.debug('fetchNewsFull executing');
-  // TODO: implement - extract from scripts/ais-relay.cjs
-  return {
-    timestamp: new Date().toISOString(),
-    source: 'news:full',
-    data: [],
-    status: 'stub',
-  };
+  return buildNewsDigest(FULL_FEEDS, { config, redis, log, http });
 };

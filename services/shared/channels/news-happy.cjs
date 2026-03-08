@@ -1,13 +1,9 @@
 'use strict';
 
-// Fetches data from positive/happy news digest APIs
+const { buildNewsDigest } = require('./_news-helper.cjs');
+const { HAPPY_FEEDS } = require('./_news-feeds.cjs');
+
 module.exports = async function fetchNewsHappy({ config, redis, log, http }) {
   log.debug('fetchNewsHappy executing');
-  // TODO: implement - extract from scripts/ais-relay.cjs
-  return {
-    timestamp: new Date().toISOString(),
-    source: 'news:happy',
-    data: [],
-    status: 'stub',
-  };
+  return buildNewsDigest(HAPPY_FEEDS, { config, redis, log, http });
 };
