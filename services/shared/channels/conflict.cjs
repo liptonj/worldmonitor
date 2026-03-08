@@ -42,7 +42,17 @@ module.exports = async function fetchConflict({ config, redis, log, http }) {
       timeout: PHASE3C_TIMEOUT_MS,
     });
 
-    const events = (data?.data || []).map((e) => ({
+    if (!data || !Array.isArray(data.data)) {
+      return {
+        timestamp,
+        source: 'conflict',
+        data: { events: [] },
+        status: 'error',
+        errors: ['ACLED API returned invalid response'],
+      };
+    }
+
+    const events = data.data.map((e) => ({
       id: String(e.data_id || e.event_id_cnty || ''),
       eventType: (e.event_type || '').toLowerCase().replace(/\s+/g, '_'),
       subEventType: e.sub_event_type || '',

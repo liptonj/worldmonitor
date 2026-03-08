@@ -72,8 +72,8 @@ module.exports = async function fetchStrategicPosture({ config, redis, log, http
           speed: velocity ?? 0,
         });
       }
-    } catch {
-      // Continue with other regions
+    } catch (err) {
+      log.warn('fetchStrategicPosture region fetch failed', { region: region.name, error: err?.message });
     }
   }
 

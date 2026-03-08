@@ -88,3 +88,24 @@ test('fetchConflict handles fetch error gracefully', async () => {
   assert.ok(result.errors);
   assert.ok(result.errors.length > 0);
 });
+
+test('fetchConflict handles invalid ACLED response structure', async () => {
+  const mockHttp = {
+    fetchJson: async () => ({ data: 'error' }),
+  };
+
+  const result = await fetchConflict({
+    config: { ACLED_ACCESS_TOKEN: 'test-token' },
+    redis: mockRedis,
+    log: mockLog,
+    http: mockHttp,
+  });
+
+  assert.strictEqual(result.status, 'error');
+  assert.strictEqual(result.source, 'conflict');
+  assert.ok(result.data);
+  assert.ok(Array.isArray(result.data.events));
+  assert.strictEqual(result.data.events.length, 0);
+  assert.ok(result.errors);
+  assert.ok(result.errors.some((e) => e.includes('invalid response')));
+});
