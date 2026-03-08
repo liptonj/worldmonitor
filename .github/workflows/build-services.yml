@@ -79,12 +79,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Prepare base image
-        run: |
-          docker pull sliptronic/worldrelay_base:latest && \
-            docker tag sliptronic/worldrelay_base:latest relay-base:latest || \
-            docker build -f services/Dockerfile.base -t relay-base:latest ./services
-
       - uses: docker/build-push-action@v5.4.0
         with:
           context: ./services
@@ -93,5 +87,7 @@ jobs:
           tags: |
             sliptronic/worldrelay_${{ matrix.service }}:${{ github.sha }}
             sliptronic/worldrelay_${{ matrix.service }}:latest
+          build-args: |
+            BASE_IMAGE=sliptronic/worldrelay_base:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,4 +1,5 @@
-FROM relay-base:latest
+ARG BASE_IMAGE=sliptronic/worldrelay_base:latest
+FROM ${BASE_IMAGE}
 
 WORKDIR /app/worker
 
