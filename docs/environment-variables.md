@@ -20,7 +20,7 @@ HTTP base URL for relay gateway bootstrap and panel endpoints. Used for bootstra
 WebSocket URL for real-time push updates. When unset, push is disabled and the app falls back to polling (with a console warning).
 
 - **Example:** `wss://relay.5ls.us`
-- **Used by:** `relay-push.ts`, bootstrap, maritime, predictions, military flights, GDELT intel
+- **Used by:** `relay-push.ts`, maritime, predictions, military flights, `DeductionPanel`, `runtime.ts`
 
 ### `VITE_WS_RELAY_TOKEN` (optional)
 
@@ -38,7 +38,7 @@ Authentication token for relay WebSocket and HTTP requests. If set:
 
 All data channels now use:
 
-1. **`/bootstrap?channels=...`** — Initial page load (fetches all channel data at once)
+1. **`/bootstrap?variant=full&channels=...`** — Initial page load (fetches all channel data at once)
 2. **WebSocket `wm-subscribe`** — Real-time updates via `relay-push.ts`
 3. **`/panel/:channel`** — Fallback if bootstrap data unavailable
 
