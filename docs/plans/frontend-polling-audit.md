@@ -1,229 +1,96 @@
 # Frontend Polling Audit
 
-> **Purpose:** Audit current polling patterns for the Frontend Relay Migration. Identifies what has been migrated to WebSocket push vs what still uses polling.
+> Audit of `src/app/data-loader.ts` for the frontend relay migration plan.
+> **Status:** Migration already completed. No `scheduleRefresh` or `registerDeferred` calls exist.
 
-**Audit Date:** 2026-03-07  
-**Plan Reference:** [2026-03-07-frontend-relay-migration.md](./2026-03-07-frontend-relay-migration.md)
-
----
-
-## Executive Summary
-
-**Finding:** `src/app/data-loader.ts` contains **zero** `scheduleRefresh` or `registerDeferred` calls. The migration from per-channel polling to relay WebSocket push has already been completed for the data-loader orchestration layer.
-
-- **RefreshScheduler** is exported from `src/app/refresh-scheduler.ts` but is **not instantiated or used** in `App.ts`.
-- All dashboard data channels receive updates via `subscribeRelayPush()` in `App.ts` (WebSocket push).
-- Remaining polling is limited to: OREF (relay channel with legacy fallback), AIS maritime (relay-proxied), and UI-only intervals.
-
----
-
-## 1. scheduleRefresh / registerDeferred in data-loader.ts
-
-**Search result:** No matches.
+## Search Results
 
 ```bash
 grep -n "scheduleRefresh\|registerDeferred" src/app/data-loader.ts
-# (empty)
+# No matches found
 ```
 
-The plan assumed these calls existed; they have been removed. Data flow is now:
-
-1. **Bootstrap** — initial data on page load
-2. **WebSocket push** — real-time updates via `relay-push.ts`
-3. **loadDataForLayer** — user-triggered one-time fetches when toggling map layers
+**Finding:** The `RefreshScheduler` is deprecated (`src/app/refresh-scheduler.ts`) and is not instantiated or used. All relay channels now use WebSocket push via `initRelayPush` + `subscribeRelayPush` in `App.ts`, with `loadChannelWithFallback` for initial/on-demand load.
 
 ---
 
-## 2. Relay Channels (Migrated to WebSocket Push)
+## Relay Channels (already migrated to WebSocket push)
 
-All of the following channels are subscribed in `App.ts` via `subscribeRelayPush()` and receive data via WebSocket. **No polling** for these.
+These channels use `loadChannelWithFallback()` in data-loader.ts and receive real-time updates via WebSocket in `App.ts`:
 
-| Channel | Handler | Source |
-|---------|---------|--------|
-| `news:{variant}` | `applyNewsDigest` | relay |
-| `markets` | `applyMarkets` | relay |
-| `predictions` | `applyPredictions` | relay (polymarket) |
-| `fred` | `applyFredData` | relay |
-| `oil` | `applyOilData` | relay |
-| `bis` | `applyBisData` | relay |
-| `intelligence` | `applyIntelligence` | relay |
-| `pizzint` | `applyPizzInt` | relay |
-| `trade` | `applyTradePolicy` | relay |
-| `supply-chain` | `applySupplyChain` | relay |
-| `natural` | `applyNatural` | relay |
-| `climate` | `applyClimate` | relay |
-| `conflict` | `applyConflict` | relay |
-| `ucdp-events` | `applyUcdpEvents` | relay |
-| `cyber` | `applyCyberThreats` | relay |
-| `cables` | `applyCableHealth` | relay |
-| `flights` | `applyFlightDelays` | relay |
-| `ais` | `applyAisSignals` | relay |
-| `weather` | `applyWeatherAlerts` | relay |
-| `spending` | `applySpending` | relay |
-| `giving` | `applyGiving` | relay |
-| `telegram` | `applyTelegramIntel` | relay |
-| `oref` | `applyOref` | relay |
-| `iran-events` | `applyIranEvents` | relay |
-| `tech-events` | `applyTechEvents` | relay |
-| `gulf-quotes` | `applyGulfQuotes` | relay |
-| `gps-interference` | `applyGpsInterference` | relay |
-| `eonet` | `applyEonet` | relay |
-| `gdacs` | `applyGdacs` | relay |
-| `strategic-posture` | panel `applyPush` | relay |
-| `strategic-risk` | panel `applyPush` | relay |
-| `stablecoins` | panel `applyPush` | relay |
-| `etf-flows` | panel `applyPush` | relay |
-| `macro-signals` | panel `applyPush` | relay |
-| `service-status` | panel `applyPush` | relay |
-| `config:news-sources` | `applyNewsSources` | relay |
-| `config:feature-flags` | `applyFeatureFlags` | relay |
-| `ai:intel-digest` | digest panel | relay |
-| `ai:panel-summary` | state + event | relay |
-| `ai:article-summaries` | state + event | relay |
-| `ai:classifications` | state + event | relay |
-| `ai:country-briefs` | state | relay |
-| `ai:posture-analysis` | strategic-posture panel | relay |
-| `ai:instability-analysis` | strategic-risk panel | relay |
-| `ai:risk-overview` | strategic-risk panel | relay |
+| Channel | Load Method | Line(s) | Data Flow |
+|---------|-------------|---------|-----------|
+| **eonet** | `loadChannelWithFallback('eonet', ...)` | 761 | bootstrap → /panel/eonet → WebSocket push |
+| **gdacs** | `loadChannelWithFallback('gdacs', ...)` | 762 | bootstrap → /panel/gdacs → WebSocket push |
+| **tech-events** | `loadChannelWithFallback('tech-events', ...)` | 794 | bootstrap → /panel/tech-events → WebSocket push |
+| **weather** | `loadChannelWithFallback('weather', ...)` | 821 | bootstrap → /panel/weather → WebSocket push |
+| **conflict** | `loadChannelWithFallback('conflict', ...)` | 852, 1267 | bootstrap → /panel/conflict → WebSocket push |
+| **oref** | `loadChannelWithFallback('oref', ...)` | 1022 | bootstrap → /panel/oref → WebSocket push |
+| **cyber** | `loadChannelWithFallback('cyber', ...)` | 1125 | bootstrap → /panel/cyber → WebSocket push |
+| **iran-events** | `loadChannelWithFallback('iran-events', ...)` | 1141 | bootstrap → /panel/iran-events → WebSocket push |
+| **ais** | `loadChannelWithFallback('ais', ...)` | 1182 | bootstrap → /panel/ais → WebSocket push |
+| **cables** | `loadChannelWithFallback('cables', ...)` | 1241 | bootstrap → /panel/cables → WebSocket push |
+| **flights** | `loadChannelWithFallback('flights', ...)` | 1294 | bootstrap → /panel/flights → WebSocket push |
+| **natural** | `loadChannelWithFallback('natural', ...)` | 1572 | bootstrap → /panel/natural → WebSocket push |
 
-**Plan’s relay channel list (for reference):** aviation, markets, gdelt, oref, polymarket, earthquakes, fires, cyber, climate, protests, cables, gps-jamming, advisories, telegram.
+Additional relay channels subscribed in `App.ts` (initial data from bootstrap, updates via WebSocket):
 
-**Mapping to current implementation:**
-- `aviation` → `flights` (flight delays)
-- `markets` → `markets`
-- `gdelt` → part of `intelligence` / conflict
-- `oref` → `oref`
-- `polymarket` → `predictions`
-- `earthquakes` → `natural` (eonet/gdacs)
-- `fires` → `natural` (eonet)
-- `cyber` → `cyber`
-- `climate` → `climate`
-- `protests` → `conflict` / `ucdp-events`
-- `cables` → `cables`
-- `gps-jamming` → `gps-interference`
-- `advisories` → relay `advisories` channel (if present) or RSS via relay proxy
-- `telegram` → `telegram`
+- markets, predictions, fred, oil, bis, intelligence, pizzint, trade, supply-chain, climate, ucdp-events, telegram, spending, giving, gulf-quotes, gps-interference, strategic-posture, strategic-risk, stablecoins, etf-flows, macro-signals, service-status, config:news-sources, config:feature-flags, ai:* channels
 
 ---
 
-## 3. Remaining Polling (Non-Relay or Legacy Fallback)
+## Non-Relay (keep direct API / fallback)
 
-### 3.1 OREF Alerts — Relay Channel with Legacy Polling Fallback
+These sources use direct API calls or worker computations, not relay proxy. Used when `loadChannelWithFallback` returns false or for data not proxied by relay:
 
-| Location | Line | Interval | Notes |
-|----------|------|----------|-------|
-| `src/services/oref-alerts.ts` | 295–300 | 120s | `startOrefPolling()` uses `setInterval` |
+| Source | Method | Line(s) | Reason |
+|--------|--------|---------|--------|
+| **USGS Earthquakes** | `fetchEarthquakes()` | 760 | Direct USGS API; relay `natural` merges EONET+GDACS |
+| **Internet Outages** | `fetchInternetOutages()` | 834, 1087 | NetBlocks API |
+| **Cable Activity** | `fetchCableActivity()` | 1223 | CableOps API (activity vs health; cables channel = health) |
+| **UCDP Classifications** | `fetchUcdpClassifications()` | 862 | UCDP API |
+| **HAPI Summaries** | `fetchAllHapiSummaries()` | 873 | HAPI API |
+| **Military Flights** | `fetchMilitaryFlights()` | 888, 1327 | OpenSky API |
+| **Military Vessels** | `fetchMilitaryVessels()` | 889, 1328 | AIS/vessel API |
+| **USNI Fleet Report** | `fetchUSNIFleetReport()` | 897, 1336 | USNI API |
+| **UCDP Events** | `fetchUcdpEvents()` | 949, 952 | UCDP API |
+| **UNHCR Population** | `fetchUnhcrPopulation()` | 975 | UNHCR API |
+| **Climate Anomalies** | `fetchClimateAnomalies()` | 995 | Climate API |
+| **GPS Interference** | `fetchGpsInterference()` | 1031 | GPS API (fallback when relay unavailable) |
+| **Cyber Threats** | `fetchCyberThreats()` | 1127 | Fallback when relay cyber channel unavailable |
+| **Theater Posture** | `fetchCachedTheaterPosture()` | 1397 | Cached computation |
+| **Giving Summary** | `fetchGivingSummary()` | 1626 | Giving API |
+| **GDELT Topics** | `fetchAllPositiveTopicIntelligence()` | 1706 | GDELT API |
+| **Positive Geo Events** | `fetchPositiveGeoEvents()` | 1753 | Geo API |
+| **Kindness Data** | `fetchKindnessData()` | 1770 | Kindness API |
+| **Security Advisories** | `fetchSecurityAdvisories()` | 1781 | RSS/Advisory API |
+| **Telegram Feed** | `fetchTelegramFeed()` | 1794 | Telegram API (fallback) |
+| **Tech Events** | `fetchTechEvents()` | 797 | Fallback when relay tech-events unavailable |
 
-**Trigger:** `data-loader.ts` line 1087 — called when `loadIntelligenceSignals()` runs (user enables ucdpEvents, displacement, climate, or gpsJamming layer).
+**Other non-relay patterns:**
 
-**Status:** Relay push subscribes to `oref` in `App.ts`. OREF polling is a **legacy fallback** when relay push is unavailable or as backup. Plan Task 7 targets removing this.
-
-### 3.2 AIS Maritime Snapshot Polling
-
-| Location | Line | Interval | Notes |
-|----------|------|----------|-------|
-| `src/services/maritime/index.ts` | 339–345 | 5 min | `pollSnapshot()` via `setInterval` |
-
-**Trigger:** `initAisStream()` when AIS layer is enabled.
-
-**Status:** Fetches via relay proxy. **Keep polling** — AIS is a specialized stream; relay may not push full snapshot. Document as non-relay-style polling that stays.
-
-### 3.3 Relay Push Fallback (When WebSocket Unconfigured)
-
-| Location | Line | Notes |
-|----------|------|-------|
-| `src/services/relay-push.ts` | 167 | Console: "polling fallback active" when `VITE_WS_RELAY_URL` not set |
-
-**Status:** No actual polling in relay-push; message indicates degraded mode. Bootstrap/panel fallbacks may be used instead.
-
----
-
-## 4. Non-Polling Intervals (Keep As-Is)
-
-These use `setInterval` for UI or housekeeping, not data fetching:
-
-| Location | Purpose | Interval |
-|----------|---------|----------|
-| `src/app/event-handlers.ts` | Snapshot save | 15 min |
-| `src/app/event-handlers.ts` | Header clock tick | 1 s |
-| `src/app/desktop-updater.ts` | Update check | — |
-| `src/main.ts` | (varies) | — |
-| `src/services/relay-push.ts` | WebSocket heartbeat | — |
-| `src/components/LiveNewsPanel.ts` | Mute sync | 500 ms |
-| `src/components/WorldClockPanel.ts` | Clock tick | 1 s |
-| `src/components/DeckGLMap.ts` | Day/night, news pulse | — |
-| `src/components/Map.ts` | Health check | 30 s |
-| `src/components/StrategicPosturePanel.ts` | Loading elapsed | — |
-| `src/components/SummarizeViewModal.ts` | Elapsed timer | — |
-| `src/components/IntelligenceGapBadge.ts` | Badge refresh | — |
-| `src/components/SecurityAdvisoriesPanel.ts` | Panel refresh | — |
-| `src/services/military-vessels.ts` | History cleanup | — |
-| `src/services/military-flights.ts` | Flight history cleanup | — |
-| `src/services/tv-mode.ts` | Panel rotation | — |
+- **Supabase realtime:** Not used in data-loader; handled elsewhere
+- **Local worker computations:** `analysisWorker`, `mlWorker`, `signalAggregator`, `updateAndCheck`, `clusterNewsHybrid`, etc.
+- **News feeds:** `fetchCategoryFeeds`, `fetchNewsDigest` — category feeds and digest from config/Vercel
 
 ---
 
-## 5. On-Demand Loads (No Polling)
+## Summary
 
-`loadDataForLayer()` triggers one-time fetches when the user enables a map layer. No `scheduleRefresh`; data comes from relay services or relay-proxied endpoints:
+| Metric | Count |
+|--------|-------|
+| **scheduleRefresh calls** | 0 |
+| **registerDeferred calls** | 0 |
+| **Relay channels (loadChannelWithFallback)** | 12 unique channels in data-loader |
+| **Relay channels (App.ts subscribe)** | 40+ channels total |
+| **Non-relay direct API calls** | 20+ sources |
 
-| Layer | Load Method | Data Source |
-|-------|-------------|-------------|
-| `natural` | `loadNatural()` | relay push / eonet, gdacs |
-| `fires` | `loadFirmsData()` | relay |
-| `weather` | `loadWeatherAlerts()` | relay |
-| `outages` | `loadOutages()` | relay |
-| `cyberThreats` | `loadCyberThreats()` | relay |
-| `ais` | `loadAisSignals()` | relay + maritime polling |
-| `cables` | `loadCableActivity()`, `loadCableHealth()` | relay |
-| `protests` | `loadProtests()` | relay |
-| `flights` | `loadFlightDelays()` | relay |
-| `military` | `loadMilitary()` | relay |
-| `techEvents` | `loadTechEvents()` | relay |
-| `positiveEvents` | `loadPositiveEvents()` | relay |
-| `kindness` | `loadKindnessData()` | — |
-| `iranAttacks` | `loadIranEvents()` | relay |
-| `ucdpEvents`, `displacement`, `climate`, `gpsJamming` | `loadIntelligenceSignals()` | relay + OREF polling |
+## Conclusion
 
----
+The frontend relay migration is **complete** for polling. There are no `scheduleRefresh` or `registerDeferred` registrations in `data-loader.ts`. All relay-backed channels use:
 
-## 6. RefreshScheduler Status
+1. **Bootstrap** for initial hydration
+2. **loadChannelWithFallback** for on-demand load when user switches map layers
+3. **WebSocket push** (`subscribeRelayPush` in App.ts) for real-time updates
 
-| Item | Status |
-|------|--------|
-| **Definition** | `src/app/refresh-scheduler.ts` — `scheduleRefresh`, `registerAll`, `registerDeferred` |
-| **Export** | `src/app/index.ts` exports `RefreshScheduler` |
-| **Usage in App.ts** | **None** — not imported or instantiated |
-| **Usage in data-loader.ts** | **None** — no `ctx.refreshScheduler` |
-
-Tests enforce:
-- `App.ts` must not import `RefreshScheduler`
-- `App.ts` must not call `scheduleRefresh`
-- `data-loader.ts` must not contain `fetch()` (data via relay)
-
----
-
-## 7. Recommendations
-
-1. **Task 1 complete:** Audit confirms no `scheduleRefresh`/`registerDeferred` in data-loader. Migration for orchestration is done.
-2. **OREf:** Plan Task 7 — remove `startOrefPolling` once relay push for `oref` is verified in production.
-3. **AIS maritime:** Keep 5-min polling; document as non-relay pattern.
-4. **RefreshScheduler:** Consider removing or deprecating if no future use; currently dead code.
-5. **Security advisories / Telegram:** Confirm whether relay exposes `advisories` and `telegram` channels; if so, prefer push over `loadSecurityAdvisories`/`loadTelegramIntel` fetches.
-
----
-
-## 8. Verification Commands
-
-```bash
-# Confirm no scheduleRefresh/registerDeferred in data-loader
-grep -n "scheduleRefresh\|registerDeferred" src/app/data-loader.ts
-# (empty)
-
-# Confirm RefreshScheduler not used in App
-grep -n "RefreshScheduler\|refreshScheduler" src/App.ts
-# (empty)
-
-# List relay subscriptions
-grep -n "subscribeRelayPush" src/App.ts
-```
+Non-relay sources correctly use direct API calls as fallback or for data not proxied by the relay.
