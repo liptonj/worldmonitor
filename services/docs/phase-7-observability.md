@@ -12,7 +12,7 @@ Set the `ALERT_WEBHOOK_URL` environment variable:
 # Discord webhook
 ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
 
-# Slack incoming webhook
+# Slack incoming webhook (example format)
 ALERT_WEBHOOK_URL=https://hooks.slack.com/services/YOUR_WORKSPACE_ID/YOUR_CHANNEL_ID/YOUR_TOKEN
 ```
 
