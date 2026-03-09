@@ -17,48 +17,48 @@
 
 ```spl
 # All Docker logs (last hour)
-index=docker_logs earliest=-1h
+index=word_info_service earliest=-1h
 
 # Specific service
-index=docker_logs source="gateway*"
-index=docker_logs source="orchestrator*"
-index=docker_logs source="worker*"
+index=word_info_service source="gateway*"
+index=word_info_service source="orchestrator*"
+index=word_info_service source="worker*"
 
 # By log level
-index=docker_logs log_level=ERROR
-index=docker_logs log_level=WARN
-index=docker_logs log_level=INFO
+index=word_info_service log_level=ERROR
+index=word_info_service log_level=WARN
+index=word_info_service log_level=INFO
 
 # Real-time (last 5 minutes, auto-refresh)
-index=docker_logs earliest=-5m
+index=word_info_service earliest=-5m
 
 # Count by service
-index=docker_logs 
+index=word_info_service 
 | stats count by source
 
 # Error rate over time
-index=docker_logs log_level=ERROR 
+index=word_info_service log_level=ERROR 
 | timechart count span=5m
 
 # Service health check
-index=docker_logs earliest=-5m 
+index=word_info_service earliest=-5m 
 | stats count by source 
 | eval status=if(count>0, "Active", "Inactive")
 
 # Pattern detection
-index=docker_logs 
+index=word_info_service 
 | rex field=_raw mode=sed "s/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/TIMESTAMP/g"
 | stats count by _raw
 | sort -count
 | head 20
 
 # Find specific error
-index=docker_logs "connection refused"
-index=docker_logs "timeout"
-index=docker_logs "failed"
+index=word_info_service "connection refused"
+index=word_info_service "timeout"
+index=word_info_service "failed"
 
 # Last 100 logs with details
-index=docker_logs 
+index=word_info_service 
 | table _time, source, _raw 
 | head 100
 ```
@@ -80,7 +80,7 @@ Required in `.env` or `.env.production`:
 ```bash
 SPLUNK_HEC_TOKEN=your-token
 SPLUNK_URL=https://splunk-host:8088
-SPLUNK_INDEX=docker_logs
+SPLUNK_INDEX=word_info_service
 ```
 
 ## Troubleshooting
@@ -101,6 +101,7 @@ docker inspect gateway | grep -A 20 "LogConfig"
 **No logs in Splunk?**
 - Verify HEC token is correct
 - Check SPLUNK_URL includes :8088
+- Verify index name is `word_info_service`
 - Run `./test-splunk-connection.sh`
 
 **SSL errors?**
