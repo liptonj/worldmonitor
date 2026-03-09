@@ -848,6 +848,8 @@ function renderCacheViewerTab(container: HTMLElement, accessToken: string, initi
   let selectedKey = '';
   let autoRefresh = false;
   let refreshInterval: ReturnType<typeof setInterval> | null = null;
+  let searchQuery = initialSearch;
+  let sortBy = 'name';
 
   const errorStyle = 'padding:10px 14px;background:rgba(229,62,62,0.1);border:1px solid var(--danger,#e53e3e);border-radius:var(--radius);color:var(--danger,#e53e3e)';
   const btnStyle = 'padding:4px 8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:11px;color:var(--text)';
@@ -958,6 +960,17 @@ function renderCacheViewerTab(container: HTMLElement, accessToken: string, initi
     }
   }
 
+  function applyFilterAndSort(): void {
+    const q = searchQuery.toLowerCase();
+    filteredKeys = keys.filter((k) => k.key.toLowerCase().includes(q));
+    filteredKeys = [...filteredKeys].sort((a, b) => {
+      if (sortBy === 'name') return a.key.localeCompare(b.key);
+      if (sortBy === 'ttl') return b.ttl - a.ttl;
+      if (sortBy === 'size') return b.size - a.size;
+      return 0;
+    });
+  }
+
   async function load(): Promise<void> {
     try {
       container.innerHTML = '<p style="color:var(--text-muted)">Loading API key...</p>';
@@ -965,11 +978,8 @@ function renderCacheViewerTab(container: HTMLElement, accessToken: string, initi
       await loadApiKey();
       await fetchKeys();
 
-      filteredKeys = keys;
-      if (initialSearch) {
-        filteredKeys = keys.filter((k) => k.key.includes(initialSearch));
-        if (filteredKeys.length > 0) selectedKey = filteredKeys[0]!.key;
-      }
+      applyFilterAndSort();
+      if (filteredKeys.length > 0) selectedKey = filteredKeys[0]!.key;
 
       renderUI();
     } catch (err) {
@@ -978,19 +988,21 @@ function renderCacheViewerTab(container: HTMLElement, accessToken: string, initi
   }
 
   function renderUI(): void {
+    applyFilterAndSort();
+
     container.innerHTML = `
       <div id="cv-toast" style="display:none;position:fixed;top:20px;right:20px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);z-index:1000;font-size:13px"></div>
       <div style="display:grid;grid-template-columns:400px 1fr;gap:16px;height:calc(100vh - 250px)">
         <div style="display:flex;flex-direction:column;gap:12px;overflow:hidden">
           <div>
             <h2 style="margin:0 0 8px 0;font-size:18px;font-weight:600">Redis Cache (${filteredKeys.length} keys)</h2>
-            <input type="text" id="search-input" placeholder="Search keys..." value="${escHtml(initialSearch)}"
+            <input type="text" id="search-input" placeholder="Search keys..." value="${escHtml(searchQuery)}"
               style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;margin-bottom:8px;box-sizing:border-box" />
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <select id="sort-select" style="${selectStyle}">
-                <option value="name">Sort by Name</option>
-                <option value="ttl">Sort by TTL</option>
-                <option value="size">Sort by Size</option>
+                <option value="name"${sortBy === 'name' ? ' selected' : ''}>Sort by Name</option>
+                <option value="ttl"${sortBy === 'ttl' ? ' selected' : ''}>Sort by TTL</option>
+                <option value="size"${sortBy === 'size' ? ' selected' : ''}>Sort by Size</option>
               </select>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">
                 <input type="checkbox" id="auto-refresh" style="cursor:pointer;accent-color:var(--accent)" />
@@ -1009,7 +1021,7 @@ function renderCacheViewerTab(container: HTMLElement, accessToken: string, initi
                 <div style="display:flex;gap:8px;font-size:10px;color:var(--text-muted)">
                   <span>TTL: ${k.ttl === -1 ? '∞' : `${k.ttl}s`}</span>
                   <span>Size: ${Math.round(k.size / 1024)}KB</span>
-                  <span>Type: ${k.type}</span>
+                  <span>Type: ${escHtml(k.type)}</span>
                 </div>
                 <div style="height:2px;background:var(--border);margin-top:4px;border-radius:2px">
                   <div style="height:100%;background:var(--accent);border-radius:2px;width:${ttlProgress(k.ttl, 3600)}"></div>
@@ -1028,20 +1040,13 @@ function renderCacheViewerTab(container: HTMLElement, accessToken: string, initi
 
     const searchInput = container.querySelector('#search-input') as HTMLInputElement;
     searchInput.addEventListener('input', () => {
-      const query = searchInput.value.toLowerCase();
-      filteredKeys = keys.filter((k) => k.key.toLowerCase().includes(query));
+      searchQuery = searchInput.value;
       renderUI();
     });
 
     const sortSelect = container.querySelector('#sort-select') as HTMLSelectElement;
     sortSelect.addEventListener('change', () => {
-      const sortBy = sortSelect.value;
-      filteredKeys = [...filteredKeys].sort((a, b) => {
-        if (sortBy === 'name') return a.key.localeCompare(b.key);
-        if (sortBy === 'ttl') return b.ttl - a.ttl;
-        if (sortBy === 'size') return b.size - a.size;
-        return 0;
-      });
+      sortBy = sortSelect.value;
       renderUI();
     });
 
@@ -1052,9 +1057,6 @@ function renderCacheViewerTab(container: HTMLElement, accessToken: string, initi
       if (autoRefresh) {
         refreshInterval = window.setInterval(async () => {
           await fetchKeys();
-          filteredKeys = keys.filter((k) =>
-            k.key.toLowerCase().includes(searchInput.value.toLowerCase()),
-          );
           renderUI();
         }, 30000);
       } else if (refreshInterval) {
@@ -1066,9 +1068,6 @@ function renderCacheViewerTab(container: HTMLElement, accessToken: string, initi
     const refreshBtn = container.querySelector('#refresh-now') as HTMLButtonElement;
     refreshBtn.addEventListener('click', async () => {
       await fetchKeys();
-      filteredKeys = keys.filter((k) =>
-        k.key.toLowerCase().includes(searchInput.value.toLowerCase()),
-      );
       renderUI();
       showToast('Keys refreshed', true);
     });
@@ -1129,7 +1128,6 @@ function renderCacheViewerTab(container: HTMLElement, accessToken: string, initi
         try {
           await deleteKey(key);
           keys = keys.filter((k) => k.key !== key);
-          filteredKeys = filteredKeys.filter((k) => k.key !== key);
           selectedKey = '';
           renderUI();
           showToast('Key deleted', true);
