@@ -9,6 +9,7 @@
 
 import type { MapLayers } from '@/types';
 
+/** Domain for grouping apply* handlers. news/military reserved for future channels (e.g. news:full, opensky). */
 export type DataDomain =
   | 'news'
   | 'markets'
@@ -217,6 +218,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     required: false,
     mapLayers: ['ais'],
   },
+  /** Backward-compat alias for ai:intel-digest; both share ai:digest:global:v1 (gateway PHASE4_CHANNEL_KEYS). */
   intelligence: {
     key: 'intelligence',
     redisKey: 'ai:digest:global:v1',
@@ -364,6 +366,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     required: false,
     mapLayers: ['iranAttacks'],
   },
+  /** Canonical AI digest channel; intelligence is alias. Same Redis key (gateway test: backward-compat). */
   'ai:intel-digest': {
     key: 'ai:intel-digest',
     redisKey: 'ai:digest:global:v1',

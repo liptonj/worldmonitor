@@ -110,12 +110,19 @@ describe('Channel Registry', () => {
     assert.equal(Object.keys(REDIS_KEY_MAP).length, Object.keys(CHANNEL_REGISTRY).length);
   });
 
-  it('data channels are required, config channels are not', () => {
+  it('config channels must have required=false', () => {
     for (const [key, def] of Object.entries(CHANNEL_REGISTRY)) {
       if (def.domain === 'config') {
         assert.equal(def.required, false, `${key}: config channels must be required=false`);
       }
     }
+  });
+
+  it('at least one data channel has required=true', () => {
+    const requiredCount = Object.values(CHANNEL_REGISTRY).filter(
+      (def) => def.domain !== 'config' && def.required
+    ).length;
+    assert.ok(requiredCount >= 1, 'Expected at least one non-config channel with required=true');
   });
 
   it('staleAfterMs and timeoutMs use reasonable defaults', () => {
