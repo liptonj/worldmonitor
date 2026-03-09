@@ -8,82 +8,28 @@ services:
   gateway:
     image: sliptronic/worldrelay_gateway:latest
     restart: always
-    logging:
-      driver: splunk
-      options:
-        splunk-url: "${SPLUNK_HEC_URL}"
-        splunk-token: "${SPLUNK_HEC_TOKEN}"
-        splunk-insecureskipverify: "false"
-        splunk-format: "json"
-        splunk-sourcetype: "worldmonitor:relay"
-        tag: "{{.Name}}"
 
   orchestrator:
     image: sliptronic/worldrelay_orchestrator:latest
     restart: always
-    logging:
-      driver: splunk
-      options:
-        splunk-url: "${SPLUNK_HEC_URL}"
-        splunk-token: "${SPLUNK_HEC_TOKEN}"
-        splunk-insecureskipverify: "false"
-        splunk-format: "json"
-        splunk-sourcetype: "worldmonitor:relay"
-        tag: "{{.Name}}"
 
   worker:
     image: sliptronic/worldrelay_worker:latest
     restart: always
     deploy:
       replicas: 4
-    logging:
-      driver: splunk
-      options:
-        splunk-url: "${SPLUNK_HEC_URL}"
-        splunk-token: "${SPLUNK_HEC_TOKEN}"
-        splunk-insecureskipverify: "false"
-        splunk-format: "json"
-        splunk-sourcetype: "worldmonitor:relay"
-        tag: "{{.Name}}"
 
   ais-processor:
     image: sliptronic/worldrelay_ais-processor:latest
     restart: always
-    logging:
-      driver: splunk
-      options:
-        splunk-url: "${SPLUNK_HEC_URL}"
-        splunk-token: "${SPLUNK_HEC_TOKEN}"
-        splunk-insecureskipverify: "false"
-        splunk-format: "json"
-        splunk-sourcetype: "worldmonitor:relay"
-        tag: "{{.Name}}"
 
   ingest-telegram:
     image: sliptronic/worldrelay_ingest-telegram:latest
     restart: always
-    logging:
-      driver: splunk
-      options:
-        splunk-url: "${SPLUNK_HEC_URL}"
-        splunk-token: "${SPLUNK_HEC_TOKEN}"
-        splunk-insecureskipverify: "false"
-        splunk-format: "json"
-        splunk-sourcetype: "worldmonitor:relay"
-        tag: "{{.Name}}"
 
   ai-engine:
     image: sliptronic/worldrelay_ai-engine:latest
     restart: always
-    logging:
-      driver: splunk
-      options:
-        splunk-url: "${SPLUNK_HEC_URL}"
-        splunk-token: "${SPLUNK_HEC_TOKEN}"
-        splunk-insecureskipverify: "false"
-        splunk-format: "json"
-        splunk-sourcetype: "worldmonitor:relay"
-        tag: "{{.Name}}"
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -97,15 +43,6 @@ services:
       - relay-internal
     profiles:
       - tunnel
-    logging:
-      driver: splunk
-      options:
-        splunk-url: "${SPLUNK_HEC_URL}"
-        splunk-token: "${SPLUNK_HEC_TOKEN}"
-        splunk-insecureskipverify: "false"
-        splunk-format: "json"
-        splunk-sourcetype: "worldmonitor:relay"
-        tag: "{{.Name}}"
 
 volumes:
   redis-data:

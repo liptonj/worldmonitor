@@ -22,7 +22,7 @@ services:
 
   # Mounts /var/run/docker.sock for auto-updates — known security tradeoff for self-hosted
   watchtower:
-    image: containrrr/watchtower:1.7.2
+    image: containrrr/watchtower:latest
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -42,6 +42,17 @@ services:
       - relay-internal
     environment:
       - REDIS_URL=redis://redis:6379
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - OPENSKY_CLIENT_ID=${OPENSKY_CLIENT_ID:-}
+      - OPENSKY_CLIENT_SECRET=${OPENSKY_CLIENT_SECRET:-}
+      - RELAY_SHARED_SECRET=${RELAY_SHARED_SECRET:-}
+      - RELAY_AUTH_HEADER=${RELAY_AUTH_HEADER:-x-relay-key}
+      - VITE_WS_RELAY_TOKEN=${VITE_WS_RELAY_TOKEN:-}
+      - VERCEL_APP_URL=${VERCEL_APP_URL:-}
+      - ALLOW_UNAUTHENTICATED_RELAY=${ALLOW_UNAUTHENTICATED_RELAY:-false}
+      - RELAY_METRICS_WINDOW_SECONDS=${RELAY_METRICS_WINDOW_SECONDS:-60}
+      - PORT=${PORT:-3004}
       - GATEWAY_GRPC_PORT=50051
       - LOG_LEVEL=info
     healthcheck:
@@ -86,6 +97,8 @@ services:
       - relay-internal
     environment:
       - REDIS_URL=redis://redis:6379
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - GATEWAY_HOST=gateway
       - GATEWAY_GRPC_PORT=50051
       - WORKER_GRPC_PORT=50052
@@ -105,6 +118,9 @@ services:
       - relay-internal
     environment:
       - REDIS_URL=redis://redis:6379
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - AISSTREAM_API_KEY=${AISSTREAM_API_KEY}
       - GATEWAY_HOST=gateway
       - GATEWAY_GRPC_PORT=50051
       - LOG_LEVEL=info
@@ -119,8 +135,17 @@ services:
         condition: service_healthy
     networks:
       - relay-internal
+    volumes:
+      - ./data/telegram-channels.json:/app/data/telegram-channels.json:ro
     environment:
       - REDIS_URL=redis://redis:6379
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - TELEGRAM_SESSION=${TELEGRAM_SESSION}
+      - TELEGRAM_CHANNEL_SET=${TELEGRAM_CHANNEL_SET:-full}
+      - TELEGRAM_CHANNELS_FILE=/app/data/telegram-channels.json
       - GATEWAY_HOST=gateway
       - GATEWAY_GRPC_PORT=50051
       - LOG_LEVEL=info
@@ -137,6 +162,13 @@ services:
       - relay-internal
     environment:
       - REDIS_URL=redis://redis:6379
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OLLAMA_API_URL=${OLLAMA_API_URL:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:8b}
+      - OLLAMA_MAX_TOKENS=${OLLAMA_MAX_TOKENS:-1500}
       - GATEWAY_HOST=gateway
       - GATEWAY_GRPC_PORT=50051
       - AI_ENGINE_GRPC_PORT=50053

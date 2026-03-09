@@ -259,7 +259,7 @@ function main() {
       res.writeHead(204, {
         [CORS_HEADER]: CORS_VALUE,
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       });
       res.end();
       return;

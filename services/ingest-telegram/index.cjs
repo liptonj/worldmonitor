@@ -3,12 +3,38 @@
 // Ingests OSINT messages from Telegram channels
 // Maintains persistent session, writes message buffer to Redis, broadcasts via gRPC
 
+const fs = require('fs');
+const path = require('path');
 const config = require('@worldmonitor/shared/config.cjs');
 const { createLogger } = require('@worldmonitor/shared/logger.cjs');
 const { setex: redisSetex } = require('@worldmonitor/shared/redis.cjs');
 const { createGatewayClient, broadcast } = require('@worldmonitor/shared/grpc-client.cjs');
 
 const log = createLogger('ingest-telegram');
+
+function loadChannelsFromSet(channelSet) {
+  const channelsFile = process.env.TELEGRAM_CHANNELS_FILE || '/app/data/telegram-channels.json';
+  const set = String(channelSet || 'full').toLowerCase();
+  
+  try {
+    if (!fs.existsSync(channelsFile)) {
+      log.warn('Channels file not found', { path: channelsFile });
+      return [];
+    }
+    const raw = JSON.parse(fs.readFileSync(channelsFile, 'utf8'));
+    const bucket = raw?.channels?.[set];
+    if (!Array.isArray(bucket)) {
+      log.warn('Channel set not found or empty', { set });
+      return [];
+    }
+    const enabled = bucket.filter((c) => c.enabled !== false);
+    log.info('Loaded channels from set', { set, count: enabled.length });
+    return enabled;
+  } catch (err) {
+    log.error('Failed to load channels file', { error: err.message });
+    return [];
+  }
+}
 const REDIS_KEY = 'relay:telegram:v1';
 const BUFFER_TTL = 3600; // 1 hour
 const MAX_BUFFER_SIZE = 500;
@@ -61,10 +87,11 @@ async function persistBuffer(gatewayClient) {
 
 async function startTelegramClient(gatewayClient) {
   // TODO: Initialize GramJS/telegram client with session string from TELEGRAM_SESSION env var
-  // TODO: Connect and start listening to configured channels (TELEGRAM_CHANNELS env var)
+  // TODO: Connect and start listening to configured channels
   // TODO: On each new message, call addMessage() and persistBuffer()
 
   const sessionString = process.env.TELEGRAM_SESSION;
+  const channelSet = process.env.TELEGRAM_CHANNEL_SET;
   const channelsEnv = process.env.TELEGRAM_CHANNELS;
 
   if (!sessionString) {
@@ -72,12 +99,21 @@ async function startTelegramClient(gatewayClient) {
     return;
   }
 
-  if (!channelsEnv) {
-    log.warn('TELEGRAM_CHANNELS not set — no channels to monitor');
+  let channels = [];
+  
+  if (channelSet) {
+    channels = loadChannelsFromSet(channelSet);
+  } else if (channelsEnv) {
+    channels = channelsEnv.split(',').map((h) => ({ handle: h.trim(), enabled: true }));
+  }
+
+  if (channels.length === 0) {
+    log.warn('No channels configured — set TELEGRAM_CHANNEL_SET or TELEGRAM_CHANNELS');
     return;
   }
 
-  log.info('Telegram client initialized (stub)', { channels: channelsEnv });
+  const handles = channels.map((c) => c.handle);
+  log.info('Telegram client initialized (stub)', { channelCount: channels.length, handles });
 
   // Periodic persist: every 60 seconds
   const persistInterval = setInterval(async () => {
