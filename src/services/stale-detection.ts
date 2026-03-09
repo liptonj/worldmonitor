@@ -53,7 +53,7 @@ export function runTimeoutCheck(): void {
     if (status.state !== 'loading') continue;
     const startedAt = status.loadingStartedAt ?? now; // fallback for legacy state
     const elapsed = now - startedAt;
-    if (elapsed > def.timeoutMs) {
+    if (elapsed >= def.timeoutMs) {
       setChannelState(channel, 'error', undefined, { error: TIMEOUT_ERROR_MESSAGE });
     }
   }
@@ -64,7 +64,7 @@ export function runTimeoutCheck(): void {
  * Runs an initial check immediately to surface stale/timeout data sooner.
  */
 export function startStaleDetection(): void {
-  if (staleCheckTimer) return;
+  if (staleCheckTimer && timeoutCheckTimer) return;
   runStaleCheck();
   runTimeoutCheck();
   staleCheckTimer = setInterval(runStaleCheck, STALE_CHECK_INTERVAL_MS);

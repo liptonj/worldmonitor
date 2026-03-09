@@ -125,6 +125,23 @@ describe('channel-state integration (Task 3.2)', () => {
       assert.equal(s.error, 'Service unavailable — data not received');
     });
 
+    it('transitions loading to error at exactly timeoutMs (boundary)', () => {
+      const channel = 'oil';
+      const def = CHANNEL_REGISTRY[channel];
+      assert.ok(def, 'oil should be in registry');
+
+      const exactTimestamp = Date.now() - def.timeoutMs;
+      setChannelState(channel, 'loading', 'bootstrap', {
+        loadingStartedAt: exactTimestamp,
+      });
+
+      runTimeoutCheck();
+
+      const s = getChannelState(channel);
+      assert.equal(s.state, 'error');
+      assert.equal(s.error, 'Service unavailable — data not received');
+    });
+
     it('leaves loading channels alone when within timeout', () => {
       const channel = 'weather';
       const def = CHANNEL_REGISTRY[channel];
@@ -151,6 +168,37 @@ describe('channel-state integration (Task 3.2)', () => {
       const s = getChannelState(channel);
       assert.equal(s.state, 'ready');
       assert.equal(s.error, null);
+    });
+
+    it('startStaleDetection guard prevents restart when both timers running', () => {
+      startStaleDetection();
+      const channel = 'weather';
+      const def = CHANNEL_REGISTRY[channel];
+      const oldTimestamp = Date.now() - def.timeoutMs - 1_000;
+      setChannelState(channel, 'loading', 'bootstrap', {
+        loadingStartedAt: oldTimestamp,
+      });
+
+      startStaleDetection(); // no-op due to guard
+
+      assert.equal(getChannelState(channel).state, 'loading');
+      runTimeoutCheck(); // manual run transitions to error
+      assert.equal(getChannelState(channel).state, 'error');
+    });
+
+    it('startStaleDetection runs initial timeout check on startup', () => {
+      const channel = 'fred';
+      const def = CHANNEL_REGISTRY[channel];
+      const oldTimestamp = Date.now() - def.timeoutMs - 1_000;
+      setChannelState(channel, 'loading', 'bootstrap', {
+        loadingStartedAt: oldTimestamp,
+      });
+
+      startStaleDetection();
+
+      const s = getChannelState(channel);
+      assert.equal(s.state, 'error');
+      assert.equal(s.error, 'Service unavailable — data not received');
     });
 
     it('uses channel-specific timeoutMs from registry', () => {
