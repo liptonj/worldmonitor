@@ -1,4 +1,5 @@
 import type { AppContext, AppModule } from '@/app/app-context';
+import { DATA_LOADER_CHANNEL_MAP } from '@/config/channel-registry';
 import type { NewsItem, MapLayers, SocialUnrestEvent } from '@/types';
 import type { TimeRange } from '@/components';
 import type { RelayPushHandlers } from '@/types/relay-push-handlers';
@@ -147,37 +148,8 @@ export interface DataLoaderCallbacks {
   renderCriticalBanner: (postures: TheaterPostureSummary[]) => void;
 }
 
-/** Maps channel key to DataLoader apply* method name. Used by getHandler for auto-wiring. */
-const CHANNEL_TO_APPLY_METHOD: Record<string, keyof RelayPushHandlers> = {
-  markets: 'applyMarkets',
-  predictions: 'applyPredictions',
-  fred: 'applyFredData',
-  oil: 'applyOilData',
-  bis: 'applyBisData',
-  intelligence: 'applyIntelligence',
-  pizzint: 'applyPizzInt',
-  trade: 'applyTradePolicy',
-  'supply-chain': 'applySupplyChain',
-  natural: 'applyNatural',
-  climate: 'applyClimate',
-  conflict: 'applyConflict',
-  'ucdp-events': 'applyUcdpEvents',
-  cyber: 'applyCyberThreats',
-  cables: 'applyCableHealth',
-  flights: 'applyFlightDelays',
-  ais: 'applyAisSignals',
-  weather: 'applyWeatherAlerts',
-  spending: 'applySpending',
-  giving: 'applyGiving',
-  telegram: 'applyTelegramIntel',
-  oref: 'applyOref',
-  'iran-events': 'applyIranEvents',
-  'tech-events': 'applyTechEvents',
-  'gulf-quotes': 'applyGulfQuotes',
-  'gps-interference': 'applyGpsInterference',
-  eonet: 'applyEonet',
-  gdacs: 'applyGdacs',
-};
+/** Pizzint is subscription-only (full variant), not in CHANNEL_REGISTRY. */
+const PIZZINT_APPLY_METHOD = 'applyPizzInt';
 
 export class DataLoaderManager implements AppModule, RelayPushHandlers {
   private ctx: AppContext;
@@ -212,9 +184,13 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
    * Used by App.setupRelayPush to auto-wire subscriptions from CHANNEL_REGISTRY.
    */
   getHandler(channel: string): ((payload: unknown) => void) | undefined {
-    const methodName = channel.startsWith('news:') ? 'applyNewsDigest' : CHANNEL_TO_APPLY_METHOD[channel];
+    const methodName = channel.startsWith('news:')
+      ? 'applyNewsDigest'
+      : channel === 'pizzint'
+        ? PIZZINT_APPLY_METHOD
+        : DATA_LOADER_CHANNEL_MAP[channel];
     if (!methodName) return undefined;
-    const fn = this[methodName];
+    const fn = (this as Record<string, unknown>)[methodName];
     if (typeof fn !== 'function') return undefined;
     return (payload: unknown) => {
       void (fn as (p: unknown) => void).call(this, payload);

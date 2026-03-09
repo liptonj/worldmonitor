@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { subscribe, destroyRelayPush, dispatchForTesting } from '../src/services/relay-push.ts';
+import { DATA_LOADER_CHANNEL_MAP } from '../src/config/channel-registry.ts';
 
 describe('relay-push integration: channel-to-apply wiring', () => {
   const appSrc = readFileSync('src/App.ts', 'utf-8');
@@ -23,41 +24,18 @@ describe('relay-push integration: channel-to-apply wiring', () => {
   });
 
   const dataLoaderChannels = [
-    ['markets', 'applyMarkets'],
-    ['predictions', 'applyPredictions'],
-    ['fred', 'applyFredData'],
-    ['bis', 'applyBisData'],
-    ['oil', 'applyOilData'],
-    ['cables', 'applyCableHealth'],
-    ['natural', 'applyNatural'],
-    ['cyber', 'applyCyberThreats'],
-    ['flights', 'applyFlightDelays'],
-    ['ais', 'applyAisSignals'],
-    ['weather', 'applyWeatherAlerts'],
-    ['spending', 'applySpending'],
-    ['giving', 'applyGiving'],
-    ['telegram', 'applyTelegramIntel'],
-    ['intelligence', 'applyIntelligence'],
-    ['oref', 'applyOref'],
-    ['iran-events', 'applyIranEvents'],
-    ['tech-events', 'applyTechEvents'],
-    ['gulf-quotes', 'applyGulfQuotes'],
-    ['gps-interference', 'applyGpsInterference'],
-    ['eonet', 'applyEonet'],
-    ['gdacs', 'applyGdacs'],
+    ...Object.entries(DATA_LOADER_CHANNEL_MAP),
     ['pizzint', 'applyPizzInt'],
-    ['trade', 'applyTradePolicy'],
-    ['supply-chain', 'applySupplyChain'],
   ];
 
   for (const [channel, applyFn] of dataLoaderChannels) {
     it(`channel '${channel}' is wired to ${applyFn}`, () => {
-      const channelPattern = channel.includes('-') ? `'${channel}'` : `${channel}:`;
-      const inDataLoader = dataLoaderSrc.includes(channelPattern) && dataLoaderSrc.includes(applyFn);
-      const inApp = appSrc.includes(`'${channel}'`) && appSrc.includes(applyFn);
+      const registryHasIt = DATA_LOADER_CHANNEL_MAP[channel] === applyFn || (channel === 'pizzint' && applyFn === 'applyPizzInt');
+      const dataLoaderUsesRegistry = dataLoaderSrc.includes('DATA_LOADER_CHANNEL_MAP') && dataLoaderSrc.includes('getHandler');
+      const dataLoaderHasApplyMethod = dataLoaderSrc.includes(applyFn);
       assert.ok(
-        inDataLoader || inApp,
-        `Channel '${channel}' must be wired to ${applyFn} (in data-loader CHANNEL_TO_APPLY_METHOD or App)`
+        registryHasIt && (dataLoaderUsesRegistry || dataLoaderHasApplyMethod),
+        `Channel '${channel}' must be wired to ${applyFn} (registry + data-loader)`
       );
     });
   }

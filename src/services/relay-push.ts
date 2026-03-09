@@ -187,18 +187,26 @@ export function initRelayPush(channels: string[]): void {
     url = `${relayWsUrl}${sep}token=${encodeURIComponent(wsToken)}`;
   }
   relayUrl = url;
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  window.addEventListener('pagehide', handlePageHide);
-  window.addEventListener('pageshow', handlePageShow);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+  }
   connect(url, channels);
 }
 
 export function destroyRelayPush(): void {
   destroyed = true;
   stopHeartbeat();
-  document.removeEventListener('visibilitychange', handleVisibilityChange);
-  window.removeEventListener('pagehide', handlePageHide);
-  window.removeEventListener('pageshow', handlePageShow);
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('pagehide', handlePageHide);
+    window.removeEventListener('pageshow', handlePageShow);
+  }
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   socket?.close();
   socket = null;

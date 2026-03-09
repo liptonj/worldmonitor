@@ -4,6 +4,11 @@
  * Replaces the "4 registries" problem: RELAY_CHANNELS, PHASE4_CHANNEL_KEYS,
  * setupRelayPush wiring, and DEFAULT_PANELS channel declarations.
  *
+ * When adding a new channel:
+ * 1. Add entry to CHANNEL_REGISTRY below.
+ * 2. If DataLoader handles it: set applyMethod to the apply* method name (e.g. 'applyMarkets').
+ * 3. If panel/config/AI handles it: omit applyMethod; App.getPushHandler has the logic.
+ *
  * @see docs/plans/2026-03-09-frontend-refactor.md
  */
 
@@ -30,6 +35,8 @@ export interface ChannelDefinition {
   timeoutMs: number;
   required: boolean;
   mapLayers?: (keyof MapLayers)[];
+  /** DataLoader apply* method name. Omit for panel/config/AI channels (handled in App.getPushHandler). */
+  applyMethod?: string;
 }
 
 /** All relay channels with their Redis keys, panel mappings, and metadata. */
@@ -42,6 +49,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 5 * 60_000,
     timeoutMs: 30_000,
     required: true,
+    applyMethod: 'applyMarkets',
   },
   predictions: {
     key: 'predictions',
@@ -51,6 +59,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 5 * 60_000,
     timeoutMs: 30_000,
     required: false,
+    applyMethod: 'applyPredictions',
   },
   fred: {
     key: 'fred',
@@ -60,6 +69,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 15 * 60_000,
     timeoutMs: 30_000,
     required: true,
+    applyMethod: 'applyFredData',
   },
   oil: {
     key: 'oil',
@@ -69,6 +79,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 5 * 60_000,
     timeoutMs: 30_000,
     required: true,
+    applyMethod: 'applyOilData',
   },
   bis: {
     key: 'bis',
@@ -78,6 +89,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 15 * 60_000,
     timeoutMs: 30_000,
     required: true,
+    applyMethod: 'applyBisData',
   },
   flights: {
     key: 'flights',
@@ -88,6 +100,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['flights'],
+    applyMethod: 'applyFlightDelays',
   },
   weather: {
     key: 'weather',
@@ -98,6 +111,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['weather'],
+    applyMethod: 'applyWeatherAlerts',
   },
   natural: {
     key: 'natural',
@@ -108,6 +122,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['natural'],
+    applyMethod: 'applyNatural',
   },
   eonet: {
     key: 'eonet',
@@ -118,6 +133,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['natural'],
+    applyMethod: 'applyEonet',
   },
   gdacs: {
     key: 'gdacs',
@@ -128,6 +144,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['natural'],
+    applyMethod: 'applyGdacs',
   },
   'gps-interference': {
     key: 'gps-interference',
@@ -138,6 +155,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['gpsJamming'],
+    applyMethod: 'applyGpsInterference',
   },
   cables: {
     key: 'cables',
@@ -148,6 +166,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['cables'],
+    applyMethod: 'applyCableHealth',
   },
   cyber: {
     key: 'cyber',
@@ -158,6 +177,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['cyberThreats'],
+    applyMethod: 'applyCyberThreats',
   },
   climate: {
     key: 'climate',
@@ -168,6 +188,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['climate'],
+    applyMethod: 'applyClimate',
   },
   conflict: {
     key: 'conflict',
@@ -178,6 +199,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: true,
     mapLayers: ['conflicts'],
+    applyMethod: 'applyConflict',
   },
   'ucdp-events': {
     key: 'ucdp-events',
@@ -188,6 +210,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['ucdpEvents'],
+    applyMethod: 'applyUcdpEvents',
   },
   telegram: {
     key: 'telegram',
@@ -197,6 +220,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 5 * 60_000,
     timeoutMs: 30_000,
     required: false,
+    applyMethod: 'applyTelegramIntel',
   },
   oref: {
     key: 'oref',
@@ -207,6 +231,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['conflicts'],
+    applyMethod: 'applyOref',
   },
   ais: {
     key: 'ais',
@@ -217,6 +242,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['ais'],
+    applyMethod: 'applyAisSignals',
   },
   /** Backward-compat alias for ai:intel-digest; both share ai:digest:global:v1 (gateway PHASE4_CHANNEL_KEYS). */
   intelligence: {
@@ -227,6 +253,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 15 * 60_000,
     timeoutMs: 30_000,
     required: true,
+    applyMethod: 'applyIntelligence',
   },
   trade: {
     key: 'trade',
@@ -236,6 +263,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 15 * 60_000,
     timeoutMs: 30_000,
     required: true,
+    applyMethod: 'applyTradePolicy',
   },
   'supply-chain': {
     key: 'supply-chain',
@@ -245,6 +273,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 15 * 60_000,
     timeoutMs: 30_000,
     required: true,
+    applyMethod: 'applySupplyChain',
   },
   giving: {
     key: 'giving',
@@ -254,6 +283,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 15 * 60_000,
     timeoutMs: 30_000,
     required: false,
+    applyMethod: 'applyGiving',
   },
   spending: {
     key: 'spending',
@@ -264,6 +294,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['economic'],
+    applyMethod: 'applySpending',
   },
   'gulf-quotes': {
     key: 'gulf-quotes',
@@ -273,6 +304,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     staleAfterMs: 5 * 60_000,
     timeoutMs: 30_000,
     required: false,
+    applyMethod: 'applyGulfQuotes',
   },
   'tech-events': {
     key: 'tech-events',
@@ -283,6 +315,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['techEvents'],
+    applyMethod: 'applyTechEvents',
   },
   'strategic-posture': {
     key: 'strategic-posture',
@@ -365,6 +398,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
     mapLayers: ['iranAttacks'],
+    applyMethod: 'applyIranEvents',
   },
   /** Canonical AI digest channel; intelligence is alias. Same Redis key (gateway test: backward-compat). */
   'ai:intel-digest': {
@@ -447,4 +481,14 @@ export const RELAY_CHANNELS = Object.keys(CHANNEL_REGISTRY);
 /** Map channel key → Redis key. Replaces PHASE4_CHANNEL_KEYS. */
 export const REDIS_KEY_MAP = Object.fromEntries(
   Object.entries(CHANNEL_REGISTRY).map(([k, v]) => [k, v.redisKey])
+);
+
+/**
+ * Channel → DataLoader apply* method. Derived from CHANNEL_REGISTRY.
+ * Used by DataLoader.getHandler and tests. Pizzint is subscription-only (full variant), not in registry.
+ */
+export const DATA_LOADER_CHANNEL_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(CHANNEL_REGISTRY)
+    .filter(([, def]) => def.applyMethod != null)
+    .map(([k, def]) => [k, def.applyMethod!])
 );
