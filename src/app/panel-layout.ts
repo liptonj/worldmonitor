@@ -470,6 +470,9 @@ export class PanelLayoutManager implements AppModule {
       const gdeltIntelPanel = new GdeltIntelPanel();
       this.ctx.panels['gdelt-intel'] = gdeltIntelPanel;
 
+      const { GlobalDigestPanel } = await import('@/components/GlobalDigestPanel');
+      this.ctx.panels['global-digest'] = new GlobalDigestPanel();
+
       if (this.ctx.isDesktopApp) {
         const { DeductionPanel } = await import('@/components/DeductionPanel');
         const deductionPanel = new DeductionPanel(() => newsStore.allNews);
