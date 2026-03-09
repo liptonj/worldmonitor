@@ -765,6 +765,7 @@ function renderSourceSchedulingTab(container: HTMLElement, accessToken: string):
               source.custom_cron = cronValue;
               source.enabled = enabledInput.checked;
 
+              renderTable();
               showToast('Saved successfully', true);
             } catch (err) {
               showToast(`Error: ${(err as Error).message}`, false);
