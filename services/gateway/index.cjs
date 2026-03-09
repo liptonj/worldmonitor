@@ -107,17 +107,22 @@ function routeHttpRequest(pathname, redis) {
       };
     }
     return (async () => {
-      const data = await redis.get(redisKey);
-      if (data === null || data === undefined) {
+      const raw = await redis.get(redisKey);
+      if (raw === null || raw === undefined) {
         return {
           status: 200,
           body: JSON.stringify({ status: 'pending' }),
           headers: { ...jsonHeaders, 'Cache-Control': 'no-store' },
         };
       }
+      // Workers store data in envelope format: { timestamp, source, data, status }.
+      // Frontend expects the unwrapped payload. Extract .data if present, else return as-is.
+      const payload = (raw && typeof raw === 'object' && 'data' in raw && raw.data !== undefined)
+        ? raw.data
+        : raw;
       return {
         status: 200,
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
         headers: jsonHeaders,
       };
     })();
@@ -132,7 +137,11 @@ function routeHttpRequest(pathname, redis) {
       const out = {};
       for (let i = 0; i < channels.length; i++) {
         const hydrationKey = CHANNEL_TO_HYDRATION_KEY[channels[i]] || channels[i];
-        out[hydrationKey] = settled[i].status === 'fulfilled' ? (settled[i].value ?? null) : null;
+        const raw = settled[i].status === 'fulfilled' ? (settled[i].value ?? null) : null;
+        // Unwrap envelope: workers store { timestamp, source, data, status }; frontend expects just data
+        out[hydrationKey] = (raw && typeof raw === 'object' && 'data' in raw && raw.data !== undefined)
+          ? raw.data
+          : raw;
       }
       return {
         status: 200,
@@ -154,17 +163,21 @@ function routeHttpRequest(pathname, redis) {
       };
     }
     return (async () => {
-      const data = await redis.get(redisKey);
-      if (data === null || data === undefined) {
+      const raw = await redis.get(redisKey);
+      if (raw === null || raw === undefined) {
         return {
           status: 200,
           body: JSON.stringify({ status: 'pending' }),
           headers: { ...jsonHeaders, 'Cache-Control': 'no-store' },
         };
       }
+      // Unwrap envelope: workers store { timestamp, source, data, status }; frontend expects just data
+      const payload = (raw && typeof raw === 'object' && 'data' in raw && raw.data !== undefined)
+        ? raw.data
+        : raw;
       return {
         status: 200,
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
         headers: jsonHeaders,
       };
     })();
