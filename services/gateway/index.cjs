@@ -223,7 +223,8 @@ function handleBroadcast(channel, data, subscriptions) {
     return 0;
   }
   const ts = Math.floor(Date.now() / 1000);
-  const msg = JSON.stringify({ type: 'wm-push', channel, data, ts });
+  const unwrapped = unwrapEnvelope(data);
+  const msg = JSON.stringify({ type: 'wm-push', channel, data: unwrapped, ts });
   let count = 0;
   for (const ws of clients) {
     try {
@@ -527,6 +528,7 @@ function main() {
 module.exports = {
   handleBroadcast,
   routeHttpRequest,
+  unwrapEnvelope,
   PHASE4_CHANNEL_KEYS,
   PHASE4_MAP_KEYS,
 };

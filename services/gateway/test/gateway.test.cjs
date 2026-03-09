@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const {
   routeHttpRequest,
   handleBroadcast,
+  unwrapEnvelope,
   PHASE4_CHANNEL_KEYS,
   PHASE4_MAP_KEYS,
 } = require('../index.cjs');
@@ -81,6 +82,35 @@ describe('routeHttpRequest', () => {
   });
 });
 
+describe('unwrapEnvelope', () => {
+  it('returns inner data for simple envelope (only data as non-envelope field)', () => {
+    const raw = { timestamp: '2026-01-01', source: 'test', status: 'success', data: [1, 2, 3] };
+    const result = unwrapEnvelope(raw);
+    assert.deepStrictEqual(result, [1, 2, 3]);
+  });
+
+  it('strips envelope fields and keeps payload fields for rich payloads', () => {
+    const raw = { timestamp: '2026-01-01', source: 'test', status: 'success', stocks: [], commodities: [] };
+    const result = unwrapEnvelope(raw);
+    assert.deepStrictEqual(result, { stocks: [], commodities: [] });
+  });
+
+  it('returns arrays as-is', () => {
+    const raw = [1, 2, 3];
+    assert.deepStrictEqual(unwrapEnvelope(raw), [1, 2, 3]);
+  });
+
+  it('returns null/undefined as-is', () => {
+    assert.strictEqual(unwrapEnvelope(null), null);
+    assert.strictEqual(unwrapEnvelope(undefined), undefined);
+  });
+
+  it('returns object with no payload keys as-is', () => {
+    const raw = { timestamp: '2026-01-01', source: 'test', status: 'success' };
+    assert.deepStrictEqual(unwrapEnvelope(raw), raw);
+  });
+});
+
 describe('handleBroadcast', () => {
   it('when no clients subscribed to channel: returns 0', () => {
     const subscriptions = new Map();
@@ -122,6 +152,21 @@ describe('handleBroadcast', () => {
     const parsed = JSON.parse(sent[0]);
     assert.strictEqual(parsed.type, 'wm-push');
     assert.strictEqual(parsed.channel, 'markets');
+  });
+
+  it('unwraps envelope before broadcasting to clients', () => {
+    const sent = [];
+    const client1 = { send: (m) => sent.push(m), readyState: 1 };
+    const subscriptions = new Map([['news:full', new Set([client1])]]);
+    const envelope = { timestamp: '2026-01-01', source: 'news:full', status: 'success', data: [{ title: 'test' }] };
+    const count = handleBroadcast('news:full', envelope, subscriptions);
+    assert.strictEqual(count, 1);
+    const parsed = JSON.parse(sent[0]);
+    assert.strictEqual(parsed.type, 'wm-push');
+    assert.strictEqual(parsed.channel, 'news:full');
+    assert.deepStrictEqual(parsed.data, [{ title: 'test' }]);
+    assert.strictEqual(parsed.data.timestamp, undefined);
+    assert.strictEqual(parsed.data.source, undefined);
   });
 });
 
