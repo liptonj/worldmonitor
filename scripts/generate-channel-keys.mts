@@ -28,8 +28,17 @@ function deriveMapKeys(): Record<string, string> {
   return mapKeys;
 }
 
-const channelKeys = REDIS_KEY_MAP;
-const mapKeys = deriveMapKeys();
+let channelKeys: Record<string, string>;
+let mapKeys: Record<string, string>;
+
+try {
+  channelKeys = REDIS_KEY_MAP;
+  mapKeys = deriveMapKeys();
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error('generate-channel-keys: Failed to read channel registry:', msg);
+  process.exit(1);
+}
 
 const output = {
   channelKeys,
@@ -37,5 +46,11 @@ const output = {
   _generated: new Date().toISOString(),
 };
 
-writeFileSync(outPath, JSON.stringify(output, null, 2) + '\n', 'utf8');
-console.log(`Wrote ${outPath} (${Object.keys(channelKeys).length} channels, ${Object.keys(mapKeys).length} map layers)`);
+try {
+  writeFileSync(outPath, JSON.stringify(output, null, 2) + '\n', 'utf8');
+  console.log(`Wrote ${outPath} (${Object.keys(channelKeys).length} channels, ${Object.keys(mapKeys).length} map layers)`);
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error('generate-channel-keys: Failed to write output:', msg);
+  process.exit(1);
+}

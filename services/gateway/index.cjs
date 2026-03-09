@@ -27,7 +27,7 @@ function loadChannelKeys() {
   } catch (err) {
     log.error('Failed to load channel-keys.json', { path: jsonPath, error: err.message });
     throw new Error(
-      'Run "npx tsx scripts/generate-channel-keys.mts" from repo root to generate channel-keys.json'
+      'Run "npm run generate:channel-keys" or "npx tsx scripts/generate-channel-keys.mts" from repo root to generate channel-keys.json'
     );
   }
 }

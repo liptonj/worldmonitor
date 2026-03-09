@@ -157,13 +157,13 @@ describe('handleBroadcast', () => {
   it('unwraps envelope before broadcasting to clients', () => {
     const sent = [];
     const client1 = { send: (m) => sent.push(m), readyState: 1 };
-    const subscriptions = new Map([['news:full', new Set([client1])]]);
-    const envelope = { timestamp: '2026-01-01', source: 'news:full', status: 'success', data: [{ title: 'test' }] };
-    const count = handleBroadcast('news:full', envelope, subscriptions);
+    const subscriptions = new Map([['markets', new Set([client1])]]);
+    const envelope = { timestamp: '2026-01-01', source: 'markets', status: 'success', data: [{ title: 'test' }] };
+    const count = handleBroadcast('markets', envelope, subscriptions);
     assert.strictEqual(count, 1);
     const parsed = JSON.parse(sent[0]);
     assert.strictEqual(parsed.type, 'wm-push');
-    assert.strictEqual(parsed.channel, 'news:full');
+    assert.strictEqual(parsed.channel, 'markets');
     assert.deepStrictEqual(parsed.data, [{ title: 'test' }]);
     assert.strictEqual(parsed.data.timestamp, undefined);
     assert.strictEqual(parsed.data.source, undefined);
