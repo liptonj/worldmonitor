@@ -12,6 +12,8 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:6379:6379"  # Expose Redis to localhost only for diagnostics
     networks:
       - relay-internal
     healthcheck:
