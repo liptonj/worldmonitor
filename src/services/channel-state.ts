@@ -23,6 +23,8 @@ export interface ChannelStatus {
   lastDataAt: number | null;
   error: string | null;
   source: ChannelSource | null;
+  /** Timestamp when channel entered loading. Cleared when transitioning away. Used for timeout detection. */
+  loadingStartedAt: number | null;
 }
 
 /** Default status for a channel that has never been touched. */
@@ -31,6 +33,7 @@ const DEFAULT_STATUS: ChannelStatus = {
   lastDataAt: null,
   error: null,
   source: null,
+  loadingStartedAt: null,
 };
 
 /** Internal storage: channel key → current status. */
@@ -61,13 +64,13 @@ function copyStatus(s: ChannelStatus): ChannelStatus {
  * @param channel - Channel key (e.g. 'markets', 'fred')
  * @param state - New state to set
  * @param source - Optional source that produced this state (bootstrap, websocket, http-fallback)
- * @param options - Optional overrides: lastDataAt (timestamp), error (message)
+ * @param options - Optional overrides: lastDataAt (timestamp), error (message), loadingStartedAt (for tests)
  */
 export function setChannelState(
   channel: string,
   state: ChannelState,
   source?: string,
-  options?: { lastDataAt?: number; error?: string | null }
+  options?: { lastDataAt?: number; error?: string | null; loadingStartedAt?: number }
 ): void {
   const prev = channelStates.get(channel) ?? { ...DEFAULT_STATUS };
   const next: ChannelStatus = {
@@ -80,6 +83,8 @@ export function setChannelState(
           ? prev.error ?? 'Unknown error'
           : null,
     source: isValidSource(source) ? source : prev.source,
+    loadingStartedAt:
+      state === 'loading' ? (options?.loadingStartedAt ?? Date.now()) : null,
   };
   channelStates.set(channel, next);
 

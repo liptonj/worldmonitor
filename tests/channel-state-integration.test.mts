@@ -19,6 +19,7 @@ import {
 import { dispatchForTesting } from '../src/services/relay-push.ts';
 import {
   runStaleCheck,
+  runTimeoutCheck,
   startStaleDetection,
   stopStaleDetection,
 } from '../src/services/stale-detection.ts';
@@ -103,6 +104,79 @@ describe('channel-state integration (Task 3.2)', () => {
 
       assert.equal(getChannelState('fred').state, 'loading');
       assert.equal(getChannelState('oil').state, 'error');
+    });
+  });
+
+  describe('timeout detection (Task 3.3)', () => {
+    it('transitions loading to error after timeoutMs', () => {
+      const channel = 'markets';
+      const def = CHANNEL_REGISTRY[channel];
+      assert.ok(def, 'markets should be in registry');
+
+      const oldTimestamp = Date.now() - def.timeoutMs - 5_000;
+      setChannelState(channel, 'loading', 'bootstrap', {
+        loadingStartedAt: oldTimestamp,
+      });
+
+      runTimeoutCheck();
+
+      const s = getChannelState(channel);
+      assert.equal(s.state, 'error');
+      assert.equal(s.error, 'Service unavailable — data not received');
+    });
+
+    it('leaves loading channels alone when within timeout', () => {
+      const channel = 'weather';
+      const def = CHANNEL_REGISTRY[channel];
+      assert.ok(def, 'weather should be in registry');
+
+      const recentTimestamp = Date.now() - 1_000; // 1 second ago
+      setChannelState(channel, 'loading', 'bootstrap', {
+        loadingStartedAt: recentTimestamp,
+      });
+
+      runTimeoutCheck();
+
+      const s = getChannelState(channel);
+      assert.equal(s.state, 'loading');
+    });
+
+    it('loading → ready before timeout does not error', () => {
+      const channel = 'fred';
+      setChannelState(channel, 'loading', 'bootstrap');
+      setChannelState(channel, 'ready', 'websocket');
+
+      runTimeoutCheck();
+
+      const s = getChannelState(channel);
+      assert.equal(s.state, 'ready');
+      assert.equal(s.error, null);
+    });
+
+    it('uses channel-specific timeoutMs from registry', () => {
+      const marketsDef = CHANNEL_REGISTRY['markets'];
+      const fredDef = CHANNEL_REGISTRY['fred'];
+      assert.ok(marketsDef && fredDef);
+
+      // Both have 30_000 in registry; use different ages to verify we use def.timeoutMs
+      const justUnderTimeout = Date.now() - marketsDef.timeoutMs + 1_000;
+      const justOverTimeout = Date.now() - fredDef.timeoutMs - 1_000;
+
+      setChannelState('markets', 'loading', 'bootstrap', {
+        loadingStartedAt: justUnderTimeout,
+      });
+      setChannelState('fred', 'loading', 'bootstrap', {
+        loadingStartedAt: justOverTimeout,
+      });
+
+      runTimeoutCheck();
+
+      assert.equal(getChannelState('markets').state, 'loading');
+      assert.equal(getChannelState('fred').state, 'error');
+      assert.equal(
+        getChannelState('fred').error,
+        'Service unavailable — data not received'
+      );
     });
   });
 });
