@@ -16,6 +16,7 @@ async function fetchLLMProvider(supabase) {
   const apiUrl = row.api_url ?? '';
   const model = row.default_model ?? '';
   const secretName = row.api_key_secret_name ?? '';
+  const providerName = row.name ?? 'unknown';
 
   let apiKey = '';
   if (secretName) {
@@ -26,11 +27,26 @@ async function fetchLLMProvider(supabase) {
       apiKey = String(secretData);
     }
   }
-  if (!apiKey) {
+  if (!apiKey && secretName) {
     apiKey = process.env[secretName] ?? '';
   }
-  if (!apiKey) {
-    throw new Error(`Could not resolve API key for provider ${row.name ?? 'unknown'}`);
+  // API key is optional (e.g., Ollama behind Cloudflare Access doesn't need one)
+  // If secretName is null/empty, the provider doesn't require an API key
+
+  // Fetch Cloudflare Access credentials if provider is Ollama
+  let cfAccessClientId = '';
+  let cfAccessClientSecret = '';
+  if (providerName === 'ollama') {
+    const [idResult, secretResult] = await Promise.all([
+      supabase.rpc('get_vault_secret_value', { secret_name: 'OLLAMA_CF_ACCESS_CLIENT_ID' }),
+      supabase.rpc('get_vault_secret_value', { secret_name: 'OLLAMA_CF_ACCESS_CLIENT_SECRET' }),
+    ]);
+    if (!idResult.error && idResult.data != null) {
+      cfAccessClientId = String(idResult.data);
+    }
+    if (!secretResult.error && secretResult.data != null) {
+      cfAccessClientSecret = String(secretResult.data);
+    }
   }
 
   return {
@@ -38,19 +54,34 @@ async function fetchLLMProvider(supabase) {
     base_url: apiUrl,
     model_name: model,
     provider_type: row.provider_type ?? 'openai',
+    provider_name: providerName,
+    cf_access_client_id: cfAccessClientId,
+    cf_access_client_secret: cfAccessClientSecret,
   };
 }
 
 async function callLLM(provider, systemPrompt, userPrompt, http) {
-  const { api_key, base_url, model_name } = provider;
+  const { api_key, base_url, model_name, cf_access_client_id, cf_access_client_secret } = provider;
   const url = base_url.includes('/chat/completions') ? base_url : base_url.replace(/\/+$/, '') + '/chat/completions';
+
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  // Add Cloudflare Access headers if present
+  if (cf_access_client_id && cf_access_client_secret) {
+    headers['CF-Access-Client-Id'] = cf_access_client_id;
+    headers['CF-Access-Client-Secret'] = cf_access_client_secret;
+  }
+
+  // Add Authorization header if API key is present
+  if (api_key) {
+    headers.Authorization = `Bearer ${api_key}`;
+  }
 
   const response = await http.fetchJson(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${api_key}`,
-    },
+    headers,
     body: JSON.stringify({
       model: model_name,
       messages: [
