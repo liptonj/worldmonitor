@@ -17,24 +17,26 @@ import type { ClimateAnomalyPanel } from '@/components/ClimateAnomalyPanel';
 import type { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
 import type { HandlerCallbacks } from './types';
 
-export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks): Record<string, (payload: unknown) => void> {
-  function mergeAndRenderNaturalEvents(): void {
-    const eonet = ctx.intelligenceCache.eonetEvents ?? [];
-    const gdacs = ctx.intelligenceCache.gdacsEvents ?? [];
-    const seen = new Set<string>();
-    const merged: import('@/types').NaturalEvent[] = [];
-    for (const e of [...gdacs, ...eonet]) {
-      const key = `${e.lat.toFixed(1)}-${e.lon.toFixed(1)}-${e.category}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        merged.push(e);
-      }
+/** Merges eonet/gdacs events and renders to map. Exported for loadNatural cache path. */
+export function mergeAndRenderNaturalEvents(ctx: AppContext): void {
+  const eonet = ctx.intelligenceCache.eonetEvents ?? [];
+  const gdacs = ctx.intelligenceCache.gdacsEvents ?? [];
+  const seen = new Set<string>();
+  const merged: import('@/types').NaturalEvent[] = [];
+  for (const e of [...gdacs, ...eonet]) {
+    const key = `${e.lat.toFixed(1)}-${e.lon.toFixed(1)}-${e.category}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(e);
     }
-    ctx.map?.setNaturalEvents(merged);
-    ctx.statusPanel?.updateFeed('EONET', { status: 'ok', itemCount: merged.length });
-    ctx.statusPanel?.updateApi('NASA EONET', { status: 'ok' });
-    ctx.map?.setLayerReady('natural', merged.length > 0);
   }
+  ctx.map?.setNaturalEvents(merged);
+  ctx.statusPanel?.updateFeed('EONET', { status: 'ok', itemCount: merged.length });
+  ctx.statusPanel?.updateApi('NASA EONET', { status: 'ok' });
+  ctx.map?.setLayerReady('natural', merged.length > 0);
+}
+
+export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks): Record<string, (payload: unknown) => void> {
 
   function renderNatural(data: ListFireDetectionsResponse): void {
     const detections = data.fireDetections ?? [];
@@ -108,7 +110,7 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
       const valid = events.filter((e): e is import('@/types').NaturalEvent =>
         e && typeof e === 'object' && typeof e.lat === 'number' && typeof e.lon === 'number' && typeof e.id === 'string');
       ctx.intelligenceCache.eonetEvents = valid;
-      mergeAndRenderNaturalEvents();
+      mergeAndRenderNaturalEvents(ctx);
     },
     gdacs: (payload: unknown) => {
       if (!payload || !Array.isArray(payload)) return;
@@ -138,7 +140,7 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
         });
       }
       ctx.intelligenceCache.gdacsEvents = events;
-      mergeAndRenderNaturalEvents();
+      mergeAndRenderNaturalEvents(ctx);
     },
     weather: (payload: unknown) => {
       if (!Array.isArray(payload)) return;

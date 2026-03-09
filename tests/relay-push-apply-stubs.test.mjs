@@ -1,79 +1,45 @@
+/**
+ * apply* logic is now in domain handlers, not DataLoaderManager.
+ * This test verifies domain handlers implement the expected apply/render logic.
+ */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-describe('apply* stubs are implemented', () => {
-  it('applyNewsDigest is not empty', () => {
+const DOMAIN_HANDLERS = [
+  { file: 'src/data/news-handler.ts', has: ['processDigestData', 'renderNewsForCategory'] },
+  { file: 'src/data/markets-handler.ts', has: ['renderMarketDashboard', 'renderPredictions'] },
+  { file: 'src/data/economic-handler.ts', has: ['renderFredData', 'renderOilData', 'renderBisData'] },
+  { file: 'src/data/intelligence-handler.ts', has: ['renderIntelligence', 'renderOrefAlerts', 'renderPizzInt'] },
+  { file: 'src/data/geo-handler.ts', has: ['renderNatural', 'mergeAndRenderNaturalEvents', 'renderWeatherAlerts', 'mapClimatePayload'] },
+  { file: 'src/data/infrastructure-handler.ts', has: ['renderCyberThreats', 'renderCableHealth', 'renderFlightDelays', 'renderTechEvents'] },
+];
+
+describe('apply* logic in domain handlers', () => {
+  it('DataLoaderManager has no apply* methods (extracted to domain handlers)', () => {
     const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-    // Match the method body - must have content
-    const match = src.match(/applyNewsDigest\([^)]*\)[^{]*\{([\s\S]*?)^\s{2}\}/m);
-    assert.ok(match && match[1].trim().length > 0, 'applyNewsDigest must not be empty');
+    const applyMethods = ['applyNewsDigest', 'applyMarkets', 'applyPredictions', 'applyFredData', 'applyOilData', 'applyBisData', 'applyIntelligence', 'applyPizzInt', 'applyTradePolicy', 'applySupplyChain', 'applyNatural', 'applyClimate', 'applyConflict', 'applyUcdpEvents', 'applyCyberThreats', 'applyAisSignals', 'applyCableHealth', 'applyFlightDelays', 'applyWeatherAlerts', 'applySpending', 'applyGiving', 'applyTelegramIntel', 'applyOref', 'applyIranEvents', 'applyTechEvents', 'applyGpsInterference', 'applyGulfQuotes', 'applyEonet', 'applyGdacs'];
+    for (const name of applyMethods) {
+      const hasMethod = new RegExp(`\\b${name}\\s*\\(`).test(src);
+      assert.ok(!hasMethod, `DataLoaderManager must not have ${name} (extracted to domain handlers)`);
+    }
   });
 
-  it('data-loader has processDigestData or equivalent helper', () => {
+  it('DataLoaderManager uses domainHandlers and getHandler delegates', () => {
     const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-    // Either a processDigestData helper or the apply* method directly contains rendering code
-    const hasHelper = src.includes('processDigestData') || src.includes('renderDigest');
-    const hasDirectImpl = src.match(/applyNewsDigest[\s\S]{0,500}setNews|setData|newsByCategory/);
-    assert.ok(hasHelper || hasDirectImpl, 'applyNewsDigest must call rendering code');
+    assert.ok(src.includes('domainHandlers'), 'DataLoaderManager must use domainHandlers');
+    assert.ok(src.includes('buildDomainHandlers'), 'DataLoaderManager must have buildDomainHandlers');
+    assert.ok(src.includes('getHandler') && src.includes('domainHandlers[channel]'), 'getHandler must delegate to domainHandlers');
   });
 
-  it('applyMarkets is not empty', () => {
-    const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-    assert.ok(
-      src.includes('renderMarketDashboard') || src.match(/applyMarkets\([^)]*\)\s*\{[\s\S]{20,}/),
-      'applyMarkets must not be empty'
-    );
-  });
-
-  for (const name of ['applyBisData', 'applyFredData', 'applyOilData']) {
-    it(`${name} is not empty`, () => {
-      const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-      const helperName = name.replace('apply', 'render');
-      const hasHelper = src.includes(helperName);
-      const match = src.match(new RegExp(`${name}\\s*\\([^)]*\\)\\s*\\{[\\s\\S]{20,}?^\\s{2}\\}`, 'm'));
-      assert.ok(hasHelper || match, `${name} must not be empty`);
-    });
-  }
-
-  for (const name of ['applyIntelligence', 'applyPizzInt', 'applyTradePolicy', 'applySupplyChain']) {
-    it(`${name} is not empty`, () => {
-      const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-      const helperName = name.replace('apply', 'render');
-      assert.ok(
-        src.includes(helperName),
-        `${name} must use a render helper (render${name.replace('apply', '')})`
-      );
-    });
-  }
-
-  for (const name of ['applyAisSignals', 'applyCableHealth', 'applyFlightDelays', 'applyWeatherAlerts']) {
-    it(`${name} is not empty`, () => {
-      const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-      assert.ok(
-        src.includes(`render${name.replace('apply', '')}`),
-        `${name} must use a render helper`
-      );
-    });
-  }
-
-  for (const name of ['applyNatural', 'applyCyberThreats', 'applyPredictions', 'applySpending', 'applyGiving', 'applyTelegramIntel']) {
-    it(`${name} is not empty`, () => {
-      const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-      assert.ok(
-        src.includes(`render${name.replace('apply', '')}`),
-        `${name} must use a render helper`
-      );
-    });
-  }
-
-  for (const name of ['applyOref', 'applyIranEvents', 'applyTechEvents', 'applyGpsInterference', 'applyGulfQuotes', 'applyEonet', 'applyGdacs']) {
-    it(`${name} is not empty`, () => {
-      const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-      const helperName = name.replace('apply', 'render');
-      const hasHelper = src.includes(helperName);
-      const hasDirectImpl = src.includes(`${name}(payload`) && src.includes('this.');
-      assert.ok(hasHelper || hasDirectImpl, `${name} must not be empty`);
+  for (const { file, has } of DOMAIN_HANDLERS) {
+    describe(file, () => {
+      for (const fn of has) {
+        it(`${fn} is implemented`, () => {
+          const src = readFileSync(file, 'utf-8');
+          assert.ok(src.includes(fn), `${file} must implement ${fn}`);
+        });
+      }
     });
   }
 

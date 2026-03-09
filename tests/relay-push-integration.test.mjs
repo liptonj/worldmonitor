@@ -16,10 +16,11 @@ describe('relay-push integration: channel-to-apply wiring', () => {
     );
   });
 
-  it('news channel is wired to applyNewsDigest', () => {
+  it('news channel is wired via domain handlers', () => {
+    const newsHandlerSrc = readFileSync('src/data/news-handler.ts', 'utf-8');
     assert.ok(
-      (appSrc.includes('news:') || appSrc.includes('`news:')) && (appSrc.includes('applyNewsDigest') || dataLoaderSrc.includes('applyNewsDigest')),
-      'news channel must be subscribed and use applyNewsDigest'
+      (appSrc.includes('news:') || appSrc.includes('`news:')) && (dataLoaderSrc.includes('createNewsHandlers') || newsHandlerSrc.includes('processDigestData')),
+      'news channel must be subscribed and news-handler must implement digest logic'
     );
   });
 
@@ -29,13 +30,12 @@ describe('relay-push integration: channel-to-apply wiring', () => {
   ];
 
   for (const [channel, applyFn] of dataLoaderChannels) {
-    it(`channel '${channel}' is wired to ${applyFn}`, () => {
+    it(`channel '${channel}' is wired via domain handlers (was ${applyFn})`, () => {
       const registryHasIt = DATA_LOADER_CHANNEL_MAP[channel] === applyFn || (channel === 'pizzint' && applyFn === 'applyPizzInt');
-      const dataLoaderUsesRegistry = dataLoaderSrc.includes('DATA_LOADER_CHANNEL_MAP') && dataLoaderSrc.includes('getHandler');
-      const dataLoaderHasApplyMethod = dataLoaderSrc.includes(applyFn);
+      const dataLoaderUsesDomainHandlers = dataLoaderSrc.includes('domainHandlers') && dataLoaderSrc.includes('buildDomainHandlers') && dataLoaderSrc.includes('getHandler');
       assert.ok(
-        registryHasIt && (dataLoaderUsesRegistry || dataLoaderHasApplyMethod),
-        `Channel '${channel}' must be wired to ${applyFn} (registry + data-loader)`
+        registryHasIt && dataLoaderUsesDomainHandlers,
+        `Channel '${channel}' must be in registry and DataLoader must use domain handlers`
       );
     });
   }

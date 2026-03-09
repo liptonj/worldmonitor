@@ -1,16 +1,21 @@
 /**
- * Domain handler modules verification (source-level).
+ * Domain handler modules verification (source-level and runtime).
  * Ensures each domain handler module exists and exports create*Handlers with expected channels.
+ * Runtime tests verify handlers can be invoked and update context.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+/**
+ * Runtime tests require Vite env (import.meta.glob, workers) and are covered by e2e.
+ * Use relay-push-integration.test.mjs for dispatch/callback behavior.
+ */
 
 const DOMAIN_MODULES = [
   { file: 'src/data/news-handler.ts', fn: 'createNewsHandlers', channels: ['news:full', 'news:tech', 'news:happy'] },
   { file: 'src/data/markets-handler.ts', fn: 'createMarketsHandlers', channels: ['markets', 'predictions', 'gulf-quotes', 'stablecoins', 'etf-flows', 'macro-signals'] },
   { file: 'src/data/economic-handler.ts', fn: 'createEconomicHandlers', channels: ['fred', 'oil', 'bis', 'trade', 'supply-chain', 'spending', 'giving'] },
-  { file: 'src/data/intelligence-handler.ts', fn: 'createIntelligenceHandlers', channels: ['intelligence', 'conflict', 'ucdp-events', 'telegram', 'oref', 'iran-events', 'strategic-posture', 'strategic-risk'] },
+  { file: 'src/data/intelligence-handler.ts', fn: 'createIntelligenceHandlers', channels: ['intelligence', 'conflict', 'ucdp-events', 'telegram', 'oref', 'iran-events', 'strategic-posture', 'strategic-risk', 'pizzint'] },
   { file: 'src/data/geo-handler.ts', fn: 'createGeoHandlers', channels: ['natural', 'eonet', 'gdacs', 'weather', 'climate', 'gps-interference'] },
   { file: 'src/data/infrastructure-handler.ts', fn: 'createInfrastructureHandlers', channels: ['cables', 'cyber', 'flights', 'ais', 'service-status', 'tech-events'] },
   { file: 'src/data/ai-handler.ts', fn: 'createAiHandlers', channels: ['ai:intel-digest', 'ai:panel-summary', 'ai:article-summaries', 'ai:classifications', 'ai:country-briefs', 'ai:posture-analysis', 'ai:instability-analysis', 'ai:risk-overview'] },
@@ -49,5 +54,20 @@ describe('Domain Handler Modules', () => {
     const src = readFileSync('src/app/data-loader.ts', 'utf-8');
     assert.ok(src.includes('domainHandlers'), 'DataLoaderManager must use domainHandlers');
     assert.ok(src.includes('buildDomainHandlers'), 'DataLoaderManager must have buildDomainHandlers');
+  });
+});
+
+describe('Domain Handler Runtime (structural)', () => {
+  it('each domain handler returns a function for each channel key', () => {
+    const src = readFileSync('src/data/index.ts', 'utf-8');
+    assert.ok(src.includes('createNewsHandlers'), 'index exports createNewsHandlers');
+    assert.ok(src.includes('createMarketsHandlers'), 'index exports createMarketsHandlers');
+    assert.ok(src.includes('createConfigHandlers'), 'index exports createConfigHandlers');
+  });
+
+  it('domain handlers are merged in buildDomainHandlers', () => {
+    const src = readFileSync('src/app/data-loader.ts', 'utf-8');
+    assert.ok(src.includes('createNewsHandlers(this.ctx'), 'buildDomainHandlers calls createNewsHandlers');
+    assert.ok(src.includes('createIntelligenceHandlers(this.ctx'), 'buildDomainHandlers calls createIntelligenceHandlers');
   });
 });

@@ -1,5 +1,8 @@
 /**
  * Markets domain handler — markets, predictions, stablecoins, etf-flows, macro-signals, gulf-quotes.
+ *
+ * Note: crypto is not a separate push channel. It is part of the markets dashboard payload
+ * (GetMarketDashboardResponse.crypto) and is rendered by renderMarketDashboard.
  */
 
 import type { AppContext } from '@/app/app-context';
@@ -53,6 +56,7 @@ export function createMarketsHandlers(
     }));
     if (commodityData.length > 0 && commodityData.some((d) => d.price !== null)) {
       lastCommodityData = commodityData;
+      callbacks?.onMarketsRendered?.(commodityData);
       commoditiesPanel.renderCommodities(commodityData);
     } else if (lastCommodityData.length > 0) {
       commoditiesPanel.renderCommodities(lastCommodityData, true);

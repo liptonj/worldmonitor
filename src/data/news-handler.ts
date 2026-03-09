@@ -95,6 +95,19 @@ function filterItemsByTimeRange(items: NewsItem[], range: TimeRange): NewsItem[]
   });
 }
 
+/** Renders news items for a category. Exported for loadNewsCategory and applyTimeRangeFilter. */
+export function renderNewsForCategory(ctx: AppContext, category: string, items: NewsItem[]): void {
+  ctx.newsByCategory[category] = items;
+  const panel = ctx.newsPanels[category];
+  if (!panel) return;
+  const filteredItems = filterItemsByTimeRange(items, ctx.currentTimeRange);
+  if (filteredItems.length === 0 && items.length > 0) {
+    panel.renderFilteredEmpty(`No items in ${getTimeRangeLabel(ctx.currentTimeRange)}`);
+    return;
+  }
+  panel.renderNews(filteredItems);
+}
+
 export function createNewsHandlers(
   ctx: AppContext,
   callbacks?: HandlerCallbacks
@@ -160,18 +173,6 @@ export function createNewsHandlers(
     }
   }
 
-  function renderNewsForCategory(category: string, items: NewsItem[]): void {
-    ctx.newsByCategory[category] = items;
-    const panel = ctx.newsPanels[category];
-    if (!panel) return;
-    const filteredItems = filterItemsByTimeRange(items, ctx.currentTimeRange);
-    if (filteredItems.length === 0 && items.length > 0) {
-      panel.renderFilteredEmpty(`No items in ${getTimeRangeLabel(ctx.currentTimeRange)}`);
-      return;
-    }
-    panel.renderNews(filteredItems);
-  }
-
   function updateMonitorResults(): void {
     const monitorPanel = ctx.panels['monitors'] as MonitorPanel;
     monitorPanel.renderResults(ctx.allNews);
@@ -232,7 +233,7 @@ export function createNewsHandlers(
 
       checkBatchForBreakingAlerts(items);
       flashMapForNews(items);
-      renderNewsForCategory(category, items);
+      renderNewsForCategory(ctx, category, items);
 
       ctx.statusPanel?.updateFeed(category.charAt(0).toUpperCase() + category.slice(1), {
         status: 'ok',
@@ -266,7 +267,7 @@ export function createNewsHandlers(
           .map(protoItemToNewsItem)
           .filter(i => enabledIntelNames.has(i.source));
         checkBatchForBreakingAlerts(intel);
-        renderNewsForCategory('intel', intel);
+        renderNewsForCategory(ctx, 'intel', intel);
         if (intelPanel) {
           updateBaseline('news:intel', intel.length)
             .then(baseline => {

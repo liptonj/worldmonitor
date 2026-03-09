@@ -12,6 +12,7 @@ import { signalAggregator } from '@/services/signal-aggregator';
 import { getProtestStatus } from '@/services/unrest';
 import type { OrefAlertsResponse } from '@/services/oref-alerts';
 import { dispatchOrefBreakingAlert } from '@/services/breaking-news-alerts';
+import { parsePizzintResponse } from '@/services';
 import type { GetGlobalIntelDigestResponse } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import type { CIIPanel } from '@/components/CIIPanel';
 import type { GlobalDigestPanel } from '@/components/GlobalDigestPanel';
@@ -42,6 +43,20 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
     signalAggregator.ingestConflictEvents(coerced);
     ingestStrikesForCII(coerced);
     (ctx.panels['cii'] as CIIPanel)?.refresh();
+  }
+
+  function renderPizzInt(status: import('@/types').PizzIntStatus, tensions: import('@/types').GdeltTensionPair[]): void {
+    if (status.locationsMonitored === 0) {
+      ctx.pizzintIndicator?.hide();
+      ctx.statusPanel?.updateApi('PizzINT', { status: 'error' });
+      dataFreshness.recordError('pizzint', 'No monitored locations returned');
+      return;
+    }
+    ctx.pizzintIndicator?.show();
+    ctx.pizzintIndicator?.updateStatus(status);
+    ctx.pizzintIndicator?.updateTensions(tensions);
+    ctx.statusPanel?.updateApi('PizzINT', { status: 'ok' });
+    dataFreshness.recordUpdate('pizzint', Math.max(status.locationsMonitored, tensions.length));
   }
 
   function forwardToPanel(channel: string): ChannelHandler {
@@ -148,5 +163,12 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
     },
     'strategic-posture': forwardToPanel('strategic-posture'),
     'strategic-risk': forwardToPanel('strategic-risk'),
+    pizzint: (payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return;
+      const resp = payload as import('@/generated/client/worldmonitor/intelligence/v1/service_client').GetPizzintStatusResponse;
+      if (!resp.pizzint && !(Array.isArray(resp.tensionPairs) && resp.tensionPairs.length > 0)) return;
+      const { status, tensions } = parsePizzintResponse(resp);
+      renderPizzInt(status, tensions);
+    },
   };
 }

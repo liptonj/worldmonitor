@@ -1,5 +1,6 @@
 /**
  * Infrastructure domain handler — cables, cyber, flights, ais, service-status, tech-events.
+ * tech-events: CHANNEL_REGISTRY domain 'infrastructure'; kept for loadTechEvents/relay push.
  */
 
 import type { AppContext } from '@/app/app-context';
@@ -105,7 +106,9 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
       if (!payload || typeof payload !== 'object') return;
       const resp = payload as ListCyberThreatsResponse;
       if (!Array.isArray(resp.threats)) return;
-      const threats = adaptCyberThreatsResponse(resp);
+      const first = resp.threats[0] as unknown;
+      const isPreAdapted = first && typeof first === 'object' && 'indicator' in first && typeof (first as { indicator?: unknown }).indicator === 'string';
+      const threats = isPreAdapted ? (resp.threats as unknown as import('@/types').CyberThreat[]) : adaptCyberThreatsResponse(resp);
       renderCyberThreats(threats);
     },
     flights: (payload: unknown) => {
