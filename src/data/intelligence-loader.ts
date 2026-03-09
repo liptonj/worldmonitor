@@ -238,6 +238,14 @@ export const intelligenceLoader = {
 
     tasks.push((async () => {
       try {
+        await bridge.loadChannelWithFallback('strategic-posture', data => bridge.getHandler('strategic-posture')?.(data));
+      } catch (error) {
+        console.error('[Intelligence] Strategic posture fetch failed:', error);
+      }
+    })());
+
+    tasks.push((async () => {
+      try {
         const data = await fetchGpsInterference();
         if (!data) {
           ingestGpsJammingForCII([]);

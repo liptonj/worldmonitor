@@ -93,8 +93,15 @@ export class DataLoaderManager implements AppModule, DataLoaderBridge {
   init(): void {}
   destroy(): void {}
 
+  /** Alternate hydration keys (camelCase) used by some relays (e.g. ais-relay) when bootstrap returns data. */
+  private static readonly HYDRATION_ALIASES: Record<string, string> = {
+    'strategic-posture': 'strategicPosture',
+    'strategic-risk': 'strategicRisk',
+  };
+
   async loadChannelWithFallback<T>(channel: string, renderFn: (data: T) => void): Promise<boolean> {
-    const hydrated = getHydratedData(channel);
+    const alias = DataLoaderManager.HYDRATION_ALIASES[channel];
+    const hydrated = getHydratedData(channel) ?? (alias ? getHydratedData(alias) : undefined);
     if (hydrated) {
       renderFn(hydrated as T);
       return true;

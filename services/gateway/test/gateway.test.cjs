@@ -8,6 +8,7 @@ const {
   unwrapEnvelope,
   PHASE4_CHANNEL_KEYS,
   PHASE4_MAP_KEYS,
+  CHANNEL_TO_HYDRATION_KEY,
 } = require('../index.cjs');
 
 describe('routeHttpRequest', () => {
@@ -49,7 +50,7 @@ describe('routeHttpRequest', () => {
     assert.strictEqual(body.error, 'Not found');
   });
 
-  it('/bootstrap returns object with all known channels (Redis null → all null)', async () => {
+  it('/bootstrap returns object with hydration keys (Redis null → all null)', async () => {
     const redis = { get: async () => null };
     const result = await Promise.resolve(routeHttpRequest('/bootstrap', redis));
     assert.strictEqual(result.status, 200);
@@ -57,8 +58,9 @@ describe('routeHttpRequest', () => {
     assert.ok(typeof body === 'object');
     const channels = Object.keys(PHASE4_CHANNEL_KEYS);
     for (const ch of channels) {
-      assert.ok(ch in body, `missing channel ${ch}`);
-      assert.strictEqual(body[ch], null);
+      const hydrationKey = CHANNEL_TO_HYDRATION_KEY[ch] ?? ch;
+      assert.ok(hydrationKey in body, `missing hydration key ${hydrationKey} (channel ${ch})`);
+      assert.strictEqual(body[hydrationKey], null);
     }
   });
 

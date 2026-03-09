@@ -431,6 +431,7 @@ export function createNewsHandlers(
   return {
     'news:full': applyNewsDigest,
     'news:tech': applyNewsDigest,
+    'news:finance': applyNewsDigest,
     'news:happy': applyNewsDigest,
   };
 }

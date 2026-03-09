@@ -21,6 +21,7 @@ import type { OrefSirensPanel } from '@/components/OrefSirensPanel';
 import type { TelegramIntelPanel } from '@/components/TelegramIntelPanel';
 import type { UcdpEventsPanel } from '@/components/UcdpEventsPanel';
 import type { ChannelHandler } from './types';
+import type { GdeltArticle } from '@/services/gdelt-intel';
 
 export function createIntelligenceHandlers(ctx: AppContext): Record<string, ChannelHandler> {
   function renderIntelligence(data: GetGlobalIntelDigestResponse): void {
@@ -164,6 +165,19 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
     },
     'strategic-posture': forwardToPanel('strategic-posture'),
     'strategic-risk': forwardToPanel('strategic-risk'),
+    gdelt: (payload: unknown) => {
+      // GDELT payload structure: { timestamp, source, data: { topic1: {...}, topic2: {...} } }
+      const data = payload as { data?: Record<string, { articles: GdeltArticle[]; query: string; fetchedAt: string }> };
+      if (!data?.data) {
+        console.warn('[intelligence-handler] applyGdelt: no data');
+        return;
+      }
+      // Cache is already handled by gdelt-intel.ts fetchGdeltPanel
+      // This handler enables WebSocket push updates
+      console.log('[intelligence-handler] applyGdelt: received update', {
+        topicCount: Object.keys(data.data).length,
+      });
+    },
     pizzint: (payload: unknown) => {
       if (!payload || typeof payload !== 'object') return;
       const resp = payload as import('@/generated/client/worldmonitor/intelligence/v1/service_client').GetPizzintStatusResponse;

@@ -137,7 +137,7 @@ services:
     networks:
       - relay-internal
     volumes:
-      - ./data/telegram-channels.json:/app/data/telegram-channels.json:ro
+      - ../data/telegram-channels.json:/app/data/telegram-channels.json:ro
     environment:
       - REDIS_URL=redis://redis:6379
       - SUPABASE_URL=${SUPABASE_URL}

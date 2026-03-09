@@ -85,9 +85,10 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
 }
 
 export function getHydratedNewsSources(): NewsSourceRow[] | null {
-  const val = hydrationCache.get('newsSources');
+  const val = hydrationCache.get('newsSources') ?? hydrationCache.get('config:news-sources');
   if (val !== undefined) {
     hydrationCache.delete('newsSources');
+    hydrationCache.delete('config:news-sources');
     if (!Array.isArray(val)) return null;
     return val as NewsSourceRow[];
   }

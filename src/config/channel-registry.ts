@@ -244,6 +244,16 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     mapLayers: ['ais'],
     applyMethod: 'applyAisSignals',
   },
+  gdelt: {
+    key: 'gdelt',
+    redisKey: 'relay:gdelt:v1',
+    panels: ['gdelt-intel'],
+    domain: 'intelligence',
+    staleAfterMs: 15 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+    applyMethod: 'applyGdelt',
+  },
   /** Backward-compat alias for ai:intel-digest; both share ai:digest:global:v1 (gateway PHASE4_CHANNEL_KEYS). */
   intelligence: {
     key: 'intelligence',
@@ -473,6 +483,53 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
   },
+  /** News digest channels — variant-specific. Handled by createNewsHandlers. */
+  'news:full': {
+    key: 'news:full',
+    redisKey: 'news:digest:v1:full:en',
+    panels: ['live-news', 'headlines'],
+    domain: 'news',
+    staleAfterMs: 5 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+  },
+  'news:tech': {
+    key: 'news:tech',
+    redisKey: 'news:digest:v1:tech:en',
+    panels: ['live-news', 'headlines'],
+    domain: 'news',
+    staleAfterMs: 5 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+  },
+  'news:finance': {
+    key: 'news:finance',
+    redisKey: 'news:digest:v1:finance:en',
+    panels: ['live-news', 'headlines'],
+    domain: 'news',
+    staleAfterMs: 5 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+  },
+  'news:happy': {
+    key: 'news:happy',
+    redisKey: 'news:digest:v1:happy:en',
+    panels: ['live-news', 'headlines'],
+    domain: 'news',
+    staleAfterMs: 5 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+  },
+  /** PizzINT monitoring — full variant only. Handled by createIntelligenceHandlers. */
+  pizzint: {
+    key: 'pizzint',
+    redisKey: 'intel:pizzint:v1',
+    panels: ['intel'],
+    domain: 'intelligence',
+    staleAfterMs: 10 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+  },
 };
 
 /** Channel keys for bootstrap and WebSocket subscription. Replaces RELAY_CHANNELS. */
@@ -485,7 +542,7 @@ export const REDIS_KEY_MAP = Object.fromEntries(
 
 /**
  * Channel → DataLoader apply* method. Derived from CHANNEL_REGISTRY.
- * Used by DataLoader.getHandler and tests. Pizzint is subscription-only (full variant), not in registry.
+ * Used by DataLoader.getHandler and tests. News and pizzint are handled by domain handlers.
  */
 export const DATA_LOADER_CHANNEL_MAP: Record<string, string> = Object.fromEntries(
   Object.entries(CHANNEL_REGISTRY)

@@ -140,14 +140,8 @@ async function fetchGdeltPanel(): Promise<GdeltPanelData | null> {
     return panelCache.data;
   }
   try {
-    // Note: GDELT is a direct proxy endpoint (/gdelt), not a relay panel channel
-    const resp = await fetch(`${RELAY_HTTP_BASE}/gdelt`, {
-      headers: getRelayFetchHeaders(),
-    });
-    if (!resp.ok) {
-      throw new Error(`GDELT fetch failed: ${resp.status}`);
-    }
-    const data = await resp.json() as GdeltPanelData;
+    // Use relay panel channel instead of direct /gdelt endpoint
+    const data = await fetchRelayPanel<GdeltPanelData>('gdelt');
     if (data) {
       panelCache.data = data;
       panelCache.timestamp = Date.now();

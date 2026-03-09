@@ -46,6 +46,7 @@ VALUES
   ('ai:intel-digest',   '*/10 * * * *',        'ai:digest:global:v1',              600,   'custom', 'AI intel digest', '{}'),
   ('ai:panel-summary',  '*/15 * * * *',        'ai:panel-summary:v1',              900,   'custom', 'AI panel summary', '{}'),
   ('ai:article-summaries','2-59/5 * * * *',    'ai:article-summaries:v1',           300,   'custom', 'AI article summaries', '{}'),
+  ('ai:classifications', '*/15 * * * *',       'ai:classifications:v1',              900,   'custom', 'AI event classifications', '{}'),
   ('ai:country-briefs', '*/30 * * * *',        'ai:country-briefs:v1',          1800,  'custom', 'AI country briefs', '{}'),
   ('ai:posture-analysis','3-59/15 * * * *',    'ai:posture-analysis:v1',           900,   'custom', 'AI posture analysis', '{}'),
   ('ai:instability-analysis','5-59/30 * * * *','ai:instability-analysis:v1',       1800,  'custom', 'AI instability analysis', '{}'),

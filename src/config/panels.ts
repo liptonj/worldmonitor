@@ -12,7 +12,7 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'live-news': { name: 'Live News', enabled: true, priority: 1 },
   headlines: { name: 'Latest Headlines', enabled: true, priority: 1 },
   'live-webcams': { name: 'Live Webcams', enabled: false, priority: 1 },
-  insights: { name: 'AI Insights', enabled: true, priority: 1 },
+  insights: { name: 'AI Insights', enabled: true, priority: 1, channels: ['ai:panel-summary'] },
   'strategic-posture': { name: 'AI Strategic Posture', enabled: true, priority: 1, channels: ['strategic-posture'] },
   cii: { name: 'Country Instability', enabled: true, priority: 1 },
   'strategic-risk': { name: 'Strategic Risk Overview', enabled: true, priority: 1, channels: ['strategic-risk'] },

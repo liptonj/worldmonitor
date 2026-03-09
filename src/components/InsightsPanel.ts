@@ -17,6 +17,7 @@ import { getAiFlowSettings, isAnyAiProviderEnabled, subscribeAiFlowChange } from
 import type { ClusteredEvent, FocalPoint, MilitaryFlight } from '@/types';
 
 export class InsightsPanel extends Panel {
+  override readonly channelKeys = ['ai:panel-summary'];
   private isHidden = false;
   private lastBriefUpdate = 0;
   private cachedBrief: string | null = null;
@@ -26,6 +27,7 @@ export class InsightsPanel extends Panel {
   private lastMilitaryFlights: MilitaryFlight[] = [];
   private lastClusters: ClusteredEvent[] = [];
   private aiFlowUnsubscribe: (() => void) | null = null;
+  private panelSummaryUnsubscribe: (() => void) | null = null;
   private updateGeneration = 0;
   private static readonly BRIEF_COOLDOWN_MS = 120000; // 2 min cooldown (API has limits)
   private static readonly BRIEF_CACHE_KEY = 'summary:world-brief';
@@ -50,6 +52,59 @@ export class InsightsPanel extends Panel {
         void this.onAiFlowChanged();
       });
     }
+
+    // Listen for ai:panel-summary from relay (bootstrap, HTTP fallback, or WebSocket push)
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) this.applyAiPanelSummary(detail);
+    };
+    document.addEventListener('wm:panel-summary-updated', handler);
+    this.panelSummaryUnsubscribe = () => document.removeEventListener('wm:panel-summary-updated', handler);
+  }
+
+  override showLoading(message?: string): void {
+    this.setContent(`<div class="insights-empty">${escapeHtml(message ?? t('components.insights.waitingForData'))}</div>`);
+  }
+
+  /** Render relay ai:panel-summary payload (server-generated executive summary). */
+  public applyAiPanelSummary(payload: unknown): void {
+    if (this.isHidden) return;
+    const p = payload as { errorCode?: string; errorKey?: string; summary?: string; keyEvents?: string[]; riskLevel?: string; data?: { summary?: string; keyEvents?: string[]; riskLevel?: string } } | undefined;
+    if (!p) return;
+
+    // Error from ai-handler (errorCode path)
+    if (p.errorCode || p.errorKey) {
+      const key = p.errorKey ?? 'errorRetry';
+      const msg = t(`components.summarize.${key}` as 'components.summarize.errorRetry');
+      this.setDataBadge('unavailable');
+      this.setContent(`<div class="insights-error">${escapeHtml(msg)}</div>`);
+      return;
+    }
+
+    // Success: payload may be unwrapped { summary, keyEvents, riskLevel } or nested in data
+    const summary = p.summary ?? p.data?.summary;
+    const keyEvents = p.keyEvents ?? p.data?.keyEvents ?? [];
+    const riskLevel = p.riskLevel ?? p.data?.riskLevel ?? 'medium';
+
+    if (!summary) {
+      this.setDataBadge('unavailable');
+      this.setContent(`<div class="insights-empty">${t('components.insights.waitingForData')}</div>`);
+      return;
+    }
+
+    this.setDataBadge('live');
+    const riskClass = ['low', 'medium', 'high', 'critical'].includes(riskLevel) ? riskLevel : 'medium';
+    const eventsHtml = Array.isArray(keyEvents) && keyEvents.length > 0
+      ? `<div class="insights-section"><div class="insights-section-title">KEY EVENTS</div><ul class="insights-key-events">${keyEvents.slice(0, 8).map(ev => `<li>${escapeHtml(String(ev))}</li>`).join('')}</ul></div>`
+      : '';
+    this.setContent(`
+      <div class="insights-brief">
+        <div class="insights-section-title">${SITE_VARIANT === 'tech' ? '🚀 TECH BRIEF' : '🌍 WORLD BRIEF'}</div>
+        <span class="insights-risk-badge ${riskClass}">${escapeHtml(riskLevel.toUpperCase())}</span>
+        <div class="insights-brief-text">${escapeHtml(summary)}</div>
+      </div>
+      ${eventsHtml}
+    `);
   }
 
   public setMilitaryFlights(flights: MilitaryFlight[]): void {
@@ -722,6 +777,7 @@ export class InsightsPanel extends Panel {
 
   public override destroy(): void {
     this.aiFlowUnsubscribe?.();
+    this.panelSummaryUnsubscribe?.();
     super.destroy();
   }
 }

@@ -463,6 +463,10 @@ export class App {
     void preloadCountryGeometry().catch(() => {});
 
     await fetchBootstrapData(SITE_VARIANT || 'full');
+    // Load ai:panel-summary from bootstrap/HTTP so AI Insights panel can render immediately
+    void this.dataLoader.loadChannelWithFallback('ai:panel-summary', (data) => {
+      this.dataLoader.getHandler('ai:panel-summary')?.(data);
+    });
     // Load news immediately after bootstrap to consume cached data
     void this.dataLoader.loadNews();
     // loadNews() is called immediately after bootstrap to consume cached news.
@@ -588,20 +592,21 @@ export class App {
   private setupRelayPush(): void {
     const variant = SITE_VARIANT || 'full';
 
-    const channels = [...RELAY_CHANNELS, `news:${variant}`];
-    if (variant === 'full') channels.push('pizzint');
+    // Exclude variant-specific news channels; add only the active variant's news.
+    // Exclude pizzint for non-full variants (full variant needs it for PizzINT indicator).
+    const newsChannels = ['news:full', 'news:tech', 'news:finance', 'news:happy'];
+    const channels = [
+      ...RELAY_CHANNELS.filter(
+        (ch) => !newsChannels.includes(ch) && (variant === 'full' || ch !== 'pizzint')
+      ),
+      `news:${variant}`,
+    ];
 
     initRelayPush(channels);
 
     for (const [channel] of Object.entries(CHANNEL_REGISTRY)) {
       const handler = this.getPushHandler(channel);
       if (handler) subscribeRelayPush(channel, handler);
-    }
-    const newsHandler = this.getPushHandler(`news:${variant}`);
-    if (newsHandler) subscribeRelayPush(`news:${variant}`, newsHandler);
-    if (variant === 'full') {
-      const pizzintHandler = this.getPushHandler('pizzint');
-      if (pizzintHandler) subscribeRelayPush('pizzint', pizzintHandler);
     }
   }
 

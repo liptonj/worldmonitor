@@ -19,6 +19,7 @@
     "telegram": "relay:telegram:v1",
     "oref": "relay:oref:v1",
     "ais": "relay:ais-snapshot:v1",
+    "gdelt": "relay:gdelt:v1",
     "intelligence": "ai:digest:global:v1",
     "trade": "relay:trade:v1",
     "supply-chain": "supply_chain:chokepoints:v1",
@@ -42,7 +43,12 @@
     "ai:country-briefs": "ai:country-briefs:v1",
     "ai:posture-analysis": "ai:posture-analysis:v1",
     "ai:instability-analysis": "ai:instability-analysis:v1",
-    "ai:risk-overview": "ai:risk-overview:v1"
+    "ai:risk-overview": "ai:risk-overview:v1",
+    "news:full": "news:digest:v1:full:en",
+    "news:tech": "news:digest:v1:tech:en",
+    "news:finance": "news:digest:v1:finance:en",
+    "news:happy": "news:digest:v1:happy:en",
+    "pizzint": "intel:pizzint:v1"
   },
   "mapKeys": {
     "flights": "relay:flights:v1",
@@ -59,5 +65,5 @@
     "techEvents": "relay:tech-events:v1",
     "iranAttacks": "conflict:iran-events:v1"
   },
-  "_generated": "2026-03-09T13:57:19.107Z"
+  "_generated": "2026-03-09T16:42:26.801Z"
 }

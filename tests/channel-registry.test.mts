@@ -44,6 +44,7 @@ const EXPECTED_CHANNELS = [
   'telegram',
   'oref',
   'ais',
+  'gdelt',
   'intelligence',
   'trade',
   'supply-chain',
@@ -68,14 +69,19 @@ const EXPECTED_CHANNELS = [
   'ai:posture-analysis',
   'ai:instability-analysis',
   'ai:risk-overview',
+  'news:full',
+  'news:tech',
+  'news:finance',
+  'news:happy',
+  'pizzint',
 ];
 
 describe('Channel Registry', () => {
-  it('has exactly 43 channels', () => {
+  it('has exactly 49 channels', () => {
     assert.equal(
       Object.keys(CHANNEL_REGISTRY).length,
-      43,
-      'CHANNEL_REGISTRY must have 43 channels'
+      49,
+      'CHANNEL_REGISTRY must have 49 channels'
     );
   });
 
@@ -135,7 +141,8 @@ describe('Channel Registry', () => {
   });
 
   it('redisKey follows expected pattern', () => {
-    const redisKeyPattern = /^[a-z0-9_-]+(?::[a-z0-9_-]+)*:v\d+$|^relay:config:[a-z-]+$/;
+    const redisKeyPattern =
+      /^[a-z0-9_-]+(?::[a-z0-9_-]+)*:v\d+(?::[a-z0-9_-]+)*$|^relay:config:[a-z-]+$/;
     for (const [key, def] of Object.entries(CHANNEL_REGISTRY)) {
       assert.ok(
         redisKeyPattern.test(def.redisKey),

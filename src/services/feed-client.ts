@@ -1,6 +1,7 @@
 // src/services/feed-client.ts
 import type { Feed } from '@/types';
 import { getHydratedNewsSources } from '@/services/bootstrap';
+import { FEEDS, INTEL_SOURCES } from '@/config/feeds-seed';
 
 // Static structural config — region keys to label keys and feed category keys
 export const SOURCE_REGION_MAP: Record<string, { labelKey: string; feedKeys: string[] }> = {
@@ -99,6 +100,11 @@ export function loadNewsSources(): void {
   if (hydrated) {
     _sources = hydrated;
     buildFeedsFromSources();
+  } else {
+    // Fallback: use seed feeds when config:news-sources not available (e.g. bootstrap missed it)
+    // Enables World News (politics) and other RSS panels to load via per-feed fallback
+    _feeds = { ...FEEDS };
+    _intelSources = [...INTEL_SOURCES];
   }
   // No HTTP fetch — relay pushes config:news-sources via WS; applyNewsSources handles updates
 }
