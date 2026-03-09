@@ -4,7 +4,7 @@ import type {
   GdeltArticle as ProtoGdeltArticle,
   SearchGdeltDocumentsResponse,
 } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
-import { RELAY_HTTP_BASE } from '@/services/relay-http';
+import { fetchRelayPanel, RELAY_HTTP_BASE, getRelayFetchHeaders } from '@/services/relay-http';
 
 export interface GdeltArticle {
   title: string;
@@ -121,31 +121,39 @@ export function getIntelTopics(): IntelTopic[] {
   }));
 }
 
-// ---- Relay GDELT proxy ----
+// ---- Relay GDELT cached data ----
+
+interface GdeltTopicCache {
+  articles: GdeltArticle[];
+  query: string;
+  fetchedAt: string;
+  error?: string;
+}
+
+interface GdeltPanelData {
+  data?: Record<string, GdeltTopicCache>;
+  status?: string;
+  timestamp?: string;
+}
 
 const CACHE_TTL = 5 * 60 * 1000;
-const articleCache = new Map<string, { articles: GdeltArticle[]; timestamp: number }>();
+const panelCache: { data: GdeltPanelData | null; timestamp: number } = { data: null, timestamp: 0 };
 
-async function fetchFromRelay(
-  query: string,
-  maxrecords: number,
-  timespan: string,
-  toneFilter = '',
-  sort = 'date',
-): Promise<SearchGdeltDocumentsResponse> {
-  const params = new URLSearchParams({
-    query,
-    max_records: String(maxrecords),
-    timespan,
-    ...(toneFilter && { tone_filter: toneFilter }),
-    ...(sort && sort !== 'date' && { sort }),
-  });
-  const resp = await fetch(`${RELAY_HTTP_BASE}/gdelt?${params}`, {
-    headers: { Authorization: `Bearer ${import.meta.env.VITE_WS_RELAY_TOKEN ?? ''}` },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!resp.ok) throw new Error(`GDELT relay ${resp.status}`);
-  return resp.json() as Promise<SearchGdeltDocumentsResponse>;
+async function fetchGdeltPanel(): Promise<GdeltPanelData | null> {
+  if (panelCache.data && Date.now() - panelCache.timestamp < CACHE_TTL) {
+    return panelCache.data;
+  }
+  try {
+    const data = await fetchRelayPanel<GdeltPanelData>('gdelt');
+    if (data) {
+      panelCache.data = data;
+      panelCache.timestamp = Date.now();
+    }
+    return data;
+  } catch (err) {
+    console.warn(`[GDELT-Intel] Panel fetch failed: ${err instanceof Error ? err.message : err}`);
+    return panelCache.data;
+  }
 }
 
 /** Map proto GdeltArticle (all required strings) to service GdeltArticle (optional fields) */
@@ -161,32 +169,46 @@ function toGdeltArticle(a: ProtoGdeltArticle): GdeltArticle {
   };
 }
 
+/** Fetch articles for a specific topic from pre-cached GDELT data */
+export async function fetchGdeltArticlesForTopic(topicId: string): Promise<GdeltArticle[]> {
+  const panel = await fetchGdeltPanel();
+  const topicData = panel?.data?.[topicId];
+  return topicData?.articles || [];
+}
+
+/** Legacy: Fetch GDELT articles by query - falls back to proxy for dynamic queries */
 export async function fetchGdeltArticles(
   query: string,
   maxrecords = 10,
   timespan = '24h'
 ): Promise<GdeltArticle[]> {
-  const cacheKey = `${query}:${maxrecords}:${timespan}`;
-  const cached = articleCache.get(cacheKey);
-
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.articles;
+  // Check if this matches a known topic query - use cache
+  const panel = await fetchGdeltPanel();
+  if (panel?.data) {
+    for (const [_topicId, topicData] of Object.entries(panel.data)) {
+      if (topicData.query === query) {
+        return topicData.articles.slice(0, maxrecords);
+      }
+    }
   }
 
+  // Fallback to proxy for custom queries (e.g., hotspot context)
   try {
-    const resp = await fetchFromRelay(query, maxrecords, timespan);
-
-    if (resp.error) {
-      console.warn(`[GDELT-Intel] RPC error: ${resp.error}`);
-      return cached?.articles || [];
-    }
-
-    const articles: GdeltArticle[] = (resp.articles || []).map(toGdeltArticle);
-    articleCache.set(cacheKey, { articles, timestamp: Date.now() });
-    return articles;
+    const params = new URLSearchParams({
+      query,
+      max_records: String(maxrecords),
+      timespan,
+    });
+    const resp = await fetch(`${RELAY_HTTP_BASE}/gdelt?${params}`, {
+      headers: getRelayFetchHeaders(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!resp.ok) throw new Error(`GDELT relay ${resp.status}`);
+    const data = await resp.json() as { articles?: GdeltArticle[] };
+    return data.articles || [];
   } catch (err) {
     console.warn(`[GDELT-Intel] Relay fetch failed: ${err instanceof Error ? err.message : err}`);
-    return cached?.articles || [];
+    return [];
   }
 }
 
@@ -196,7 +218,7 @@ export async function fetchHotspotContext(hotspot: Hotspot): Promise<GdeltArticl
 }
 
 export async function fetchTopicIntelligence(topic: IntelTopic): Promise<TopicIntelligence> {
-  const articles = await fetchGdeltArticles(topic.query, 10, '24h');
+  const articles = await fetchGdeltArticlesForTopic(topic.id);
   return {
     topic,
     articles,
@@ -205,19 +227,15 @@ export async function fetchTopicIntelligence(topic: IntelTopic): Promise<TopicIn
 }
 
 export async function fetchAllTopicIntelligence(): Promise<TopicIntelligence[]> {
-  // Sequential with delay — GDELT rate-limits parallel bursts aggressively
-  const results: TopicIntelligence[] = [];
-  for (const topic of INTEL_TOPICS) {
-    try {
-      results.push(await fetchTopicIntelligence(topic));
-    } catch {
-      // skip failed topics
-    }
-    if (results.length < INTEL_TOPICS.length) {
-      await new Promise(r => setTimeout(r, 1500));
-    }
-  }
-  return results;
+  // All topics are pre-cached - fetch panel once and extract all
+  const panel = await fetchGdeltPanel();
+  if (!panel?.data) return [];
+  
+  return INTEL_TOPICS.map(topic => ({
+    topic,
+    articles: panel.data?.[topic.id]?.articles || [],
+    fetchedAt: new Date(panel.data?.[topic.id]?.fetchedAt || Date.now()),
+  }));
 }
 
 export function formatArticleDate(dateStr: string): string {
@@ -255,53 +273,23 @@ export function extractDomain(url: string): string {
 
 // ---- Positive GDELT queries (Happy variant) ----
 
-export async function fetchPositiveGdeltArticles(
-  query: string,
-  toneFilter = 'tone>5',
-  sort = 'ToneDesc',
-  maxrecords = 15,
-  timespan = '72h',
-): Promise<GdeltArticle[]> {
-  const cacheKey = `positive:${query}:${toneFilter}:${sort}:${maxrecords}:${timespan}`;
-  const cached = articleCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.articles;
-  }
-
-  try {
-    const resp = await fetchFromRelay(query, maxrecords, timespan, toneFilter, sort);
-
-    if (resp.error) {
-      console.warn(`[GDELT-Intel] Positive RPC error: ${resp.error}`);
-      return cached?.articles || [];
-    }
-
-    const articles: GdeltArticle[] = (resp.articles || []).map(toGdeltArticle);
-    articleCache.set(cacheKey, { articles, timestamp: Date.now() });
-    return articles;
-  } catch (err) {
-    console.warn(`[GDELT-Intel] Positive relay fetch failed: ${err instanceof Error ? err.message : err}`);
-    return cached?.articles || [];
-  }
+export async function fetchPositiveGdeltArticles(topicId: string): Promise<GdeltArticle[]> {
+  return fetchGdeltArticlesForTopic(topicId);
 }
 
 export async function fetchPositiveTopicIntelligence(topic: IntelTopic): Promise<TopicIntelligence> {
-  const articles = await fetchPositiveGdeltArticles(topic.query);
+  const articles = await fetchGdeltArticlesForTopic(topic.id);
   return { topic, articles, fetchedAt: new Date() };
 }
 
 export async function fetchAllPositiveTopicIntelligence(): Promise<TopicIntelligence[]> {
-  // Sequential with delay — GDELT rate-limits parallel bursts aggressively
-  const results: TopicIntelligence[] = [];
-  for (const topic of POSITIVE_GDELT_TOPICS) {
-    try {
-      results.push(await fetchPositiveTopicIntelligence(topic));
-    } catch {
-      // skip failed topics
-    }
-    if (results.length < POSITIVE_GDELT_TOPICS.length) {
-      await new Promise(r => setTimeout(r, 1500));
-    }
-  }
-  return results;
+  // All topics are pre-cached - fetch panel once and extract all
+  const panel = await fetchGdeltPanel();
+  if (!panel?.data) return [];
+  
+  return POSITIVE_GDELT_TOPICS.map(topic => ({
+    topic,
+    articles: panel.data?.[topic.id]?.articles || [],
+    fetchedAt: new Date(panel.data?.[topic.id]?.fetchedAt || Date.now()),
+  }));
 }
