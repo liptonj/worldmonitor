@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { WebSocketServer } = require('ws');
@@ -10,71 +11,32 @@ const { get, getClient, keys: redisKeys, ttl: redisTtl, del: redisDel, strlen: r
 
 const log = createLogger('gateway');
 
-const PHASE4_CHANNEL_KEYS = {
-  'markets': 'market:dashboard:v1',
-  'stablecoins': 'relay:stablecoins:v1',
-  'etf-flows': 'relay:etf-flows:v1',
-  'macro-signals': 'economic:macro-signals:v1',
-  'strategic-risk': 'risk:scores:sebuf:v1',
-  'predictions': 'relay:predictions:v1',
-  'news:full': 'news:digest:v1:full:en',
-  'news:tech': 'news:digest:v1:tech:en',
-  'news:finance': 'news:digest:v1:finance:en',
-  'news:happy': 'news:digest:v1:happy:en',
-  'supply-chain': 'supply_chain:chokepoints:v1',
-  'strategic-posture': 'theater-posture:sebuf:v1',
-  'pizzint': 'intel:pizzint:v1',
-  'iran-events': 'conflict:iran-events:v1',
-  'weather': 'relay:weather:v1',
-  'gps-interference': 'relay:gps-interference:v1',
-  'cables': 'relay:cables:v1',
-  'cyber': 'relay:cyber:v1',
-  'service-status': 'relay:service-status:v1',
-  'trade': 'relay:trade:v1',
-  'fred': 'relay:fred:v1',
-  'oil': 'relay:oil:v1',
-  'conflict': 'relay:conflict:v1',
-  'natural': 'relay:natural:v1',
-  'eonet': 'relay:eonet:v1',
-  'gdacs': 'relay:gdacs:v1',
-  'oref': 'relay:oref:v1',
-  'opensky': 'relay:opensky:v1',
-  'gdelt': 'relay:gdelt:v1',
-  'youtube-live': 'relay:youtube-live:v1',
-  'bis': 'relay:bis:v1',
-  'flights': 'relay:flights:v1',
-  'climate': 'relay:climate:v1',
-  'ucdp-events': 'conflict:ucdp-events:v1',
-  'worldbank': 'relay:worldbank:v1',
-  'security-advisories': 'relay:security-advisories:v1',
-  'gulf-quotes': 'relay:gulf-quotes:v1',
-  'tech-events': 'relay:tech-events:v1',
-  'spending': 'relay:spending:v1',
-  'giving': 'giving:summary:v1',
-  'ais': 'relay:ais-snapshot:v1',
-  'telegram': 'relay:telegram:v1',
-  'intelligence': 'ai:digest:global:v1',
-  'ai:intel-digest': 'ai:digest:global:v1',
-  'ai:panel-summary': 'ai:panel-summary:v1',
-  'ai:article-summaries': 'ai:article-summaries:v1',
-  'ai:country-briefs': 'ai:country-briefs:v1',
-  'ai:classifications': 'ai:classifications:v1',
-  'ai:posture-analysis': 'ai:posture-analysis:v1',
-  'ai:instability-analysis': 'ai:instability-analysis:v1',
-  'ai:risk-overview': 'ai:risk-overview:v1',
-};
+/** Load channel keys from generated JSON (from src/config/channel-registry.ts). */
+function loadChannelKeys() {
+  const jsonPath = path.join(__dirname, 'channel-keys.json');
+  try {
+    const raw = fs.readFileSync(jsonPath, 'utf8');
+    const data = JSON.parse(raw);
+    if (!data.channelKeys || typeof data.channelKeys !== 'object') {
+      throw new Error('channel-keys.json missing channelKeys');
+    }
+    return {
+      channelKeys: data.channelKeys,
+      mapKeys: data.mapKeys || {},
+    };
+  } catch (err) {
+    log.error('Failed to load channel-keys.json', { path: jsonPath, error: err.message });
+    throw new Error(
+      'Run "npx tsx scripts/generate-channel-keys.mts" from repo root to generate channel-keys.json'
+    );
+  }
+}
+
+const { channelKeys: PHASE4_CHANNEL_KEYS, mapKeys: PHASE4_MAP_KEYS } = loadChannelKeys();
 
 const CHANNEL_TO_HYDRATION_KEY = Object.fromEntries(
   Object.keys(PHASE4_CHANNEL_KEYS).map((k) => [k, k])
 );
-
-const PHASE4_MAP_KEYS = {
-  'ais': 'relay:ais-snapshot:v1',
-  'conflicts': 'relay:conflict:v1',
-  'natural': 'relay:natural:v1',
-  'weather': 'relay:weather:v1',
-  'flights': 'relay:flights:v1',
-};
 
 const CORS_HEADER = 'Access-Control-Allow-Origin';
 const CORS_VALUE = '*';
