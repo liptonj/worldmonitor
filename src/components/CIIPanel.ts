@@ -16,6 +16,14 @@ export class CIIPanel extends Panel {
       infoTooltip: t('components.cii.infoTooltip'),
     });
     this.showLoading(t('common.loading'));
+
+    // Fallback: if focal-points-ready never fires (e.g. news doesn't cluster),
+    // render CII with available data after 10s instead of waiting forever
+    setTimeout(() => {
+      if (!this.focalPointsReady) {
+        this.refresh(true);
+      }
+    }, 10_000);
   }
 
   public setShareStoryHandler(handler: (code: string, name: string) => void): void {
