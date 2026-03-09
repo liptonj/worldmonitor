@@ -85,9 +85,8 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
 }
 
 export function getHydratedNewsSources(): NewsSourceRow[] | null {
-  const val = hydrationCache.get('newsSources') ?? hydrationCache.get('config:news-sources');
+  const val = hydrationCache.get('config:news-sources');
   if (val !== undefined) {
-    hydrationCache.delete('newsSources');
     hydrationCache.delete('config:news-sources');
     if (!Array.isArray(val)) return null;
     return val as NewsSourceRow[];
@@ -96,9 +95,9 @@ export function getHydratedNewsSources(): NewsSourceRow[] | null {
 }
 
 export function getHydratedFeatureFlags(): Record<string, unknown> | null {
-  const val = hydrationCache.get('featureFlags');
+  const val = hydrationCache.get('config:feature-flags');
   if (val !== undefined) {
-    hydrationCache.delete('featureFlags');
+    hydrationCache.delete('config:feature-flags');
     if (typeof val !== 'object' || val === null || Array.isArray(val)) return null;
     return val as Record<string, unknown>;
   }

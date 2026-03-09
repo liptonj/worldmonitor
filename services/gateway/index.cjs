@@ -34,25 +34,7 @@ function loadChannelKeys() {
 
 const { channelKeys: PHASE4_CHANNEL_KEYS, mapKeys: PHASE4_MAP_KEYS } = loadChannelKeys();
 
-/** Map relay channel keys to frontend hydration keys (bootstrap.ts, getHydratedData, etc.). */
-const HYDRATION_KEY_OVERRIDES = {
-  'config:news-sources': 'newsSources',
-  'config:feature-flags': 'featureFlags',
-  'etf-flows': 'etfFlows',
-  'macro-signals': 'macroSignals',
-  'service-status': 'serviceStatuses',
-  'supply-chain': 'chokepoints',
-  climate: 'climateAnomalies',
-  conflict: 'acledEvents',
-  'gps-interference': 'gpsInterference',
-  'strategic-risk': 'strategicRisk',
-  'strategic-posture': 'strategicPosture',
-  'ucdp-events': 'ucdpEvents',
-  ais: 'aisSnapshot',
-};
-const CHANNEL_TO_HYDRATION_KEY = Object.fromEntries(
-  Object.keys(PHASE4_CHANNEL_KEYS).map((k) => [k, HYDRATION_KEY_OVERRIDES[k] ?? k])
-);
+/** No aliasing — bootstrap returns the canonical channel key directly. */
 
 const CORS_HEADER = 'Access-Control-Allow-Origin';
 const CORS_VALUE = '*';
@@ -147,9 +129,8 @@ function routeHttpRequest(pathname, redis) {
       );
       const out = {};
       for (let i = 0; i < channels.length; i++) {
-        const hydrationKey = CHANNEL_TO_HYDRATION_KEY[channels[i]] || channels[i];
         const raw = settled[i].status === 'fulfilled' ? (settled[i].value ?? null) : null;
-        out[hydrationKey] = unwrapEnvelope(raw);
+        out[channels[i]] = unwrapEnvelope(raw);
       }
       return {
         status: 200,
@@ -509,7 +490,6 @@ module.exports = {
   unwrapEnvelope,
   PHASE4_CHANNEL_KEYS,
   PHASE4_MAP_KEYS,
-  CHANNEL_TO_HYDRATION_KEY,
 };
 
 if (require.main === module) {

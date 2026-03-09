@@ -127,7 +127,7 @@ export class MacroSignalsPanel extends Panel {
 
   constructor() {
     super({ id: 'macro-signals', title: t('panels.macroSignals'), showCount: false });
-    const hydrated = getHydratedData('macroSignals') as GetMacroSignalsResponse | undefined;
+    const hydrated = getHydratedData('macro-signals') as GetMacroSignalsResponse | undefined;
     if (hydrated) {
       this.data = mapProtoToData(hydrated);
       this.error = null;

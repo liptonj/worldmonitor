@@ -324,7 +324,7 @@ interface UcdpEventsResponse {
 }
 
 export async function fetchUcdpEvents(): Promise<UcdpEventsResponse> {
-  const hydrated = getHydratedData('ucdpEvents') as { events?: ProtoUcdpEvent[] } | undefined;
+  const hydrated = getHydratedData('ucdp-events') as { events?: ProtoUcdpEvent[] } | undefined;
   if (hydrated?.events?.length) {
     const data = hydrated.events.map(toUcdpGeoEvent);
     return { success: true, count: data.length, data, cached_at: '' };

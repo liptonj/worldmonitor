@@ -5,95 +5,9 @@
 // Frontend: StrategicPosturePanel.applyAiAnalysis(payload) — expects { analyses: [...] } or worker format.
 // Relay broadcasts full { timestamp, source, data, status }; data.analyses is the array.
 
+const { fetchLLMProvider, callLLM } = require('@worldmonitor/shared/llm.cjs');
+
 const REDIS_KEYS = ['relay:strategic-posture:v1', 'relay:conflict:v1', 'relay:opensky:v1'];
-
-async function fetchLLMProvider(supabase) {
-  const { data: providerRows, error: providerError } = await supabase.rpc('get_active_llm_provider');
-  if (providerError || !providerRows || providerRows.length === 0) {
-    throw new Error('No active LLM provider found');
-  }
-  const row = providerRows[0];
-  const apiUrl = row.api_url ?? '';
-  const model = row.default_model ?? '';
-  const secretName = row.api_key_secret_name ?? '';
-  const providerName = row.name ?? 'unknown';
-
-  let apiKey = '';
-  if (secretName) {
-    const { data: secretData, error: secretError } = await supabase.rpc('get_vault_secret_value', {
-      secret_name: secretName,
-    });
-    if (!secretError && secretData != null) {
-      apiKey = String(secretData);
-    }
-  }
-  if (!apiKey && secretName) {
-    apiKey = process.env[secretName] ?? '';
-  }
-  // API key is optional (e.g., Ollama behind LiteLLM proxy doesn't need one)
-  // If secretName is null/empty, the provider doesn't require an API key
-
-  // Fetch Bearer token if provider is Ollama
-  let bearerToken = '';
-  if (providerName === 'ollama') {
-    const tokenResult = await supabase.rpc('get_vault_secret_value', { secret_name: 'OLLAMA_BEARER_TOKEN' });
-    if (!tokenResult.error && tokenResult.data != null) {
-      bearerToken = String(tokenResult.data);
-    }
-  }
-
-  return {
-    api_key: apiKey,
-    base_url: apiUrl,
-    model_name: model,
-    provider_type: row.provider_type ?? 'openai',
-    provider_name: providerName,
-    bearer_token: bearerToken,
-  };
-}
-
-async function callLLM(provider, systemPrompt, userPrompt, http) {
-  const { api_key, base_url, model_name, bearer_token } = provider;
-  const url = base_url.includes('/chat/completions') ? base_url : base_url.replace(/\/+$/, '') + '/chat/completions';
-
-  const headers = {
-    'Content-Type': 'application/json',
-  };
-
-  // Add Bearer token if present (Ollama via LiteLLM proxy)
-  if (bearer_token) {
-    headers.Authorization = `Bearer ${bearer_token}`;
-  }
-  // Otherwise, add standard API key if present
-  else if (api_key) {
-    headers.Authorization = `Bearer ${api_key}`;
-  }
-
-  const response = await http.fetchJson(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: model_name,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.4,
-      max_tokens: 2500,
-    }),
-  });
-
-  if (response.error) {
-    throw new Error(response.error.message || 'LLM API error');
-  }
-
-  const content = response.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error('LLM returned empty or invalid response');
-  }
-
-  return content;
-}
 
 module.exports = async function generatePostureAnalysis({ supabase, redis, log, http }) {
   if (!supabase || !redis || !http) {
@@ -137,7 +51,10 @@ module.exports = async function generatePostureAnalysis({ supabase, redis, log, 
 
     const userPrompt = `Analyze military postures:\n\n${JSON.stringify(context, null, 2)}`;
 
-    const responseText = await callLLM(provider, systemPrompt, userPrompt, http);
+    const responseText = await callLLM(provider, systemPrompt, userPrompt, http, {
+  temperature: 0.4,
+  maxTokens: 2500,
+});
 
     let parsed;
     try {

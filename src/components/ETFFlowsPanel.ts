@@ -33,7 +33,7 @@ export class ETFFlowsPanel extends Panel {
   private error: string | null = null;
   constructor() {
     super({ id: 'etf-flows', title: t('panels.etfFlows'), showCount: false });
-    const hydrated = getHydratedData('etfFlows') as ETFFlowsResult | undefined;
+    const hydrated = getHydratedData('etf-flows') as ETFFlowsResult | undefined;
     if (hydrated) {
       this.data = hydrated;
       this.error = null;

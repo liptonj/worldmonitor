@@ -10,10 +10,14 @@ services:
 
   redis:
     image: redis:7-alpine
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "300 10", "--save", "60 10000", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
-      - "127.0.0.1:6379:6379"  # Expose Redis to localhost only for diagnostics
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
     networks:
       - relay-internal
     healthcheck:
@@ -105,6 +109,11 @@ services:
       - GATEWAY_HOST=gateway
       - GATEWAY_GRPC_PORT=50051
       - WORKER_GRPC_PORT=50052
+      - FRED_API_KEY=${FRED_API_KEY:-}
+      - EIA_API_KEY=${EIA_API_KEY:-}
+      - WTO_API_KEY=${WTO_API_KEY:-}
+      - NASA_FIRMS_API_KEY=${NASA_FIRMS_API_KEY:-}
+      - ACLED_ACCESS_TOKEN=${ACLED_ACCESS_TOKEN:-}
       - LOG_LEVEL=info
     deploy:
       replicas: 3
@@ -167,6 +176,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - OLLAMA_API_URL=${OLLAMA_API_URL:-}
@@ -177,6 +187,9 @@ services:
       - GATEWAY_GRPC_PORT=50051
       - AI_ENGINE_GRPC_PORT=50053
       - LOG_LEVEL=info
+
+volumes:
+  redis-data:
 
 networks:
   relay-internal:

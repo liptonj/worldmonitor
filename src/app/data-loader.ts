@@ -94,24 +94,8 @@ export class DataLoaderManager implements AppModule, DataLoaderBridge {
   init(): void {}
   destroy(): void {}
 
-  /** Alternate hydration keys (camelCase) used by some relays (e.g. ais-relay) when bootstrap returns data. */
-  private static readonly HYDRATION_ALIASES: Record<string, string> = {
-    'strategic-posture': 'strategicPosture',
-    'strategic-risk': 'strategicRisk',
-    'conflict': 'acledEvents',
-    'ais': 'aisSnapshot',
-    'climate': 'climateAnomalies',
-    'gps-interference': 'gpsInterference',
-    'ucdp-events': 'ucdpEvents',
-    'supply-chain': 'chokepoints',
-    'etf-flows': 'etfFlows',
-    'macro-signals': 'macroSignals',
-    'service-status': 'serviceStatuses',
-  };
-
   async loadChannelWithFallback<T>(channel: string, renderFn: (data: T) => void): Promise<boolean> {
-    const alias = DataLoaderManager.HYDRATION_ALIASES[channel];
-    const hydrated = getHydratedData(channel) ?? (alias ? getHydratedData(alias) : undefined);
+    const hydrated = getHydratedData(channel);
     if (hydrated) {
       renderFn(hydrated as T);
       return true;
@@ -126,8 +110,7 @@ export class DataLoaderManager implements AppModule, DataLoaderBridge {
 
   async loadAllData(): Promise<void> {
     for (const [channel] of Object.entries(CHANNEL_REGISTRY)) {
-      const alias = DataLoaderManager.HYDRATION_ALIASES[channel];
-      const data = getHydratedData(channel) ?? (alias ? getHydratedData(alias) : undefined);
+      const data = getHydratedData(channel);
       if (data !== undefined && data !== null) {
         const handler = this.domainHandlers[channel];
         if (handler) {

@@ -93,7 +93,7 @@ export async function fetchGpsInterference(): Promise<GpsJamData | null> {
       raw = await resp.json();
     } else {
       // Web: bootstrap hydration only — relay pushes updates via gps-interference WS channel
-      raw = getHydratedData('gpsInterference');
+      raw = getHydratedData('gps-interference');
       if (!raw) return cachedData;
     }
 

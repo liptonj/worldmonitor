@@ -162,7 +162,7 @@ function computeSummary(services: ServiceStatusResult[]): ServiceStatusSummary {
 }
 
 export async function fetchServiceStatuses(): Promise<ServiceStatusResponse> {
-  const hydrated = getHydratedData('serviceStatuses');
+  const hydrated = getHydratedData('service-status');
   if (hydrated) {
     const raw = hydrated as { statuses?: ProtoServiceStatus[] };
     const services = (raw.statuses ?? []).map(toServiceResult);

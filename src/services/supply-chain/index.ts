@@ -42,7 +42,7 @@ const emptySupplyChainDashboard: GetSupplyChainDashboardResponse = { shipping: u
 
 export async function fetchSupplyChainDashboard(): Promise<GetSupplyChainDashboardResponse> {
   const hShipping = getHydratedData('shippingRates') as GetShippingRatesResponse | undefined;
-  const hChokepoints = getHydratedData('chokepoints') as GetChokepointStatusResponse | undefined;
+  const hChokepoints = getHydratedData('supply-chain') as GetChokepointStatusResponse | undefined;
   const hMinerals = getHydratedData('minerals') as GetCriticalMineralsResponse | undefined;
   if (hShipping != null && hChokepoints != null && hMinerals != null) {
     return { shipping: hShipping, chokepoints: hChokepoints, minerals: hMinerals };
@@ -71,7 +71,7 @@ export async function fetchShippingRates(): Promise<GetShippingRatesResponse> {
 }
 
 export async function fetchChokepointStatus(): Promise<GetChokepointStatusResponse> {
-  const hydrated = getHydratedData('chokepoints') as GetChokepointStatusResponse | undefined;
+  const hydrated = getHydratedData('supply-chain') as GetChokepointStatusResponse | undefined;
   if (hydrated) return hydrated;
 
   try {

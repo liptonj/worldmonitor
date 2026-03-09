@@ -4270,36 +4270,7 @@ const PHASE4_CHANNEL_KEYS = {
   'ai:risk-overview': 'ai:risk-overview:v1',
 };
 
-// Map relay channel keys to frontend hydration keys (bootstrap.ts, getHydratedData, etc.)
-const CHANNEL_TO_HYDRATION_KEY = {
-  'config:news-sources': 'newsSources',
-  'config:feature-flags': 'featureFlags',
-  'etf-flows': 'etfFlows',
-  'macro-signals': 'macroSignals',
-  'service-status': 'serviceStatuses',
-  'supply-chain': 'chokepoints',
-  'giving': 'giving',
-  climate: 'climateAnomalies',
-  conflict: 'acledEvents',
-  natural: 'natural',
-  cyber: 'cyber',
-  cables: 'cables',
-  'gps-interference': 'gpsInterference',
-  'news:full': 'news:full',
-  'news:tech': 'news:tech',
-  'news:finance': 'news:finance',
-  'news:happy': 'news:happy',
-  'strategic-risk': 'strategicRisk',
-  'iran-events': 'iranEvents',
-  'gulf-quotes': 'gulfQuotes',
-  'tech-events': 'techEvents',
-  'strategic-posture': 'strategicPosture',
-  'ucdp-events': 'ucdpEvents',
-  intelligence: 'intelligence',
-  telegram: 'telegram',
-  oref: 'oref',
-  ais: 'aisSnapshot',
-};
+/** No aliasing — bootstrap returns the canonical channel key directly. */
 const PHASE4_MAP_KEYS = {
   'supply-chain': 'supply_chain:chokepoints:v1',
   gdacs: 'relay:gdacs:v1',
@@ -4827,10 +4798,7 @@ const server = http.createServer(async (req, res) => {
         })
       );
       const result = Object.fromEntries(entries.filter(([, v]) => v !== null));
-      const remappedResult = Object.fromEntries(
-        Object.entries(result).map(([ch, v]) => [CHANNEL_TO_HYDRATION_KEY[ch] ?? ch, v])
-      );
-      sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(remappedResult));
+      sendCompressed(req, res, 200, { 'Content-Type': 'application/json' }, JSON.stringify(result));
     } catch (err) {
       console.error('[bootstrap] error:', err?.message ?? err);
       safeEnd(res, 500, { 'Content-Type': 'application/json' },

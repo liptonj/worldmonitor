@@ -34,7 +34,7 @@ const breaker = createCircuitBreaker<ListClimateAnomaliesResponse>({ name: 'Clim
 const emptyClimateFallback: ListClimateAnomaliesResponse = { anomalies: [] };
 
 export async function fetchClimateAnomalies(): Promise<ClimateFetchResult> {
-  const hydrated = getHydratedData('climateAnomalies') as ListClimateAnomaliesResponse | undefined;
+  const hydrated = getHydratedData('climate') as ListClimateAnomaliesResponse | undefined;
   if (hydrated) {
     const anomalies = (hydrated.anomalies ?? []).map(toDisplayAnomaly).filter(a => a.severity !== 'normal');
     return { ok: true, anomalies };

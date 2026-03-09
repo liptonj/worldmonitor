@@ -141,8 +141,7 @@ async function loadPersistentRiskScores(): Promise<CachedRiskScores | null> {
  */
 export async function fetchCachedRiskScores(_signal?: AbortSignal): Promise<CachedRiskScores | null> {
   // 1. Bootstrap hydration (first call after page load)
-  // Gateway returns channel keys (kebab-case); support both for compatibility
-  const hydrated = getHydratedData('strategic-risk') ?? getHydratedData('strategicRisk');
+  const hydrated = getHydratedData('strategic-risk');
   if (hydrated && typeof hydrated === 'object' && 'ciiScores' in hydrated) {
     const data = toRiskScores(hydrated as GetRiskScoresResponse);
     cachedScores = data;
