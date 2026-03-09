@@ -113,6 +113,10 @@ export async function getProviderCredentials(provider: string): Promise<Provider
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const apiKey = await getSecret('OLLAMA_API_KEY');
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    
+    // CF Access headers are optional - add them if provided
+    // This allows connecting to both CF-protected endpoints (with tokens) 
+    // and local/unprotected endpoints (without tokens)
     if (cfId) headers['CF-Access-Client-Id'] = cfId;
     if (cfSecret) headers['CF-Access-Client-Secret'] = cfSecret;
 
