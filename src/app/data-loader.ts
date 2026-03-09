@@ -1,5 +1,14 @@
 import type { AppContext, AppModule } from '@/app/app-context';
-import { DATA_LOADER_CHANNEL_MAP } from '@/config/channel-registry';
+import {
+  createNewsHandlers,
+  createMarketsHandlers,
+  createEconomicHandlers,
+  createIntelligenceHandlers,
+  createGeoHandlers,
+  createInfrastructureHandlers,
+  createAiHandlers,
+  createConfigHandlers,
+} from '@/data';
 import type { NewsItem, MapLayers, SocialUnrestEvent } from '@/types';
 import type { TimeRange } from '@/components';
 import type { RelayPushHandlers } from '@/types/relay-push-handlers';
@@ -174,9 +183,43 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
   private lastCommodityData: Array<{ display: string; price: number | null; change: number | null; sparkline?: number[] }> = [];
   private firesCache: ListFireDetectionsResponse | null = null;
 
+  private domainHandlers: Record<string, (payload: unknown) => void>;
+
   constructor(ctx: AppContext, callbacks: DataLoaderCallbacks) {
     this.ctx = ctx;
     this.callbacks = callbacks;
+    this.domainHandlers = this.buildDomainHandlers();
+  }
+
+  private buildDomainHandlers(): Record<string, (payload: unknown) => void> {
+    const newsCallbacks = {
+      onNewsDigestProcessed: () => {
+        void this.loadHappySupplementaryAndRender().then(() =>
+          Promise.allSettled([
+            this.ctx.mapLayers.positiveEvents ? this.loadPositiveEvents() : Promise.resolve(),
+            this.ctx.mapLayers.kindness ? Promise.resolve(this.loadKindnessData()) : Promise.resolve(),
+          ])
+        );
+      },
+    };
+    const marketsCallbacks = {
+      onPredictionsRendered: () => this.runCorrelationAnalysis(),
+    };
+    const geoCallbacks = {
+      onNaturalApplied: (data: ListFireDetectionsResponse) => {
+        this.firesCache = data;
+      },
+    };
+    return {
+      ...createNewsHandlers(this.ctx, newsCallbacks),
+      ...createMarketsHandlers(this.ctx, marketsCallbacks),
+      ...createEconomicHandlers(this.ctx),
+      ...createIntelligenceHandlers(this.ctx),
+      ...createGeoHandlers(this.ctx, geoCallbacks),
+      ...createInfrastructureHandlers(this.ctx),
+      ...createAiHandlers(this.ctx),
+      ...createConfigHandlers(this.ctx),
+    };
   }
 
   /**
@@ -184,17 +227,16 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
    * Used by App.setupRelayPush to auto-wire subscriptions from CHANNEL_REGISTRY.
    */
   getHandler(channel: string): ((payload: unknown) => void) | undefined {
-    const methodName = channel.startsWith('news:')
-      ? 'applyNewsDigest'
-      : channel === 'pizzint'
-        ? PIZZINT_APPLY_METHOD
-        : DATA_LOADER_CHANNEL_MAP[channel];
-    if (!methodName) return undefined;
-    const fn = (this as Record<string, unknown>)[methodName];
-    if (typeof fn !== 'function') return undefined;
-    return (payload: unknown) => {
-      void (fn as (p: unknown) => void).call(this, payload);
-    };
+    const domainHandler = this.domainHandlers[channel];
+    if (domainHandler) return domainHandler;
+    if (channel === 'pizzint') {
+      const fn = (this as Record<string, unknown>)[PIZZINT_APPLY_METHOD];
+      if (typeof fn !== 'function') return undefined;
+      return (payload: unknown) => {
+        void (fn as (p: unknown) => void).call(this, payload);
+      };
+    }
+    return undefined;
   }
 
   public setSourcesReady(promise: Promise<unknown>): void {
@@ -815,8 +857,8 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
     const [earthquakeResult, eonetLoaded, gdacsLoaded] = await Promise.all([
       fetchEarthquakes().then((v) => ({ status: 'fulfilled' as const, value: v })).catch((e) => ({ status: 'rejected' as const, reason: e })),
-      this.loadChannelWithFallback('eonet', (data) => this.applyEonet(data)),
-      this.loadChannelWithFallback('gdacs', (data) => this.applyGdacs(data)),
+      this.loadChannelWithFallback('eonet', (data) => this.domainHandlers['eonet']?.(data)),
+      this.loadChannelWithFallback('gdacs', (data) => this.domainHandlers['gdacs']?.(data)),
     ]);
 
     if (earthquakeResult.status === 'fulfilled') {
@@ -848,7 +890,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
   async loadTechEvents(): Promise<void> {
     if (SITE_VARIANT !== 'tech' && !this.ctx.mapLayers.techEvents) return;
 
-    const loaded = await this.loadChannelWithFallback('tech-events', (data) => this.applyTechEvents(data));
+    const loaded = await this.loadChannelWithFallback('tech-events', (data) => this.domainHandlers['tech-events']?.(data));
     if (loaded) return;
     try {
       const data = await fetchTechEvents('conference', true, 90, 50);
@@ -875,7 +917,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
       this.renderWeatherAlerts(this.ctx.intelligenceCache.weatherAlerts);
       return;
     }
-    const loaded = await this.loadChannelWithFallback('weather', (data) => this.applyWeatherAlerts(data));
+    const loaded = await this.loadChannelWithFallback('weather', (data) => this.domainHandlers['weather']?.(data));
     if (!loaded) {
       this.ctx.map?.setLayerReady('weather', false);
       dataFreshness.recordError('weather', 'Relay data unavailable');
@@ -906,7 +948,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
     const protestsTask = (async (): Promise<SocialUnrestEvent[]> => {
       try {
-        await this.loadChannelWithFallback('conflict', (data) => this.applyConflict(data));
+        await this.loadChannelWithFallback('conflict', (data) => this.domainHandlers['conflict']?.(data));
         return this.ctx.intelligenceCache.protests?.events || [];
       } catch {
         return [];
@@ -1076,7 +1118,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
     // OREF sirens — WebSocket push via relay (applyOref); initial load from hydration or fetch
     tasks.push((async () => {
       try {
-        await this.loadChannelWithFallback<OrefAlertsResponse>('oref', (data) => this.renderOrefAlerts(data));
+        await this.loadChannelWithFallback<OrefAlertsResponse>('oref', (data) => this.domainHandlers['oref']?.(data));
       } catch (error) {
         console.error('[Intelligence] OREF alerts fetch failed:', error);
       }
@@ -1179,7 +1221,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
       return;
     }
 
-    const loaded = await this.loadChannelWithFallback('cyber', (data) => this.applyCyberThreats(data));
+    const loaded = await this.loadChannelWithFallback('cyber', (data) => this.domainHandlers['cyber']?.(data));
     if (!loaded) {
       const threats = fetchCyberThreats();
       if (threats.length > 0) {
@@ -1195,7 +1237,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
       this.renderIranEvents(this.ctx.intelligenceCache.iranEvents);
       return;
     }
-    const loaded = await this.loadChannelWithFallback('iran-events', (data) => this.applyIranEvents(data));
+    const loaded = await this.loadChannelWithFallback('iran-events', (data) => this.domainHandlers['iran-events']?.(data));
     if (!loaded) {
       this.ctx.map?.setLayerReady('iranAttacks', false);
     }
@@ -1236,7 +1278,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
   }
 
   async loadAisSignals(): Promise<void> {
-    const loaded = await this.loadChannelWithFallback('ais', (data) => this.applyAisSignals(data));
+    const loaded = await this.loadChannelWithFallback('ais', (data) => this.domainHandlers['ais']?.(data));
     if (!loaded) {
       this.ctx.map?.setLayerReady('ais', false);
       this.ctx.statusPanel?.updateFeed('Shipping', { status: 'error', errorMessage: 'No data from relay' });
@@ -1295,7 +1337,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
   }
 
   async loadCableHealth(): Promise<void> {
-    const loaded = await this.loadChannelWithFallback('cables', (data) => this.applyCableHealth(data));
+    const loaded = await this.loadChannelWithFallback('cables', (data) => this.domainHandlers['cables']?.(data));
     if (!loaded) {
       this.ctx.map?.setLayerReady('cables', false);
     }
@@ -1321,7 +1363,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
       if (protestData.sources.gdelt > 0) dataFreshness.recordUpdate('gdelt_doc', protestData.sources.gdelt);
       return;
     }
-    const loaded = await this.loadChannelWithFallback('conflict', (data) => this.applyConflict(data));
+    const loaded = await this.loadChannelWithFallback('conflict', (data) => this.domainHandlers['conflict']?.(data));
     if (!loaded) {
       this.ctx.map?.setLayerReady('protests', false);
       this.ctx.statusPanel?.updateFeed('Protests', { status: 'error', errorMessage: 'No data from relay' });
@@ -1348,7 +1390,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
       this.renderFlightDelays(this.ctx.intelligenceCache.flightDelays);
       return;
     }
-    const loaded = await this.loadChannelWithFallback('flights', (data) => this.applyFlightDelays(data));
+    const loaded = await this.loadChannelWithFallback('flights', (data) => this.domainHandlers['flights']?.(data));
     if (!loaded) {
       this.ctx.map?.setLayerReady('flights', false);
       this.ctx.statusPanel?.updateFeed('Flights', { status: 'error', errorMessage: 'No data from relay' });
@@ -1626,7 +1668,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
       this.renderNatural(this.firesCache);
       return;
     }
-    const loaded = await this.loadChannelWithFallback('natural', (data) => this.applyNatural(data));
+    const loaded = await this.loadChannelWithFallback('natural', (data) => this.domainHandlers['natural']?.(data));
     if (!loaded) {
       this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
     }

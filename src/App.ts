@@ -21,8 +21,8 @@ import { trackEvent, trackDeeplinkOpened } from '@/services/analytics';
 import { preloadCountryGeometry, getCountryNameByCode } from '@/services/country-geometry';
 import { initI18n } from '@/services/i18n';
 
-import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, loadNewsSources, applyNewsSources } from '@/services/feed-client';
-import { loadFeatureFlags, applyFeatureFlags } from '@/services/feature-flag-client';
+import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, loadNewsSources } from '@/services/feed-client';
+import { loadFeatureFlags } from '@/services/feature-flag-client';
 import { CHANNEL_REGISTRY } from '@/config/channel-registry';
 import { fetchBootstrapData, RELAY_CHANNELS } from '@/services/bootstrap';
 import { DesktopUpdater } from '@/app/desktop-updater';
@@ -613,85 +613,9 @@ export class App {
   }
 
   /**
-   * Returns the relay push handler for a channel. DataLoader handles most channels;
-   * panel, config, and AI channels use App-specific logic.
+   * Returns the relay push handler for a channel. DataLoader (via domain handlers) handles all channels.
    */
   private getPushHandler(channel: string): ((payload: unknown) => void) | undefined {
-    const dlHandler = this.dataLoader.getHandler(channel);
-    if (dlHandler) return dlHandler;
-
-    const panelChannels = ['strategic-posture', 'strategic-risk', 'stablecoins', 'etf-flows', 'macro-signals', 'service-status'];
-    if (panelChannels.includes(channel)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const panel = (key: string) => (this.state.panels[key] as any)?.applyPush?.bind(this.state.panels[key]);
-      return (p) => panel(channel)?.(p);
-    }
-
-    if (channel === 'config:news-sources') return (p) => applyNewsSources(p);
-    if (channel === 'config:feature-flags') return (p) => applyFeatureFlags(p);
-
-    if (channel === 'ai:intel-digest') {
-      return (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const digestPanel = this.state.panels['global-digest'] as any;
-        digestPanel?.applyAiDigest?.(payload);
-      };
-    }
-    if (channel === 'ai:panel-summary') {
-      return (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (this.state as any).latestPanelSummary = payload;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).__wmLatestPanelSummary = payload;
-        document.dispatchEvent(new CustomEvent('wm:panel-summary-updated', { detail: payload }));
-      };
-    }
-    if (channel === 'ai:article-summaries') {
-      return (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (this.state as any).articleSummaries = payload;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).__wmArticleSummaries = payload;
-        document.dispatchEvent(new CustomEvent('wm:article-summaries-updated', { detail: payload }));
-      };
-    }
-    if (channel === 'ai:classifications') {
-      return (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (this.state as any).classifications = payload;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).__wmRelayClassifications = payload;
-        document.dispatchEvent(new CustomEvent('wm:classifications-updated', { detail: payload }));
-      };
-    }
-    if (channel === 'ai:country-briefs') {
-      return (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (this.state as any).countryBriefs = payload;
-      };
-    }
-    if (channel === 'ai:posture-analysis') {
-      return (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const posturePanel = this.state.panels['strategic-posture'] as any;
-        posturePanel?.applyAiAnalysis?.(payload);
-      };
-    }
-    if (channel === 'ai:instability-analysis') {
-      return (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const riskPanel = this.state.panels['strategic-risk'] as any;
-        riskPanel?.applyInstabilityAnalysis?.(payload);
-      };
-    }
-    if (channel === 'ai:risk-overview') {
-      return (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const riskPanel = this.state.panels['strategic-risk'] as any;
-        riskPanel?.applyAiOverview?.(payload);
-      };
-    }
-
-    return undefined;
+    return this.dataLoader.getHandler(channel);
   }
 }
