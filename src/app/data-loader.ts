@@ -16,21 +16,12 @@ import { intelligenceLoader } from '@/data/intelligence-loader';
 import { infrastructureLoader } from '@/data/infrastructure-loader';
 import { economicLoader } from '@/data/economic-loader';
 import type { MapLayers } from '@/types';
-import { LAYER_TO_SOURCE } from '@/config';
 import { getHydratedData } from '@/services/bootstrap';
 import { fetchRelayPanel } from '@/services/relay-http';
-import { dataFreshness, type DataSourceId } from '@/services/data-freshness';
-import { isAisConfigured, isOutagesConfigured } from '@/services';
-import { mlWorker } from '@/services/ml-worker';
-import { clusterNewsHybrid } from '@/services/clustering';
-import { analysisWorker } from '@/services';
-import { ingestNewsForCII } from '@/services/country-instability';
-import { detectGeoConvergence, geoConvergenceToSignal } from '@/services/geo-convergence';
-import { addToSignalHistory, drainTrendingSignals } from '@/services';
-import { isInLearningMode } from '@/services/country-instability';
+import { syncDataFreshnessWithLayers } from '@/services/data-freshness-sync';
+import { runCorrelationAnalysis } from '@/services/run-correlation-analysis';
 import type { ListFireDetectionsResponse } from '@/generated/client/worldmonitor/wildfire/v1/service_client';
 import type { TheaterPostureSummary } from '@/services/military-surge';
-import type { CIIPanel } from '@/components/CIIPanel';
 import type { MonitorPanel } from '@/components/MonitorPanel';
 import type { DataLoaderBridge } from '@/data/loader-bridge';
 import type { CommodityDataItem } from '@/data/types';
@@ -72,7 +63,7 @@ export class DataLoaderManager implements AppModule, DataLoaderBridge {
       },
     };
     const marketsCallbacks = {
-      onPredictionsRendered: () => this.runCorrelationAnalysis(),
+      onPredictionsRendered: () => runCorrelationAnalysis(this._ctx, { shouldShowNotifications: () => this.shouldShowIntelligenceNotifications() }),
       onMarketsRendered: (data: CommodityDataItem[]) => { this._lastCommodityData = data; },
     };
     const geoCallbacks = {
@@ -205,14 +196,7 @@ export class DataLoaderManager implements AppModule, DataLoaderBridge {
   }
 
   syncDataFreshnessWithLayers(): void {
-    for (const [layer, sourceIds] of Object.entries(LAYER_TO_SOURCE)) {
-      const enabled = this._ctx.mapLayers[layer as keyof MapLayers] ?? false;
-      for (const sourceId of sourceIds) {
-        dataFreshness.setEnabled(sourceId as DataSourceId, enabled);
-      }
-    }
-    if (!isAisConfigured()) dataFreshness.setEnabled('ais', false);
-    if (isOutagesConfigured() === false) dataFreshness.setEnabled('outages', false);
+    syncDataFreshnessWithLayers(this._ctx.mapLayers);
   }
 
   updateMonitorResults(): void {
@@ -220,35 +204,6 @@ export class DataLoaderManager implements AppModule, DataLoaderBridge {
   }
 
   async runCorrelationAnalysis(): Promise<void> {
-    try {
-      if (this._ctx.latestClusters.length === 0 && this._ctx.allNews.length > 0) {
-        this._ctx.latestClusters = mlWorker.isAvailable
-          ? await clusterNewsHybrid(this._ctx.allNews)
-          : await analysisWorker.clusterNews(this._ctx.allNews);
-      }
-      if (this._ctx.latestClusters.length > 0) {
-        ingestNewsForCII(this._ctx.latestClusters);
-        dataFreshness.recordUpdate('gdelt', this._ctx.latestClusters.length);
-        (this._ctx.panels['cii'] as CIIPanel)?.refresh();
-      }
-      const signals = await analysisWorker.analyzeCorrelations(
-        this._ctx.latestClusters,
-        this._ctx.latestPredictions,
-        this._ctx.latestMarkets
-      );
-      let geoSignals: ReturnType<typeof geoConvergenceToSignal>[] = [];
-      if (!isInLearningMode()) {
-        const geoAlerts = detectGeoConvergence(this._ctx.seenGeoAlerts);
-        geoSignals = geoAlerts.map(geoConvergenceToSignal);
-      }
-      const keywordSpikeSignals = drainTrendingSignals();
-      const allSignals = [...signals, ...geoSignals, ...keywordSpikeSignals];
-      if (allSignals.length > 0) {
-        addToSignalHistory(allSignals);
-        if (this.shouldShowIntelligenceNotifications()) this._ctx.signalModal?.show(allSignals);
-      }
-    } catch (error) {
-      console.error('[App] Correlation analysis failed:', error);
-    }
+    await runCorrelationAnalysis(this._ctx, { shouldShowNotifications: () => this.shouldShowIntelligenceNotifications() });
   }
 }

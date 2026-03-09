@@ -34,6 +34,8 @@ export * from './country-instability';
 export * from './infrastructure-cascade';
 export * from './cross-module-integration';
 export * from './data-freshness';
+export { syncDataFreshnessWithLayers } from './data-freshness-sync';
+export { runCorrelationAnalysis } from './run-correlation-analysis';
 export * from './usa-spending';
 export { fetchGivingSummary, protoToGivingSummary } from './giving';
 export { generateSummary, translateText } from './summarization';
