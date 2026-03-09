@@ -1,4 +1,5 @@
 import type { AppContext, AppModule } from '@/app/app-context';
+import { CHANNEL_REGISTRY } from '@/config/channel-registry';
 import {
   createNewsHandlers,
   createMarketsHandlers,
@@ -124,6 +125,20 @@ export class DataLoaderManager implements AppModule, DataLoaderBridge {
   }
 
   async loadAllData(): Promise<void> {
+    for (const [channel] of Object.entries(CHANNEL_REGISTRY)) {
+      const alias = DataLoaderManager.HYDRATION_ALIASES[channel];
+      const data = getHydratedData(channel) ?? (alias ? getHydratedData(alias) : undefined);
+      if (data !== undefined && data !== null) {
+        const handler = this.domainHandlers[channel];
+        if (handler) {
+          try {
+            handler(data);
+          } catch (err) {
+            console.warn(`[DataLoader] handler error draining "${channel}":`, err);
+          }
+        }
+      }
+    }
     this.updateSearchIndex();
   }
 
