@@ -2,6 +2,7 @@ import { RELAY_CHANNELS } from '@/config/channel-registry';
 import type { NewsSourceRow } from '@/services/feed-client';
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
 import { RELAY_HTTP_BASE, getRelayFetchHeaders } from '@/services/relay-http';
+import { setChannelState } from '@/services/channel-state';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -35,14 +36,25 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
   }
 
   // Phase 2: Fetch fresh data from relay
+  const bootstrapChannels = [...RELAY_CHANNELS, `news:${variant}`];
+  for (const ch of bootstrapChannels) {
+    setChannelState(ch, 'loading', 'bootstrap');
+  }
+
   try {
-    const channelsParam = [...RELAY_CHANNELS, `news:${variant}`].join(',');
+    const channelsParam = bootstrapChannels.join(',');
     const url = `${RELAY_HTTP_BASE}/bootstrap?variant=${encodeURIComponent(variant)}&channels=${encodeURIComponent(channelsParam)}`;
     const resp = await fetch(url, {
       signal: AbortSignal.timeout(5_000),
       headers: getRelayFetchHeaders(),
     });
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      const errMsg = `Bootstrap fetch failed: ${resp.status} ${resp.statusText}`;
+      for (const ch of bootstrapChannels) {
+        setChannelState(ch, 'error', 'bootstrap', { error: errMsg });
+      }
+      return;
+    }
     const json = (await resp.json()) as Record<string, unknown>;
     // Relay returns { channel: data }; Vercel returns { data: Record }. Support both.
     const data = (json.data as Record<string, unknown>) ?? json;
@@ -53,7 +65,15 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
     }
     // Save for next visit (fire-and-forget)
     void setPersistentCache(cacheKey, data).catch(() => {});
-  } catch {
+
+    for (const ch of bootstrapChannels) {
+      setChannelState(ch, 'ready', 'bootstrap');
+    }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : 'Bootstrap fetch failed';
+    for (const ch of bootstrapChannels) {
+      setChannelState(ch, 'error', 'bootstrap', { error: errMsg });
+    }
     // If server fetch failed but we had stale data, panels will use that
   }
 }

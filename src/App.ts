@@ -34,6 +34,7 @@ import { EventHandlerManager } from '@/app/event-handlers';
 import { resolveUserRegion } from '@/utils/user-location';
 import { initDisplayPrefs } from '@/utils/display-prefs';
 import { initRelayPush, subscribe as subscribeRelayPush, destroyRelayPush } from '@/services/relay-push';
+import { startStaleDetection, stopStaleDetection } from '@/services/stale-detection';
 
 const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
 
@@ -496,6 +497,7 @@ export class App {
     }
 
     this.setupRelayPush();
+    startStaleDetection();
     this.eventHandlers.setupSnapshotSaving();
     cleanOldSnapshots().catch((e) => console.warn('[Storage] Snapshot cleanup failed:', e));
 
@@ -511,6 +513,7 @@ export class App {
 
   public destroy(): void {
     this.state.isDestroyed = true;
+    stopStaleDetection();
     destroyRelayPush();
 
     // Destroy all modules in reverse order

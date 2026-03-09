@@ -1,7 +1,7 @@
 import { isDesktopRuntime, toRuntimeUrl } from '../services/runtime';
 import { getPersistentCache, setPersistentCache } from '../services/persistent-cache';
 
-const isDev = import.meta.env.DEV;
+const isDev = (import.meta.env?.DEV) ?? false;
 const RESPONSE_CACHE_PREFIX = 'api-response:';
 const PROXY_FETCH_TIMEOUT_MS = 15_000;
 

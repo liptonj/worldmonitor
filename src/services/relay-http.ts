@@ -3,7 +3,8 @@
  * All data routes go through the relay server — never through Vercel API routes.
  */
 
-export const RELAY_HTTP_BASE = import.meta.env.VITE_RELAY_HTTP_URL || 'https://relay.5ls.us';
+const _env = (typeof import.meta !== 'undefined' && import.meta.env) || ({} as Record<string, string | undefined>);
+export const RELAY_HTTP_BASE = _env.VITE_RELAY_HTTP_URL || 'https://relay.5ls.us';
 
 /**
  * Builds a relay RSS proxy URL for the given feed URL.
@@ -15,7 +16,7 @@ export function relayRssUrl(feedUrl: string): string {
 }
 
 export function getRelayFetchHeaders(): HeadersInit {
-  const token = import.meta.env.VITE_WS_RELAY_TOKEN as string | undefined;
+  const token = _env.VITE_WS_RELAY_TOKEN as string | undefined;
   const headers: Record<string, string> = {};
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;

@@ -3,6 +3,8 @@
  * typed data channels, and dispatches payloads to registered handler functions.
  */
 
+import { setChannelState } from '@/services/channel-state';
+
 type ChannelHandler = (payload: unknown) => void;
 
 const handlers = new Map<string, Set<ChannelHandler>>();
@@ -25,6 +27,9 @@ export function subscribe(channel: string, handler: ChannelHandler): () => void 
 }
 
 function dispatch(channel: string, payload: unknown): void {
+  if (payload !== undefined && payload !== null) {
+    setChannelState(channel, 'ready', 'websocket', { lastDataAt: Date.now() });
+  }
   const channelHandlers = handlers.get(channel);
   if (!channelHandlers) return;
   for (const h of channelHandlers) {
