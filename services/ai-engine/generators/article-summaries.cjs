@@ -4,7 +4,7 @@
 // Fetches articles from relay:news:full:v1, calls LLM to generate summaries and key points per article.
 // Returns hash-map keyed by FNV-1a hash of title (matches frontend lookupRelaySummary expectations).
 
-const { fetchLLMProvider, callLLM } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
 
 const REDIS_NEWS_KEY = 'relay:news:full:v1';
 
@@ -41,8 +41,6 @@ module.exports = async function generateArticleSummaries({ supabase, redis, log,
       };
     }
 
-    const provider = await fetchLLMProvider(supabase);
-
     const systemPrompt =
       'You are a skilled content summarizer. For each article provided, create a concise summary (2-3 sentences) and extract 3-5 key points. Output valid JSON with structure: { "summaries": [{ "url": string, "title": string, "summary": string, "keyPoints": string[] }] }. Preserve the exact url and title from each input article.';
 
@@ -54,10 +52,11 @@ module.exports = async function generateArticleSummaries({ supabase, redis, log,
 
     const userPrompt = `Summarize these articles:\n\n${JSON.stringify(batch, null, 2)}`;
 
-    const responseText = await callLLM(provider, systemPrompt, userPrompt, http, {
-  temperature: 0.5,
-  maxTokens: 3000,
-});
+    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
+      temperature: 0.5,
+      maxTokens: 3000,
+    });
+    const responseText = result.content;
 
     let parsed;
     try {

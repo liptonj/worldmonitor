@@ -385,6 +385,9 @@ export function createNewsHandlers(
         sourceToCategory.set(feed.name, category);
       }
     }
+    for (const feed of getIntelSources()) {
+      sourceToCategory.set(feed.name, 'intel');
+    }
 
     const categories: Record<string, { items: Array<Record<string, unknown>> }> = {};
     for (const item of rawItems) {

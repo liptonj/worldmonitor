@@ -5,7 +5,7 @@
 // Frontend format: country-intel.ts expects Record<countryCode, { brief?: string }> for relayBriefs[code].brief.
 // Relay broadcasts full { timestamp, source, data, status }; frontend may use payload.data for lookups.
 
-const { fetchLLMProvider, callLLM } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
 
 const REDIS_KEYS = ['relay:news:full:v1', 'relay:strategic-risk:v1', 'relay:conflict:v1'];
 
@@ -43,17 +43,16 @@ module.exports = async function generateCountryBriefs({ supabase, redis, log, ht
       };
     }
 
-    const provider = await fetchLLMProvider(supabase);
-
     const systemPrompt =
       'You are an intelligence analyst. Generate intelligence briefs for each country with significant activity in the data. For each country include: country name, ISO 3166-1 alpha-2 code (e.g. US, RU, CN), brief summary (2-4 sentences), key developments, risk level (low/medium/high/critical). Output valid JSON: { "briefs": [{ "country", "code", "summary", "developments", "riskLevel" }] }. Use standard ISO 2-letter country codes.';
 
     const userPrompt = `Generate country briefs from this data:\n\n${JSON.stringify(context, null, 2)}`;
 
-    const responseText = await callLLM(provider, systemPrompt, userPrompt, http, {
-  temperature: 0.5,
-  maxTokens: 3000,
-});
+    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
+      temperature: 0.5,
+      maxTokens: 3000,
+    });
+    const responseText = result.content;
 
     let parsed;
     try {

@@ -5,7 +5,7 @@
 // severity, and region. Returns hash-map keyed by FNV-1a hash of title (matches frontend
 // lookupRelayClassification in threat-classifier.ts).
 
-const { fetchLLMProvider, callLLM } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
 
 const MAX_EVENTS = 20;
 
@@ -76,18 +76,17 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
       };
     }
 
-    const provider = await fetchLLMProvider(supabase);
-
     const systemPrompt =
       'You are an intelligence analyst. Classify each event by type (cyber, military, political, economic, social, environmental), severity (low, medium, high, critical), and region (Global, Asia, Europe, Middle East, Americas, Africa). Also provide a confidence score (0-1). Output valid JSON: { "classifications": [{ "id": string|number, "type": string, "severity": string, "region": string, "confidence": number, "summary": string }] }. Preserve the id from each input event.';
 
     const batch = events.slice(0, MAX_EVENTS);
     const userPrompt = `Classify these events:\n\n${JSON.stringify(batch, null, 2)}`;
 
-    const responseText = await callLLM(provider, systemPrompt, userPrompt, http, {
-  temperature: 0.3,
-  maxTokens: 2000,
-});
+    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
+      temperature: 0.3,
+      maxTokens: 2000,
+    });
+    const responseText = result.content;
 
     let parsed;
     try {

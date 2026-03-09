@@ -5,7 +5,7 @@
 // Frontend: StrategicPosturePanel.applyAiAnalysis(payload) — expects { analyses: [...] } or worker format.
 // Relay broadcasts full { timestamp, source, data, status }; data.analyses is the array.
 
-const { fetchLLMProvider, callLLM } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
 
 const REDIS_KEYS = ['relay:strategic-posture:v1', 'relay:conflict:v1', 'relay:opensky:v1'];
 
@@ -44,17 +44,16 @@ module.exports = async function generatePostureAnalysis({ supabase, redis, log, 
       };
     }
 
-    const provider = await fetchLLMProvider(supabase);
-
     const systemPrompt =
       'You are a military intelligence analyst. Analyze military and strategic postures from the data. Identify key actors, their capabilities, intentions, and force deployments. Output valid JSON: { "analyses": [{ "actor", "posture", "capabilities", "intentions", "locations" }] }.';
 
     const userPrompt = `Analyze military postures:\n\n${JSON.stringify(context, null, 2)}`;
 
-    const responseText = await callLLM(provider, systemPrompt, userPrompt, http, {
-  temperature: 0.4,
-  maxTokens: 2500,
-});
+    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
+      temperature: 0.4,
+      maxTokens: 2500,
+    });
+    const responseText = result.content;
 
     let parsed;
     try {

@@ -263,6 +263,10 @@ export class CascadePanel extends Panel {
     return this.cascadeResult;
   }
 
+  protected override onChannelError(_channel: string, _error: string): void {
+    // Keep the static dependency graph visible — live cable/cyber data is optional
+  }
+
   public refresh(): void {
     clearGraphCache();
     this.graph = null;

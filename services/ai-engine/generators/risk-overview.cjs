@@ -5,7 +5,7 @@
 // Frontend: StrategicRiskPanel.applyAiOverview(payload) — expects overview, topRisks, interconnections.
 // Relay broadcasts full { timestamp, source, data, status }.
 
-const { fetchLLMProvider, callLLM } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
 
 const REDIS_KEYS = [
   'relay:news:full:v1',
@@ -62,17 +62,16 @@ module.exports = async function generateRiskOverview({ supabase, redis, log, htt
       };
     }
 
-    const provider = await fetchLLMProvider(supabase);
-
     const systemPrompt =
       'You are a strategic risk analyst. Synthesize a comprehensive risk overview across all domains (cyber, military, political, economic, environmental). Identify top risks, interconnections between domains, and emerging threats. Output valid JSON: { "overview": string, "topRisks": [{ "domain", "risk", "severity", "trend" }], "interconnections": string[] }. Severity: low/medium/high/critical. Trend: stable/increasing/decreasing.';
 
     const userPrompt = `Synthesize risk overview from:\n\n${JSON.stringify(context, null, 2)}`;
 
-    const responseText = await callLLM(provider, systemPrompt, userPrompt, http, {
-  temperature: 0.5,
-  maxTokens: 3500,
-});
+    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
+      temperature: 0.5,
+      maxTokens: 3500,
+    });
+    const responseText = result.content;
 
     let parsed;
     try {

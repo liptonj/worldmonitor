@@ -70,6 +70,13 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
   return {
     intelligence: (payload: unknown) => {
       if (!payload || typeof payload !== 'object') return;
+      const raw = payload as Record<string, unknown>;
+      if (raw.error && raw.data === null) {
+        (ctx.panels['global-digest'] as GlobalDigestPanel | undefined)?.showError(
+          'Intelligence digest temporarily unavailable.',
+        );
+        return;
+      }
       const data = payload as GetGlobalIntelDigestResponse;
       if (!data.digest && !data.generatedAt) return;
       renderIntelligence(data);
@@ -126,14 +133,37 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
     telegram: (payload: unknown) => {
       if (!payload || typeof payload !== 'object') return;
       const raw = payload as Record<string, unknown>;
-      let adapted: import('@/services/telegram-intel').TelegramFeedResponse;
-      if ('items' in raw && Array.isArray(raw.items)) {
-        adapted = raw as unknown as import('@/services/telegram-intel').TelegramFeedResponse;
-      } else if ('messages' in raw && Array.isArray(raw.messages)) {
-        adapted = { ...raw, items: raw.messages } as unknown as import('@/services/telegram-intel').TelegramFeedResponse;
-      } else {
-        return;
-      }
+      const messages: unknown[] = Array.isArray(raw.items)
+        ? raw.items
+        : Array.isArray(raw.messages)
+          ? raw.messages
+          : [];
+      if (messages.length === 0) return;
+
+      const items = messages.map((msg: unknown) => {
+        const m = msg as Record<string, unknown>;
+        return {
+        id: String(m.id ?? ''),
+        source: 'telegram' as const,
+        channel: String(m.channel ?? ''),
+        channelTitle: String(m.label ?? m.channelTitle ?? m.channel ?? ''),
+        url: String(m.url ?? ''),
+        ts: m.ts ? String(m.ts) : typeof m.date === 'number' ? new Date(m.date).toISOString() : new Date().toISOString(),
+        text: String(m.text ?? ''),
+        topic: String(m.topic ?? 'unknown'),
+        tags: Array.isArray(m.tags) ? m.tags as string[] : [],
+        earlySignal: Boolean(m.earlySignal ?? (typeof m.tier === 'number' && m.tier <= 1)),
+      };
+      });
+
+      const adapted: import('@/services/telegram-intel').TelegramFeedResponse = {
+        source: 'telegram',
+        earlySignal: items.some(i => i.earlySignal),
+        enabled: true,
+        count: items.length,
+        updatedAt: String(raw.timestamp ?? new Date().toISOString()),
+        items,
+      };
       (ctx.panels['telegram-intel'] as TelegramIntelPanel)?.setData(adapted);
     },
     oref: (payload: unknown) => {

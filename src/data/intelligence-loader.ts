@@ -26,7 +26,6 @@ import { fetchUcdpClassifications, fetchAllHapiSummaries, fetchUcdpEvents, dedup
 import { fetchUnhcrPopulation } from '@/services/displacement';
 import { fetchClimateAnomalies } from '@/services/climate';
 import { fetchSecurityAdvisories } from '@/services/security-advisories';
-import { fetchTelegramFeed } from '@/services/telegram-intel';
 import { enrichEventsWithExposure } from '@/services/population-exposure';
 import { dataFreshness } from '@/services/data-freshness';
 import type { OrefAlertsResponse } from '@/services/oref-alerts';
@@ -427,8 +426,7 @@ export const intelligenceLoader = {
 
   async loadTelegramIntel(bridge: DataLoaderBridge): Promise<void> {
     try {
-      const result = await fetchTelegramFeed();
-      bridge.getHandler('telegram')?.(result);
+      await bridge.loadChannelWithFallback('telegram', data => bridge.getHandler('telegram')?.(data));
     } catch (error) {
       console.error('[App] Telegram intel fetch failed:', error);
     }

@@ -5,7 +5,7 @@
 // Frontend: StrategicRiskPanel.applyInstabilityAnalysis(payload) — expects regions array.
 // Relay broadcasts full { timestamp, source, data, status }; data.regions is the array.
 
-const { fetchLLMProvider, callLLM } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
 
 const REDIS_KEYS = ['relay:conflict:v1', 'relay:strategic-risk:v1', 'relay:news:full:v1'];
 
@@ -44,17 +44,16 @@ module.exports = async function generateInstabilityAnalysis({ supabase, redis, l
       };
     }
 
-    const provider = await fetchLLMProvider(supabase);
-
     const systemPrompt =
       'You are a geopolitical risk analyst. Assess regional instability from the data. For each region, identify: instability level (low/medium/high/critical), primary drivers, affected countries, trajectory (stable/increasing/decreasing). Output valid JSON: { "regions": [{ "region", "level", "drivers", "countries", "trajectory" }] }.';
 
     const userPrompt = `Assess regional instability:\n\n${JSON.stringify(context, null, 2)}`;
 
-    const responseText = await callLLM(provider, systemPrompt, userPrompt, http, {
-  temperature: 0.4,
-  maxTokens: 2500,
-});
+    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
+      temperature: 0.4,
+      maxTokens: 2500,
+    });
+    const responseText = result.content;
 
     let parsed;
     try {

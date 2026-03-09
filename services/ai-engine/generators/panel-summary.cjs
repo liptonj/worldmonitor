@@ -4,7 +4,7 @@
 // Aggregates data from multiple panels (news, telegram, markets, strategic-risk, cyber, conflict, natural)
 // into an executive summary. Follows intel-digest pattern.
 
-const { fetchLLMProvider, callLLM } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
 
 const REDIS_KEYS = [
   'relay:news:full:v1',
@@ -49,8 +49,8 @@ module.exports = async function generatePanelSummary({ supabase, redis, log, htt
 
     const userPrompt = `Analyze this panel data and create an executive summary:\n\n${JSON.stringify(context, null, 2)}`;
 
-    const provider = await fetchLLMProvider(supabase);
-    const responseText = await callLLM(provider, systemPrompt, userPrompt, http);
+    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http);
+    const responseText = result.content;
 
     const parsed = JSON.parse(responseText);
     const summary = parsed.summary ?? '';
