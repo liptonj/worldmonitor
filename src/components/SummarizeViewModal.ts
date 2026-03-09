@@ -60,7 +60,14 @@ export class SummarizeViewModal {
 
   showRelayData(): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cached = (window as any).__wmLatestPanelSummary as { summary?: string; approach?: string; generatedAt?: string } | undefined;
+    const cached = (window as any).__wmLatestPanelSummary as { summary?: string; approach?: string; generatedAt?: string; errorKey?: string } | undefined;
+    
+    // Check for cached error
+    if (cached?.errorKey) {
+      this.setError(t(`modals.summarizeView.${cached.errorKey}`));
+      return;
+    }
+    
     if (cached?.summary) {
       void this.setContent(cached.summary, cached.approach, cached.generatedAt);
       return;
@@ -69,7 +76,15 @@ export class SummarizeViewModal {
     this.showWaiting();
 
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ summary?: string; approach?: string; generatedAt?: string }>).detail;
+      const detail = (e as CustomEvent<{ summary?: string; approach?: string; generatedAt?: string; errorKey?: string }>).detail;
+      
+      // Check for error
+      if (detail?.errorKey) {
+        this.setError(t(`modals.summarizeView.${detail.errorKey}`));
+        document.removeEventListener('wm:panel-summary-updated', handler);
+        return;
+      }
+      
       if (detail?.summary) {
         void this.setContent(detail.summary, detail.approach, detail.generatedAt);
         document.removeEventListener('wm:panel-summary-updated', handler);
