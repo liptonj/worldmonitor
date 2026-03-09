@@ -110,23 +110,31 @@ case "$COMMAND" in
         echo "====================="
         echo ""
         
-        # Check if Splunk is configured
-        if [[ -f ".env.production" ]]; then
-            SPLUNK_URL=$(grep "^SPLUNK_URL=" .env.production | cut -d'=' -f2)
-            SPLUNK_TOKEN=$(grep "^SPLUNK_HEC_TOKEN=" .env.production | cut -d'=' -f2)
-            SPLUNK_INDEX=$(grep "^SPLUNK_INDEX=" .env.production | cut -d'=' -f2)
+        # Check if Splunk is configured (try both .env and .env.production)
+        ENV_FILE=""
+        if [[ -f ".env" ]]; then
+            ENV_FILE=".env"
+        elif [[ -f ".env.production" ]]; then
+            ENV_FILE=".env.production"
+        fi
+        
+        if [[ -n "$ENV_FILE" ]]; then
+            SPLUNK_URL=$(grep "^SPLUNK_URL=" "$ENV_FILE" | cut -d'=' -f2)
+            SPLUNK_TOKEN=$(grep "^SPLUNK_HEC_TOKEN=" "$ENV_FILE" | cut -d'=' -f2)
+            SPLUNK_INDEX=$(grep "^SPLUNK_INDEX=" "$ENV_FILE" | cut -d'=' -f2)
             
             if [[ -n "$SPLUNK_URL" ]] && [[ -n "$SPLUNK_TOKEN" ]]; then
                 echo "✓ Configuration: OK"
+                echo "  File:  $ENV_FILE"
                 echo "  URL:   $SPLUNK_URL"
                 echo "  Index: ${SPLUNK_INDEX:-docker_logs}"
                 echo ""
             else
-                echo "✗ Configuration: Missing SPLUNK_URL or SPLUNK_HEC_TOKEN in .env.production"
+                echo "✗ Configuration: Missing SPLUNK_URL or SPLUNK_HEC_TOKEN in $ENV_FILE"
                 echo ""
             fi
         else
-            echo "✗ Configuration: .env.production not found"
+            echo "✗ Configuration: .env or .env.production not found"
             echo ""
         fi
         
@@ -245,7 +253,7 @@ case "$COMMAND" in
         echo "  relay splunk                Check Splunk status"
         echo ""
         echo "Note: Splunk logging is enabled by default and requires"
-        echo "      SPLUNK_HEC_TOKEN and SPLUNK_URL in .env.production"
+        echo "      SPLUNK_HEC_TOKEN and SPLUNK_URL in .env or .env.production"
         ;;
     *)
         echo "Unknown command: $COMMAND"
