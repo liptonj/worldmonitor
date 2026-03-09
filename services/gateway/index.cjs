@@ -79,6 +79,10 @@ const PHASE4_MAP_KEYS = {
 const CORS_HEADER = 'Access-Control-Allow-Origin';
 const CORS_VALUE = '*';
 
+const GDELT_DOC_API = 'https://api.gdeltproject.org/api/v2/doc/doc';
+const GDELT_TIMEOUT_MS = 12_000;
+const GDELT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
 function routeHttpRequest(pathname, redis) {
   const headers = { [CORS_HEADER]: CORS_VALUE };
   const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
@@ -269,6 +273,58 @@ function main() {
       res.writeHead(405, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Method not allowed' }));
       return;
+    }
+
+    if (pathname === '/gdelt') {
+      try {
+        const query = url.searchParams.get('query') || 'global security conflict';
+        const maxRecords = Math.min(parseInt(url.searchParams.get('max_records') || '10', 10) || 10, 50);
+        const timespan = url.searchParams.get('timespan') || '24h';
+        const sort = url.searchParams.get('sort') || 'date';
+
+        const gdeltUrl = new URL(GDELT_DOC_API);
+        gdeltUrl.searchParams.set('query', query);
+        gdeltUrl.searchParams.set('mode', 'artlist');
+        gdeltUrl.searchParams.set('maxrecords', String(maxRecords));
+        gdeltUrl.searchParams.set('format', 'json');
+        gdeltUrl.searchParams.set('sort', sort);
+        gdeltUrl.searchParams.set('timespan', timespan);
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), GDELT_TIMEOUT_MS);
+
+        const gdeltResp = await fetch(gdeltUrl.toString(), {
+          headers: { 'User-Agent': GDELT_USER_AGENT, Accept: 'application/json' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!gdeltResp.ok) {
+          res.writeHead(502, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `GDELT API error: ${gdeltResp.status}` }));
+          return;
+        }
+
+        const raw = await gdeltResp.json();
+        const articles = (raw?.articles || []).map((a) => ({
+          title: a.title || '',
+          url: a.url || '',
+          source: a.domain || a.source?.domain || '',
+          date: a.seendate || '',
+          image: a.socialimage || '',
+          language: a.language || '',
+          tone: typeof a.tone === 'number' ? a.tone : 0,
+        }));
+
+        res.writeHead(200, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ articles, query }));
+        return;
+      } catch (err) {
+        log.error('GDELT proxy error', { error: err.message });
+        res.writeHead(502, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'GDELT proxy failed' }));
+        return;
+      }
     }
 
     try {
