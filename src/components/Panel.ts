@@ -4,6 +4,8 @@ import { t } from '../services/i18n';
 import { h, replaceChildren, safeHtml } from '../utils/dom-utils';
 import { trackPanelResized } from '@/services/analytics';
 import { getAiFlowSettings } from '@/services/ai-flow-settings';
+import type { ChannelStatus } from '@/services/channel-state';
+import { subscribeChannelState } from '@/services/channel-state';
 
 export interface PanelOptions {
   id: string;
@@ -197,6 +199,7 @@ export class Panel {
   private readonly contentDebounceMs = 150;
   private pendingContentHtml: string | null = null;
   private contentDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private channelUnsubscribes: (() => void)[] = [];
 
   constructor(options: PanelOptions) {
     this.panelId = options.id;
@@ -291,6 +294,42 @@ export class Panel {
     this.reconcileColSpanAfterAttach();
 
     this.showLoading();
+
+    // Defer subscription until after subclass constructor completes (channelKeys is set there)
+    queueMicrotask(() => this.subscribeToChannelState());
+  }
+
+  private subscribeToChannelState(): void {
+    if (this.channelKeys.length === 0) return;
+    for (const channel of this.channelKeys) {
+      const unsub = subscribeChannelState(channel, (status: ChannelStatus) => {
+        this.handleChannelStatus(channel, status);
+      });
+      this.channelUnsubscribes.push(unsub);
+    }
+  }
+
+  private handleChannelStatus(channel: string, status: ChannelStatus): void {
+    switch (status.state) {
+      case 'ready':
+        this.onChannelReady(channel, { status });
+        this.setDataBadge('live');
+        break;
+      case 'error':
+        this.onChannelError(channel, status.error ?? 'Unknown error');
+        this.setDataBadge('unavailable', status.error ?? undefined);
+        break;
+      case 'stale':
+        this.setDataBadge('cached');
+        break;
+      case 'loading':
+        this.showLoading();
+        this.clearDataBadge();
+        break;
+      case 'idle':
+        this.clearDataBadge();
+        break;
+    }
   }
 
   private restoreSavedColSpan(): void {
@@ -819,6 +858,10 @@ export class Panel {
   }
 
   public destroy(): void {
+    for (const unsub of this.channelUnsubscribes) {
+      unsub();
+    }
+    this.channelUnsubscribes = [];
     this.abortController.abort();
     if (this.colSpanReconcileRaf !== null) {
       cancelAnimationFrame(this.colSpanReconcileRaf);
