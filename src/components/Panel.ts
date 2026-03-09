@@ -160,6 +160,9 @@ function setSpanClass(element: HTMLElement, span: number): void {
 }
 
 export class Panel {
+  /** Channel keys this panel depends on (e.g. 'markets', 'fred'). Override in subclasses. Used by Task 5.2 for auto-subscription. */
+  readonly channelKeys: string[] = [];
+
   protected element: HTMLElement;
   protected content: HTMLElement;
   protected header: HTMLElement;
@@ -803,6 +806,16 @@ export class Panel {
   /** Returns a text snapshot of current panel data for AI summarization. Returns null if no data available. */
   getSummaryData(): string | null {
     return null;
+  }
+
+  /** Called when channel data becomes ready. Override in subclasses to handle data. */
+  protected onChannelReady(_channel: string, _data: unknown): void {
+    // Override in subclass
+  }
+
+  /** Called when a channel errors. Default shows error in panel. Override to customize. */
+  protected onChannelError(_channel: string, error: string): void {
+    this.showError(error);
   }
 
   public destroy(): void {
