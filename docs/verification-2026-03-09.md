@@ -125,8 +125,54 @@ These panels need Redis data from workers; frontend cannot fix if backend is emp
 
 ## Issues Discovered
 
+### Build and Tests
 - None during build or automated tests.
 - Manual verification requires running app with `services` (Redis, gateway, workers) to confirm end-to-end behavior.
+
+### Backend Service Errors (2026-03-09 20:15-20:16 UTC)
+
+When services ARE running, the following errors prevent panels from receiving data:
+
+#### GDELT API Failures
+**Impact:** GDELT Intel panel will show "Service unavailable" (no data in Redis)
+
+```
+fetchGdelt error for topic innovation: fetch failed
+fetchGdelt error for topic humanitarian-progress: fetch failed
+fetchGdelt error for topic conservation-wins: fetch failed
+fetchGdelt error for topic climate-progress: fetch failed
+```
+
+**Root Cause:** GDELT API requests failing (network issue or API downtime)  
+**Affected Panel:** GDELT Intel  
+**Frontend Status:** ✅ Handler now calls `refresh()` (Task 4) — panel will retry on push  
+**Backend Status:** ❌ Worker cannot fetch from GDELT API  
+
+#### OpenSky Network Rate Limiting
+**Impact:** AIS/aircraft tracking panels may show stale or missing data
+
+```
+fetchOpensky error: HTTP 429: Too many requests
+```
+
+**Root Cause:** OpenSky API rate limit exceeded  
+**Affected Panel:** AIS Snapshot (aircraft tracking)  
+**Frontend Status:** ✅ Bootstrap drain path works (Tasks 1-3)  
+**Backend Status:** ❌ Worker rate-limited by OpenSky  
+
+#### Summary of Backend Issues
+
+| Service | Error | Frontend Fix | Backend Status |
+|---------|-------|--------------|----------------|
+| GDELT API | fetch failed (4 topics) | Task 4 enables retry on push | ❌ API unreachable |
+| OpenSky Network | HTTP 429 rate limit | Bootstrap drain works | ❌ Rate limited |
+
+**Note:** These are backend/external API issues, not frontend hydration issues. The frontend fixes (Tasks 1-6) will correctly handle:
+- ✅ Empty Redis keys → "Service unavailable" badge after 30s
+- ✅ Stale Redis keys → "stale" badge
+- ✅ Valid Redis keys → panels render within 5s
+
+The panels will show appropriate error states because they now have `channelKeys` (Task 6) and the channel state machine detects timeouts.
 
 ---
 
