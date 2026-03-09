@@ -14,10 +14,13 @@
 #
 # Options:
 #   --tunnel    Include Cloudflare tunnel service
+#   --splunk    Enable Splunk logging (requires SPLUNK_HEC_TOKEN in .env)
 #
 # Examples:
 #   ./relay.sh up              Start without tunnel
 #   ./relay.sh up --tunnel     Start with Cloudflare tunnel
+#   ./relay.sh up --splunk     Start with Splunk logging
+#   ./relay.sh up --tunnel --splunk  Start with both tunnel and Splunk
 #   ./relay.sh logs gateway    Follow gateway logs only
 # ============================================
 
@@ -29,10 +32,12 @@ cd "$SCRIPT_DIR"
 COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
 PROFILE=""
 
-# Parse --tunnel flag
+# Parse flags
 for arg in "$@"; do
     if [[ "$arg" == "--tunnel" ]]; then
-        PROFILE="--profile tunnel"
+        PROFILE="$PROFILE --profile tunnel"
+    elif [[ "$arg" == "--splunk" ]]; then
+        COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.logging.yml"
     fi
 done
 
@@ -41,7 +46,7 @@ COMMAND="${1:-help}"
 SERVICE="${2:-}"
 
 # Skip service arg if it's a flag
-if [[ "$SERVICE" == "--tunnel" ]]; then
+if [[ "$SERVICE" == "--tunnel" ]] || [[ "$SERVICE" == "--splunk" ]]; then
     SERVICE=""
 fi
 
@@ -112,12 +117,17 @@ case "$COMMAND" in
         echo ""
         echo "Options:"
         echo "  --tunnel  Include Cloudflare tunnel service"
+        echo "  --splunk  Enable Splunk logging (requires SPLUNK_HEC_TOKEN)"
         echo ""
         echo "Examples:"
-        echo "  ./relay.sh up              Start without tunnel"
-        echo "  ./relay.sh up --tunnel     Start with Cloudflare tunnel"
-        echo "  ./relay.sh logs gateway    Follow gateway logs only"
-        echo "  ./relay.sh shell redis     Open shell in redis container"
+        echo "  ./relay.sh up                    Start without tunnel"
+        echo "  ./relay.sh up --tunnel           Start with Cloudflare tunnel"
+        echo "  ./relay.sh up --splunk           Start with Splunk logging"
+        echo "  ./relay.sh up --tunnel --splunk  Start with both tunnel and Splunk"
+        echo "  ./relay.sh logs gateway          Follow gateway logs only"
+        echo "  ./relay.sh shell redis           Open shell in redis container"
+        echo ""
+        echo "Note: Splunk logging requires SPLUNK_HEC_TOKEN and SPLUNK_URL in .env"
         ;;
     *)
         echo "Unknown command: $COMMAND"
