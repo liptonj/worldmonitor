@@ -34,4 +34,12 @@ describe('relay-push service contract', () => {
     assert.ok(src.includes('VITE_WS_RELAY_TOKEN'), 'must read VITE_WS_RELAY_TOKEN');
     assert.ok(src.includes('token='), 'must append token as query param');
   });
+
+  it('relay-push.ts reads msg.data field for wm-push (gateway format)', () => {
+    const src = readFileSync('src/services/relay-push.ts', 'utf8');
+    assert.ok(
+      src.includes('dispatch(msg.channel, msg.data)'),
+      'must dispatch msg.data to match gateway wm-push format (not msg.payload)'
+    );
+  });
 });

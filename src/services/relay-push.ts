@@ -75,7 +75,7 @@ function connect(relayWsUrl: string, channels: string[]): void {
     try {
       const msg = JSON.parse(raw) as Record<string, unknown>;
       if (msg.type === 'wm-push' && typeof msg.channel === 'string') {
-        dispatch(msg.channel, msg.payload);
+        dispatch(msg.channel, msg.data);
       }
     } catch {
       console.warn('[relay-push] received unparseable message');
