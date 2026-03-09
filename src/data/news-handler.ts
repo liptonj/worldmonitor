@@ -32,6 +32,8 @@ import type { HandlerCallbacks } from './types';
 import type { ThreatLevel as ClientThreatLevel } from '@/services/threat-classifier';
 import type { NewsItem as ProtoNewsItem, ThreatLevel as ProtoThreatLevel } from '@/generated/client/worldmonitor/news/v1/service_client';
 import { classifyNewsItem } from '@/services/positive-classifier';
+import { fetchNewsDigest } from '@/services/news-digest';
+import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
 
 const PROTO_TO_CLIENT_LEVEL: Record<ProtoThreatLevel, ClientThreatLevel> = {
   THREAT_LEVEL_UNSPECIFIED: 'info',
@@ -61,6 +63,99 @@ function protoItemToNewsItem(p: ProtoNewsItem): NewsItem {
 }
 
 const MAP_FLASH_COOLDOWN_MS = 10 * 60 * 1000;
+const PERSISTED_DIGEST_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+let lastGoodDigest: ListFeedDigestResponse | null = null;
+
+/** Try fetch from hydration, then in-memory cache, then persisted cache. Used by loadNews. */
+export async function tryFetchDigest(): Promise<ListFeedDigestResponse | null> {
+  const data = fetchNewsDigest(0);
+  if (data) {
+    lastGoodDigest = data;
+    persistDigest(data);
+    return data;
+  }
+  return lastGoodDigest ?? (await loadPersistedDigest());
+}
+
+function persistDigest(data: ListFeedDigestResponse): void {
+  setPersistentCache('digest:last-good', data).catch(() => {});
+}
+
+async function loadPersistedDigest(): Promise<ListFeedDigestResponse | null> {
+  try {
+    const envelope = await getPersistentCache<ListFeedDigestResponse>('digest:last-good');
+    if (!envelope) return null;
+    if (Date.now() - envelope.updatedAt > PERSISTED_DIGEST_MAX_AGE_MS) return null;
+    lastGoodDigest = envelope.data;
+    return envelope.data;
+  } catch {
+    return null;
+  }
+}
+
+/** Shared map flash cache for both processDigestData and loadNewsCategory. */
+const mapFlashCache = new Map<string, number>();
+
+function findFlashLocation(title: string): { lat: number; lon: number } | null {
+  const tokens = tokenizeForMatch(title);
+  let bestMatch: { lat: number; lon: number; matches: number } | null = null;
+
+  const countKeywordMatches = (keywords: string[] | undefined): number => {
+    if (!keywords) return 0;
+    let matches = 0;
+    for (const keyword of keywords) {
+      const cleaned = keyword.trim().toLowerCase();
+      if (cleaned.length >= 3 && matchKeyword(tokens, cleaned)) {
+        matches++;
+      }
+    }
+    return matches;
+  };
+
+  for (const hotspot of INTEL_HOTSPOTS) {
+    const matches = countKeywordMatches(hotspot.keywords);
+    if (matches > 0 && (!bestMatch || matches > bestMatch.matches)) {
+      bestMatch = { lat: hotspot.lat, lon: hotspot.lon, matches };
+    }
+  }
+
+  for (const conflict of CONFLICT_ZONES) {
+    const matches = countKeywordMatches(conflict.keywords);
+    if (matches > 0 && (!bestMatch || matches > bestMatch.matches)) {
+      bestMatch = { lat: conflict.center[1], lon: conflict.center[0], matches };
+    }
+  }
+
+  return bestMatch;
+}
+
+/** Flash map for news items. Exported for loadNewsCategory (per-feed fallback). */
+export function flashMapForNews(ctx: AppContext, items: NewsItem[]): void {
+  if (!ctx.map || !ctx.initialLoadComplete) return;
+  if (!getAiFlowSettings().mapNewsFlash) return;
+  const now = Date.now();
+
+  for (const [key, timestamp] of mapFlashCache.entries()) {
+    if (now - timestamp > MAP_FLASH_COOLDOWN_MS) {
+      mapFlashCache.delete(key);
+    }
+  }
+
+  for (const item of items) {
+    const cacheKey = `${item.source}|${item.link || item.title}`;
+    const lastSeen = mapFlashCache.get(cacheKey);
+    if (lastSeen && now - lastSeen < MAP_FLASH_COOLDOWN_MS) {
+      continue;
+    }
+
+    const location = findFlashLocation(item.title);
+    if (!location) continue;
+
+    ctx.map!.flashLocation(location.lat, location.lon);
+    mapFlashCache.set(cacheKey, now);
+  }
+}
 
 function getTimeRangeWindowMs(range: TimeRange): number {
   const ranges: Record<TimeRange, number> = {
@@ -112,67 +207,6 @@ export function createNewsHandlers(
   ctx: AppContext,
   callbacks?: HandlerCallbacks
 ): Record<string, ChannelHandler> {
-  const mapFlashCache = new Map<string, number>();
-
-  function findFlashLocation(title: string): { lat: number; lon: number } | null {
-    const tokens = tokenizeForMatch(title);
-    let bestMatch: { lat: number; lon: number; matches: number } | null = null;
-
-    const countKeywordMatches = (keywords: string[] | undefined): number => {
-      if (!keywords) return 0;
-      let matches = 0;
-      for (const keyword of keywords) {
-        const cleaned = keyword.trim().toLowerCase();
-        if (cleaned.length >= 3 && matchKeyword(tokens, cleaned)) {
-          matches++;
-        }
-      }
-      return matches;
-    };
-
-    for (const hotspot of INTEL_HOTSPOTS) {
-      const matches = countKeywordMatches(hotspot.keywords);
-      if (matches > 0 && (!bestMatch || matches > bestMatch.matches)) {
-        bestMatch = { lat: hotspot.lat, lon: hotspot.lon, matches };
-      }
-    }
-
-    for (const conflict of CONFLICT_ZONES) {
-      const matches = countKeywordMatches(conflict.keywords);
-      if (matches > 0 && (!bestMatch || matches > bestMatch.matches)) {
-        bestMatch = { lat: conflict.center[1], lon: conflict.center[0], matches };
-      }
-    }
-
-    return bestMatch;
-  }
-
-  function flashMapForNews(items: NewsItem[]): void {
-    if (!ctx.map || !ctx.initialLoadComplete) return;
-    if (!getAiFlowSettings().mapNewsFlash) return;
-    const now = Date.now();
-
-    for (const [key, timestamp] of mapFlashCache.entries()) {
-      if (now - timestamp > MAP_FLASH_COOLDOWN_MS) {
-        mapFlashCache.delete(key);
-      }
-    }
-
-    for (const item of items) {
-      const cacheKey = `${item.source}|${item.link || item.title}`;
-      const lastSeen = mapFlashCache.get(cacheKey);
-      if (lastSeen && now - lastSeen < MAP_FLASH_COOLDOWN_MS) {
-        continue;
-      }
-
-      const location = findFlashLocation(item.title);
-      if (!location) continue;
-
-      ctx.map!.flashLocation(location.lat, location.lon);
-      mapFlashCache.set(cacheKey, now);
-    }
-  }
-
   function updateMonitorResults(): void {
     const monitorPanel = ctx.panels['monitors'] as MonitorPanel;
     monitorPanel.renderResults(ctx.allNews);
@@ -232,7 +266,7 @@ export function createNewsHandlers(
       }
 
       checkBatchForBreakingAlerts(items);
-      flashMapForNews(items);
+      flashMapForNews(ctx, items);
       renderNewsForCategory(ctx, category, items);
 
       ctx.statusPanel?.updateFeed(category.charAt(0).toUpperCase() + category.slice(1), {
@@ -278,7 +312,7 @@ export function createNewsHandlers(
         }
         ctx.statusPanel?.updateFeed('Intel', { status: 'ok', itemCount: intel.length });
         collectedNews.push(...intel);
-        flashMapForNews(intel);
+        flashMapForNews(ctx, intel);
       }
     }
 

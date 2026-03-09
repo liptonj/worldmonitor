@@ -28,8 +28,8 @@ describe('apply* logic in domain handlers', () => {
   it('DataLoaderManager uses domainHandlers and getHandler delegates', () => {
     const src = readFileSync('src/app/data-loader.ts', 'utf-8');
     assert.ok(src.includes('domainHandlers'), 'DataLoaderManager must use domainHandlers');
-    assert.ok(src.includes('buildDomainHandlers'), 'DataLoaderManager must have buildDomainHandlers');
-    assert.ok(src.includes('getHandler') && src.includes('domainHandlers[channel]'), 'getHandler must delegate to domainHandlers');
+    assert.ok(src.includes('getHandler'), 'DataLoaderManager must have getHandler');
+    assert.ok(src.includes('domainHandlers[channel]') || src.includes('domainHandlers.get(channel)'), 'getHandler must delegate to domainHandlers');
   });
 
   for (const { file, has } of DOMAIN_HANDLERS) {

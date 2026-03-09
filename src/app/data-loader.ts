@@ -9,7 +9,7 @@ import {
   createAiHandlers,
   createConfigHandlers,
 } from '@/data';
-import { renderNewsForCategory } from '@/data/news-handler';
+import { renderNewsForCategory, tryFetchDigest, flashMapForNews } from '@/data/news-handler';
 import { mergeAndRenderNaturalEvents } from '@/data/geo-handler';
 import type { NewsItem, MapLayers, SocialUnrestEvent } from '@/types';
 import {
@@ -18,8 +18,6 @@ import {
   SITE_VARIANT,
   LAYER_TO_SOURCE,
 } from '@/config';
-import { INTEL_HOTSPOTS, CONFLICT_ZONES } from '@/config/geo';
-import { tokenizeForMatch, matchKeyword } from '@/utils/keyword-match';
 import {
   fetchCategoryFeeds,
   getFeedFailures,
@@ -63,14 +61,11 @@ import { fetchGivingSummary } from '@/services/giving';
 import type { OrefAlertsResponse } from '@/services/oref-alerts';
 import { enrichEventsWithExposure } from '@/services/population-exposure';
 import { isFeatureEnabled } from '@/services/runtime-config';
-import { getAiFlowSettings } from '@/services/ai-flow-settings';
 import { t } from '@/services/i18n';
 import { getHydratedData } from '@/services/bootstrap';
 import { fetchRelayPanel } from '@/services/relay-http';
-import type { ListFeedDigestResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
 import type { GetSectorSummaryResponse, SectorPerformance } from '@/generated/client/worldmonitor/market/v1/service_client';
 import type { ListFireDetectionsResponse } from '@/generated/client/worldmonitor/wildfire/v1/service_client';
-import { fetchNewsDigest } from '@/services/news-digest';
 import { fetchTechEvents } from '@/services/research';
 import type { HeatmapPanel, CommoditiesPanel } from '@/components/MarketPanel';
 import type { MonitorPanel } from '@/components/MonitorPanel';
@@ -102,17 +97,11 @@ export class DataLoaderManager implements AppModule {
 
   private sourcesReady: Promise<void> = Promise.resolve(); // default: already ready
 
-  private mapFlashCache: Map<string, number> = new Map();
-  private readonly MAP_FLASH_COOLDOWN_MS = 10 * 60 * 1000;
-
   public updateSearchIndex: () => void = () => {};
 
-
-  private readonly persistedDigestMaxAgeMs = 6 * 60 * 60 * 1000;
   private readonly perFeedFallbackCategoryFeedLimit = 3;
   private readonly perFeedFallbackIntelFeedLimit = 6;
   private readonly perFeedFallbackBatchSize = 2;
-  private lastGoodDigest: ListFeedDigestResponse | null = null;
   private lastCommodityData: Array<{ display: string; price: number | null; change: number | null; sparkline?: number[] }> = [];
   private firesCache: ListFireDetectionsResponse | null = null;
 
@@ -121,10 +110,6 @@ export class DataLoaderManager implements AppModule {
   constructor(ctx: AppContext, callbacks: DataLoaderCallbacks) {
     this.ctx = ctx;
     this.callbacks = callbacks;
-    this.domainHandlers = this.buildDomainHandlers();
-  }
-
-  private buildDomainHandlers(): Record<string, (payload: unknown) => void> {
     const newsCallbacks = {
       onNewsDigestProcessed: () => {
         void this.loadHappySupplementaryAndRender().then(() =>
@@ -146,7 +131,7 @@ export class DataLoaderManager implements AppModule {
         this.firesCache = data;
       },
     };
-    return {
+    this.domainHandlers = {
       ...createNewsHandlers(this.ctx, newsCallbacks),
       ...createMarketsHandlers(this.ctx, marketsCallbacks),
       ...createEconomicHandlers(this.ctx),
@@ -195,30 +180,6 @@ export class DataLoaderManager implements AppModule {
       return true;
     }
     return false;
-  }
-
-  private async tryFetchDigest(): Promise<ListFeedDigestResponse | null> {
-    const data = fetchNewsDigest(0);
-    if (data) {
-      this.lastGoodDigest = data;
-      this.persistDigest(data);
-      return data;
-    }
-    return this.lastGoodDigest ?? await this.loadPersistedDigest();
-  }
-
-  private persistDigest(data: ListFeedDigestResponse): void {
-    setPersistentCache('digest:last-good', data).catch(() => {});
-  }
-
-  private async loadPersistedDigest(): Promise<ListFeedDigestResponse | null> {
-    try {
-      const envelope = await getPersistentCache<ListFeedDigestResponse>('digest:last-good');
-      if (!envelope) return null;
-      if (Date.now() - envelope.updatedAt > this.persistedDigestMaxAgeMs) return null;
-      this.lastGoodDigest = envelope.data;
-      return envelope.data;
-    } catch { return null; }
   }
 
   private isPerFeedFallbackEnabled(): boolean {
@@ -307,65 +268,6 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
-  private findFlashLocation(title: string): { lat: number; lon: number } | null {
-    const tokens = tokenizeForMatch(title);
-    let bestMatch: { lat: number; lon: number; matches: number } | null = null;
-
-    const countKeywordMatches = (keywords: string[] | undefined): number => {
-      if (!keywords) return 0;
-      let matches = 0;
-      for (const keyword of keywords) {
-        const cleaned = keyword.trim().toLowerCase();
-        if (cleaned.length >= 3 && matchKeyword(tokens, cleaned)) {
-          matches++;
-        }
-      }
-      return matches;
-    };
-
-    for (const hotspot of INTEL_HOTSPOTS) {
-      const matches = countKeywordMatches(hotspot.keywords);
-      if (matches > 0 && (!bestMatch || matches > bestMatch.matches)) {
-        bestMatch = { lat: hotspot.lat, lon: hotspot.lon, matches };
-      }
-    }
-
-    for (const conflict of CONFLICT_ZONES) {
-      const matches = countKeywordMatches(conflict.keywords);
-      if (matches > 0 && (!bestMatch || matches > bestMatch.matches)) {
-        bestMatch = { lat: conflict.center[1], lon: conflict.center[0], matches };
-      }
-    }
-
-    return bestMatch;
-  }
-
-  private flashMapForNews(items: NewsItem[]): void {
-    if (!this.ctx.map || !this.ctx.initialLoadComplete) return;
-    if (!getAiFlowSettings().mapNewsFlash) return;
-    const now = Date.now();
-
-    for (const [key, timestamp] of this.mapFlashCache.entries()) {
-      if (now - timestamp > this.MAP_FLASH_COOLDOWN_MS) {
-        this.mapFlashCache.delete(key);
-      }
-    }
-
-    for (const item of items) {
-      const cacheKey = `${item.source}|${item.link || item.title}`;
-      const lastSeen = this.mapFlashCache.get(cacheKey);
-      if (lastSeen && now - lastSeen < this.MAP_FLASH_COOLDOWN_MS) {
-        continue;
-      }
-
-      const location = this.findFlashLocation(item.title);
-      if (!location) continue;
-
-      this.ctx.map.flashLocation(location.lat, location.lon);
-      this.mapFlashCache.set(cacheKey, now);
-    }
-  }
-
   private async loadNewsCategory(category: string, feeds: import('@/types').Feed[]): Promise<NewsItem[]> {
     try {
       const panel = this.ctx.newsPanels[category];
@@ -448,7 +350,7 @@ export class DataLoaderManager implements AppModule {
         batchSize: this.perFeedFallbackBatchSize,
         onBatch: (partialItems) => {
           scheduleRender(partialItems);
-          this.flashMapForNews(partialItems);
+          flashMapForNews(this.ctx, partialItems);
           checkBatchForBreakingAlerts(partialItems);
         },
       });
@@ -502,7 +404,7 @@ export class DataLoaderManager implements AppModule {
     }
 
     // Fire digest fetch early (non-blocking) — await before category loop
-    const digestPromise = this.tryFetchDigest();
+    const digestPromise = tryFetchDigest();
 
     // Wait for news sources to be loaded — but never more than 3s.
     // App.init() fires loadNewsSources() and flags in parallel without awaiting them,
@@ -603,7 +505,7 @@ export class DataLoaderManager implements AppModule {
             }
             this.ctx.statusPanel?.updateFeed('Intel', { status: 'ok', itemCount: intel.length });
             collectedNews.push(...intel);
-            this.flashMapForNews(intel);
+            flashMapForNews(this.ctx, intel);
           } else {
             delete this.ctx.newsByCategory['intel'];
             console.error('[App] Intel feed failed:', intelResult[0]?.reason);

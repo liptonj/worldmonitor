@@ -53,7 +53,7 @@ describe('Domain Handler Modules', () => {
   it('DataLoaderManager uses domain handlers in getHandler', () => {
     const src = readFileSync('src/app/data-loader.ts', 'utf-8');
     assert.ok(src.includes('domainHandlers'), 'DataLoaderManager must use domainHandlers');
-    assert.ok(src.includes('buildDomainHandlers'), 'DataLoaderManager must have buildDomainHandlers');
+    assert.ok(src.includes('createNewsHandlers') && src.includes('createIntelligenceHandlers'), 'DataLoaderManager must register domain handlers in constructor');
   });
 });
 
@@ -65,9 +65,9 @@ describe('Domain Handler Runtime (structural)', () => {
     assert.ok(src.includes('createConfigHandlers'), 'index exports createConfigHandlers');
   });
 
-  it('domain handlers are merged in buildDomainHandlers', () => {
+  it('domain handlers are merged in constructor', () => {
     const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-    assert.ok(src.includes('createNewsHandlers(this.ctx'), 'buildDomainHandlers calls createNewsHandlers');
-    assert.ok(src.includes('createIntelligenceHandlers(this.ctx'), 'buildDomainHandlers calls createIntelligenceHandlers');
+    assert.ok(src.includes('createNewsHandlers(this.ctx'), 'constructor calls createNewsHandlers');
+    assert.ok(src.includes('createIntelligenceHandlers(this.ctx'), 'constructor calls createIntelligenceHandlers');
   });
 });

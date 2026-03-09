@@ -32,7 +32,7 @@ describe('relay-push integration: channel-to-apply wiring', () => {
   for (const [channel, applyFn] of dataLoaderChannels) {
     it(`channel '${channel}' is wired via domain handlers (was ${applyFn})`, () => {
       const registryHasIt = DATA_LOADER_CHANNEL_MAP[channel] === applyFn || (channel === 'pizzint' && applyFn === 'applyPizzInt');
-      const dataLoaderUsesDomainHandlers = dataLoaderSrc.includes('domainHandlers') && dataLoaderSrc.includes('buildDomainHandlers') && dataLoaderSrc.includes('getHandler');
+      const dataLoaderUsesDomainHandlers = dataLoaderSrc.includes('domainHandlers') && dataLoaderSrc.includes('getHandler') && dataLoaderSrc.includes('createNewsHandlers');
       assert.ok(
         registryHasIt && dataLoaderUsesDomainHandlers,
         `Channel '${channel}' must be in registry and DataLoader must use domain handlers`
