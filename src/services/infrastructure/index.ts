@@ -81,8 +81,7 @@ export async function fetchInternetOutages(): Promise<InternetOutage[]> {
     return [];
   }
 
-  const hydrated = getHydratedData('outages') as ListInternetOutagesResponse | undefined;
-  const resp = hydrated ?? await outageBreaker.execute(async () => {
+  const resp = await outageBreaker.execute(async () => {
     return client.listInternetOutages({
       country: '',
       start: 0,
