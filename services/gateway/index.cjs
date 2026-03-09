@@ -6,7 +6,7 @@ const { WebSocketServer } = require('ws');
 const protoLoader = require('@grpc/proto-loader');
 const grpc = require('@grpc/grpc-js');
 const { createLogger } = require('@worldmonitor/shared/logger.cjs');
-const { get } = require('@worldmonitor/shared/redis.cjs');
+const { get, getClient, keys: redisKeys, ttl: redisTtl, del: redisDel, strlen: redisStrlen, type: redisType } = require('@worldmonitor/shared/redis.cjs');
 
 const log = createLogger('gateway');
 
@@ -302,17 +302,90 @@ function main() {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         [CORS_HEADER]: CORS_VALUE,
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       });
       res.end();
       return;
     }
 
-    if (req.method !== 'GET') {
+    if (req.method !== 'GET' && req.method !== 'DELETE') {
       res.writeHead(405, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Method not allowed' }));
       return;
+    }
+
+    // --- Admin cache routes (auth required) ---
+    if (pathname.startsWith('/admin/')) {
+      const adminKey = process.env.ADMIN_API_KEY;
+      if (!adminKey) {
+        res.writeHead(503, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Admin API not configured' }));
+        return;
+      }
+      const authHeader = req.headers['authorization'] || '';
+      const token = authHeader.replace(/^Bearer\s+/i, '');
+      if (!token || token !== adminKey) {
+        res.writeHead(401, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+      const jsonH = { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+
+      try {
+        // GET /admin/cache/keys — list all keys with metadata
+        if (pathname === '/admin/cache/keys' && req.method === 'GET') {
+          const allKeys = await redisKeys('*');
+          const entries = await Promise.all(
+            allKeys.map(async (k) => {
+              const [t, sz, tp] = await Promise.all([redisTtl(k), redisStrlen(k), redisType(k)]);
+              return { key: k, ttl: t, size: sz, type: tp };
+            })
+          );
+          entries.sort((a, b) => a.key.localeCompare(b.key));
+          res.writeHead(200, jsonH);
+          res.end(JSON.stringify({ keys: entries }));
+          return;
+        }
+
+        // GET /admin/cache/key/:key — get full value
+        const getMatch = pathname.match(/^\/admin\/cache\/key\/(.+)$/);
+        if (getMatch && req.method === 'GET') {
+          const key = decodeURIComponent(getMatch[1]);
+          const client = getClient();
+          const raw = await client.get(key);
+          if (raw === null) {
+            res.writeHead(404, jsonH);
+            res.end(JSON.stringify({ error: 'Key not found' }));
+            return;
+          }
+          let value;
+          try { value = JSON.parse(raw); } catch { value = raw; }
+          const t = await redisTtl(key);
+          res.writeHead(200, jsonH);
+          res.end(JSON.stringify({ key, ttl: t, value }));
+          return;
+        }
+
+        // DELETE /admin/cache/key/:key — invalidate
+        const delMatch = pathname.match(/^\/admin\/cache\/key\/(.+)$/);
+        if (delMatch && req.method === 'DELETE') {
+          const key = decodeURIComponent(delMatch[1]);
+          const deleted = await redisDel(key);
+          res.writeHead(200, jsonH);
+          res.end(JSON.stringify({ deleted: deleted > 0, key }));
+          return;
+        }
+
+        res.writeHead(404, jsonH);
+        res.end(JSON.stringify({ error: 'Admin route not found' }));
+        return;
+      } catch (err) {
+        log.error('Admin route error', { pathname, error: err.message });
+        res.writeHead(500, jsonH);
+        res.end(JSON.stringify({ error: 'Internal server error' }));
+        return;
+      }
     }
 
     if (pathname === '/gdelt') {

@@ -42,6 +42,7 @@ services:
       - relay-internal
     environment:
       - REDIS_URL=redis://redis:6379
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - OPENSKY_CLIENT_ID=${OPENSKY_CLIENT_ID:-}

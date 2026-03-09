@@ -42,4 +42,29 @@ async function setex(key, ttlSeconds, value) {
   await client.setex(key, ttlSeconds, str);
 }
 
-module.exports = { get, setex, getClient };
+async function keys(pattern) {
+  const client = getClient();
+  return client.keys(pattern);
+}
+
+async function ttl(key) {
+  const client = getClient();
+  return client.ttl(key);
+}
+
+async function del(key) {
+  const client = getClient();
+  return client.del(key);
+}
+
+async function strlen(key) {
+  const client = getClient();
+  return client.strlen(key);
+}
+
+async function type(key) {
+  const client = getClient();
+  return client.type(key);
+}
+
+module.exports = { get, setex, getClient, keys, ttl, del, strlen, type };
