@@ -321,7 +321,7 @@ export function createNewsHandlers(
       for (const item of collectedNews) {
         item.happyCategory = classifyNewsItem(item.source, item.title);
       }
-      ctx.happyAllItems = collectedNews;
+      newsStore.happyAllItems = collectedNews;
     }
 
     newsStore.allNews = collectedNews;

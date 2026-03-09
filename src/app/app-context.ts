@@ -1,4 +1,4 @@
-import type { NewsItem, Monitor, PanelConfig, MapLayers } from '@/types';
+import type { Monitor, PanelConfig, MapLayers } from '@/types';
 import type { MapContainer, Panel, NewsPanel, SignalModal, StatusPanel, SearchModal } from '@/components';
 import type { IntelligenceGapBadge } from '@/components';
 import type { TimeRange } from '@/components';
@@ -91,7 +91,6 @@ export interface AppContext {
   speciesPanel: SpeciesComebackPanel | null;
   renewablePanel: RenewableEnergyPanel | null;
   tvMode: TvModeController | null;
-  happyAllItems: NewsItem[];
   isDestroyed: boolean;
   isPlaybackMode: boolean;
   isIdle: boolean;

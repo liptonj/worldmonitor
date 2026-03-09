@@ -4,6 +4,7 @@
 
 import type { DataLoaderBridge } from './loader-bridge';
 import { intelStore } from '@/stores/intel-store';
+import { newsStore } from '@/stores/news-store';
 import { SITE_VARIANT } from '@/config';
 import { fetchEarthquakes } from '@/services';
 import { dataFreshness } from '@/services/data-freshness';
@@ -109,7 +110,7 @@ export const geoLoader = {
   async loadPositiveEvents(ctx: import('@/app/app-context').AppContext): Promise<void> {
     const gdeltEvents = await fetchPositiveGeoEvents();
     const rssEvents = geocodePositiveNewsItems(
-      ctx.happyAllItems.map(i => ({ title: i.title, category: i.happyCategory }))
+      newsStore.happyAllItems.map(i => ({ title: i.title, category: i.happyCategory }))
     );
     const seen = new Set<string>();
     const merged = [...gdeltEvents, ...rssEvents].filter(e => {

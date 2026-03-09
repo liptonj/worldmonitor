@@ -146,7 +146,7 @@ async function loadNewsCategory(bridge: DataLoaderBridge, category: string, feed
 export const newsLoader = {
   async loadNews(bridge: DataLoaderBridge): Promise<void> {
     const ctx = bridge.ctx;
-    if (SITE_VARIANT === 'happy') ctx.happyAllItems = [];
+    if (SITE_VARIANT === 'happy') newsStore.happyAllItems = [];
 
     const digestPromise = tryFetchDigest();
     const SOURCES_WAIT_MS = 3000;
@@ -178,7 +178,7 @@ export const newsLoader = {
         const items = result.value;
         if (SITE_VARIANT === 'happy') {
           for (const item of items) item.happyCategory = classifyNewsItem(item.source, item.title);
-          ctx.happyAllItems = ctx.happyAllItems.concat(items);
+          newsStore.happyAllItems = newsStore.happyAllItems.concat(items);
         }
         collectedNews.push(...items);
       } else {
@@ -293,7 +293,7 @@ export const newsLoader = {
     const ctx = bridge.ctx;
     if (!ctx.positivePanel) return;
 
-    const curated = [...ctx.happyAllItems];
+    const curated = [...newsStore.happyAllItems];
     ctx.positivePanel.renderPositiveNews(curated);
 
     let supplementary: NewsItem[] = [];
@@ -321,19 +321,19 @@ export const newsLoader = {
     }
 
     const scienceSources = ['GNN Science', 'ScienceDaily', 'Nature News', 'Live Science', 'New Scientist', 'Singularity Hub', 'Human Progress', 'Greater Good (Berkeley)'];
-    const scienceItems = ctx.happyAllItems.filter(i => scienceSources.includes(i.source) || i.happyCategory === 'science-health');
+    const scienceItems = newsStore.happyAllItems.filter(i => scienceSources.includes(i.source) || i.happyCategory === 'science-health');
     ctx.breakthroughsPanel?.setItems(scienceItems);
 
-    const heroItem = ctx.happyAllItems.filter(i => i.happyCategory === 'humanity-kindness').sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime())[0];
+    const heroItem = newsStore.happyAllItems.filter(i => i.happyCategory === 'humanity-kindness').sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime())[0];
     ctx.heroPanel?.setHeroStory(heroItem);
 
-    ctx.digestPanel?.setStories([...ctx.happyAllItems].sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime()).slice(0, 5));
+    ctx.digestPanel?.setStories([...newsStore.happyAllItems].sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime()).slice(0, 5));
 
-    setPersistentCache(HAPPY_ITEMS_CACHE_KEY, ctx.happyAllItems.map(i => ({ ...i, pubDate: i.pubDate.getTime() }))).catch(() => {});
+    setPersistentCache(HAPPY_ITEMS_CACHE_KEY, newsStore.happyAllItems.map(i => ({ ...i, pubDate: i.pubDate.getTime() }))).catch(() => {});
   },
 
   loadKindnessData(ctx: AppContext): void {
-    const kindnessItems = fetchKindnessData(ctx.happyAllItems.map(i => ({ title: i.title, happyCategory: i.happyCategory })));
+    const kindnessItems = fetchKindnessData(newsStore.happyAllItems.map(i => ({ title: i.title, happyCategory: i.happyCategory })));
     ctx.map?.setKindnessData(kindnessItems);
   },
 };

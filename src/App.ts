@@ -279,7 +279,6 @@ export class App {
       speciesPanel: null,
       renewablePanel: null,
       tvMode: null,
-      happyAllItems: [],
       isDestroyed: false,
       isPlaybackMode: false,
       isIdle: false,

@@ -12,6 +12,7 @@ function resetStores(): void {
   newsStore.allNews.length = 0;
   newsStore.newsByCategory = {};
   newsStore.latestClusters.length = 0;
+  newsStore.happyAllItems.length = 0;
   marketsStore.latestMarkets.length = 0;
   marketsStore.latestPredictions.length = 0;
   intelStore.intelligenceCache = {};
@@ -30,6 +31,8 @@ describe('domain stores', () => {
     assert.ok(Object.keys(newsStore.newsByCategory).length === 0);
     assert.ok(Array.isArray(newsStore.latestClusters));
     assert.ok(newsStore.latestClusters.length === 0);
+    assert.ok(Array.isArray(newsStore.happyAllItems));
+    assert.ok(newsStore.happyAllItems.length === 0);
     });
 
     it('allNews is mutable', () => {
