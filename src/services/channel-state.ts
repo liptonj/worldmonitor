@@ -46,8 +46,17 @@ function isValidSource(s: string | undefined): s is ChannelSource {
   return s !== undefined && VALID_SOURCES.includes(s as ChannelSource);
 }
 
+function copyStatus(s: ChannelStatus): ChannelStatus {
+  return { ...s };
+}
+
 /**
  * Sets the state for a channel and notifies all subscribers.
+ *
+ * When transitioning to `error` without providing `options.error`, defaults to `"Unknown error"`.
+ *
+ * **Re-entrancy:** Subscribers must not call `setChannelState` (or `subscribeChannelState` for
+ * the same channel) from within their callback; behavior is undefined if they do.
  *
  * @param channel - Channel key (e.g. 'markets', 'fred')
  * @param state - New state to set
@@ -64,7 +73,12 @@ export function setChannelState(
   const next: ChannelStatus = {
     state,
     lastDataAt: options?.lastDataAt ?? (state === 'ready' || state === 'stale' ? Date.now() : prev.lastDataAt),
-    error: options?.error !== undefined ? options.error : (state === 'error' ? prev.error : null),
+    error:
+      options?.error !== undefined
+        ? options.error
+        : state === 'error'
+          ? prev.error ?? 'Unknown error'
+          : null,
     source: isValidSource(source) ? source : prev.source,
   };
   channelStates.set(channel, next);
@@ -72,7 +86,7 @@ export function setChannelState(
   const subs = subscribers.get(channel);
   if (subs) {
     for (const cb of subs) {
-      cb(next);
+      cb(copyStatus(next));
     }
   }
 }
@@ -80,17 +94,32 @@ export function setChannelState(
 /**
  * Gets the current status for a channel.
  * Returns the default idle status if the channel has never been set.
+ * Returns a shallow copy so callers cannot mutate internal state.
  *
  * @param channel - Channel key
  * @returns Current ChannelStatus (never undefined)
  */
 export function getChannelState(channel: string): ChannelStatus {
-  return channelStates.get(channel) ?? { ...DEFAULT_STATUS };
+  const stored = channelStates.get(channel) ?? { ...DEFAULT_STATUS };
+  return copyStatus(stored);
+}
+
+/**
+ * Clears all channel state and subscriptions. For use in tests only.
+ *
+ * @internal
+ */
+export function resetChannelState(): void {
+  channelStates.clear();
+  subscribers.clear();
 }
 
 /**
  * Subscribes to state changes for a channel.
  * The callback is invoked immediately with the current status, then on every subsequent change.
+ *
+ * **Re-entrancy:** The callback must not call `setChannelState` or `subscribeChannelState` for
+ * the same channel; behavior is undefined if it does.
  *
  * @param channel - Channel key
  * @param cb - Callback invoked with the new status whenever it changes

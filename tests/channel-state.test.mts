@@ -8,14 +8,13 @@ import {
   setChannelState,
   getChannelState,
   subscribeChannelState,
+  resetChannelState,
   type ChannelStatus,
 } from '../src/services/channel-state.ts';
 
 describe('channel-state', () => {
   beforeEach(() => {
-    // Reset state between tests by setting known channels to idle
-    // (module uses module-level Map; we can't clear it without exporting a reset)
-    // Use unique channel names per test to avoid cross-test pollution
+    resetChannelState();
   });
 
   describe('getChannelState', () => {
@@ -25,6 +24,16 @@ describe('channel-state', () => {
       assert.equal(status.lastDataAt, null);
       assert.equal(status.error, null);
       assert.equal(status.source, null);
+    });
+
+    it('returns a copy so mutation does not affect internal state', () => {
+      setChannelState('mutable-test', 'ready', 'websocket');
+      const status = getChannelState('mutable-test');
+      status.state = 'error' as never;
+      status.error = 'tampered';
+      const again = getChannelState('mutable-test');
+      assert.equal(again.state, 'ready');
+      assert.equal(again.error, null);
     });
   });
 
@@ -51,6 +60,13 @@ describe('channel-state', () => {
       const status = getChannelState('fred');
       assert.equal(status.state, 'error');
       assert.equal(status.error, 'Service unavailable');
+    });
+
+    it('transitions to error without message defaults to "Unknown error"', () => {
+      setChannelState('fred-default', 'error');
+      const status = getChannelState('fred-default');
+      assert.equal(status.state, 'error');
+      assert.equal(status.error, 'Unknown error');
     });
 
     it('transitions ready → stale', () => {
