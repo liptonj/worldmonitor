@@ -1,9 +1,5 @@
 import type { Hotspot } from '@/types';
 import { t } from '@/services/i18n';
-import type {
-  GdeltArticle as ProtoGdeltArticle,
-  SearchGdeltDocumentsResponse,
-} from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { fetchRelayPanel, RELAY_HTTP_BASE, getRelayFetchHeaders } from '@/services/relay-http';
 
 export interface GdeltArticle {
@@ -154,19 +150,6 @@ async function fetchGdeltPanel(): Promise<GdeltPanelData | null> {
     console.warn(`[GDELT-Intel] Panel fetch failed: ${err instanceof Error ? err.message : err}`);
     return panelCache.data;
   }
-}
-
-/** Map proto GdeltArticle (all required strings) to service GdeltArticle (optional fields) */
-function toGdeltArticle(a: ProtoGdeltArticle): GdeltArticle {
-  return {
-    title: a.title,
-    url: a.url,
-    source: a.source,
-    date: a.date,
-    image: a.image || undefined,
-    language: a.language || undefined,
-    tone: a.tone || undefined,
-  };
 }
 
 /** Fetch articles for a specific topic from pre-cached GDELT data */
