@@ -116,31 +116,53 @@ case "$COMMAND" in
             ENV_FILE=".env"
         elif [[ -f ".env.production" ]]; then
             ENV_FILE=".env.production"
+        elif [[ -f "../.env" ]]; then
+            ENV_FILE="../.env"
         fi
         
         if [[ -n "$ENV_FILE" ]]; then
-            SPLUNK_URL=$(grep "^SPLUNK_URL=" "$ENV_FILE" | cut -d'=' -f2)
-            SPLUNK_TOKEN=$(grep "^SPLUNK_HEC_TOKEN=" "$ENV_FILE" | cut -d'=' -f2)
-            SPLUNK_INDEX=$(grep "^SPLUNK_INDEX=" "$ENV_FILE" | cut -d'=' -f2)
+            SPLUNK_URL=$(grep "^SPLUNK_URL=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+            SPLUNK_TOKEN=$(grep "^SPLUNK_HEC_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+            SPLUNK_INDEX=$(grep "^SPLUNK_INDEX=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
             
             if [[ -n "$SPLUNK_URL" ]] && [[ -n "$SPLUNK_TOKEN" ]]; then
                 echo "✓ Configuration: OK"
                 echo "  File:  $ENV_FILE"
                 echo "  URL:   $SPLUNK_URL"
                 echo "  Index: ${SPLUNK_INDEX:-docker_logs}"
+                
+                # Check if it's a remote Splunk server
+                if [[ "$SPLUNK_URL" != *"localhost"* ]] && [[ "$SPLUNK_URL" != *"127.0.0.1"* ]]; then
+                    echo "  Type:  Remote Splunk Server"
+                    
+                    # Try to test connection
+                    echo ""
+                    echo "Testing connection to Splunk HEC..."
+                    if curl -k -s -o /dev/null -w "%{http_code}" -H "Authorization: Splunk $SPLUNK_TOKEN" "$SPLUNK_URL/services/collector/health" | grep -q "200"; then
+                        echo "✓ Splunk HEC: Reachable"
+                    else
+                        HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" -H "Authorization: Splunk $SPLUNK_TOKEN" "$SPLUNK_URL/services/collector/health" 2>/dev/null || echo "000")
+                        echo "✗ Splunk HEC: Connection failed (HTTP $HTTP_CODE)"
+                        echo "  This may be normal if Splunk is on a private network"
+                    fi
+                else
+                    echo "  Type:  Local/Docker"
+                fi
                 echo ""
             else
                 echo "✗ Configuration: Missing SPLUNK_URL or SPLUNK_HEC_TOKEN in $ENV_FILE"
                 echo ""
             fi
         else
-            echo "✗ Configuration: .env or .env.production not found"
+            echo "✗ Configuration: No .env file found"
+            echo "  Searched: .env, .env.production, ../.env"
+            echo "  Current directory: $(pwd)"
             echo ""
         fi
         
-        # Check if Splunk service is running
+        # Check if Splunk service is running locally (Docker)
         if docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.logging.yml ps splunk 2>/dev/null | grep -q "Up"; then
-            echo "✓ Splunk Container: Running"
+            echo "✓ Splunk Container: Running (Local Docker)"
             SPLUNK_CONTAINER=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.logging.yml ps -q splunk 2>/dev/null)
             if [[ -n "$SPLUNK_CONTAINER" ]]; then
                 SPLUNK_PORT=$(docker port "$SPLUNK_CONTAINER" 8000 2>/dev/null | cut -d':' -f2)
@@ -151,8 +173,15 @@ case "$COMMAND" in
             fi
             echo ""
         else
-            echo "✗ Splunk Container: Not running"
-            echo ""
+            if [[ -n "$SPLUNK_URL" ]] && [[ "$SPLUNK_URL" != *"localhost"* ]]; then
+                echo "✓ Splunk Setup: Remote Server (not running locally)"
+                echo "  Logs are sent to: $SPLUNK_URL"
+                echo ""
+            else
+                echo "✗ Splunk Container: Not running"
+                echo "  (This is normal if using a remote Splunk server)"
+                echo ""
+            fi
         fi
         
         # Check recent log entries
