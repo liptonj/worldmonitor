@@ -1,5 +1,6 @@
 /**
  * Config domain handler — config:news-sources, config:feature-flags.
+ * ctx is unused; kept for consistency with other create*Handlers(ctx) signatures.
  */
 
 import type { AppContext } from '@/app/app-context';

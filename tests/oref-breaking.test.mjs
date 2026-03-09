@@ -53,23 +53,32 @@ describe('breaking-news-alerts oref_siren integration', () => {
   });
 });
 
-describe('data-loader oref breaking news wiring', () => {
+describe('oref breaking news wiring (intelligence-handler + data-loader)', () => {
+  const IH = readFileSync(join(__dirname, '..', 'src', 'data', 'intelligence-handler.ts'), 'utf8');
   const DL = readFileSync(join(__dirname, '..', 'src', 'app', 'data-loader.ts'), 'utf8');
 
-  it('imports dispatchOrefBreakingAlert', () => {
-    assert.ok(DL.includes('dispatchOrefBreakingAlert'), 'data-loader should import dispatchOrefBreakingAlert');
+  it('intelligence-handler imports dispatchOrefBreakingAlert', () => {
+    assert.ok(IH.includes('dispatchOrefBreakingAlert'), 'intelligence-handler should import dispatchOrefBreakingAlert');
   });
 
-  it('calls renderOrefAlerts on initial load (which dispatches breaking alerts)', () => {
-    const orefSection = DL.slice(DL.indexOf('// OREF sirens'), DL.indexOf('// GPS/GNSS'));
-    assert.ok(orefSection.includes('renderOrefAlerts'), 'initial load should call renderOrefAlerts');
-    const renderOrefBody = DL.slice(DL.indexOf('private renderOrefAlerts'), DL.indexOf('applyOref(payload'));
+  it('renderOrefAlerts calls dispatchOrefBreakingAlert when alerts present', () => {
+    assert.ok(IH.includes('renderOrefAlerts'), 'intelligence-handler should define renderOrefAlerts');
+    const renderOrefStart = IH.indexOf('function renderOrefAlerts');
+    const renderOrefEnd = IH.indexOf('function renderIranEvents', renderOrefStart) || IH.length;
+    const renderOrefBody = IH.slice(renderOrefStart, renderOrefEnd);
     assert.ok(renderOrefBody.includes('dispatchOrefBreakingAlert'), 'renderOrefAlerts should call dispatchOrefBreakingAlert');
   });
 
-  it('applyOref calls renderOrefAlerts for WebSocket updates', () => {
-    const applyOrefStart = DL.indexOf('applyOref(payload');
-    const applyOrefBody = DL.slice(applyOrefStart, applyOrefStart + 400);
-    assert.ok(applyOrefBody.includes('renderOrefAlerts'), 'applyOref should call renderOrefAlerts');
+  it('oref handler calls renderOrefAlerts for WebSocket updates', () => {
+    const orefKeyIdx = IH.indexOf('oref:');
+    assert.ok(orefKeyIdx >= 0, 'intelligence-handler should have oref handler');
+    const upToIran = IH.indexOf("'iran-events':", orefKeyIdx);
+    const orefHandlerBody = IH.slice(orefKeyIdx, upToIran >= 0 ? upToIran : orefKeyIdx + 600);
+    assert.ok(orefHandlerBody.includes('renderOrefAlerts'), 'oref handler should call renderOrefAlerts');
+  });
+
+  it('data-loader loads oref via domainHandlers on initial load', () => {
+    assert.ok(DL.includes('loadChannelWithFallback') && (DL.includes("'oref'") || DL.includes('"oref"')), 'data-loader should load oref channel');
+    assert.ok(DL.includes("domainHandlers['oref']"), 'data-loader should pass data to domainHandlers.oref');
   });
 });

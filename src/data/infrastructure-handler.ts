@@ -106,6 +106,8 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
       if (!payload || typeof payload !== 'object') return;
       const resp = payload as ListCyberThreatsResponse;
       if (!Array.isArray(resp.threats)) return;
+      // Heuristic: relay may push raw proto (needs adaptCyberThreatsResponse) or pre-adapted
+      // client shape. Pre-adapted items have string 'indicator'. If format changes, update here.
       const first = resp.threats[0] as unknown;
       const isPreAdapted = first && typeof first === 'object' && 'indicator' in first && typeof (first as { indicator?: unknown }).indicator === 'string';
       const threats = isPreAdapted ? (resp.threats as unknown as import('@/types').CyberThreat[]) : adaptCyberThreatsResponse(resp);
