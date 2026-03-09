@@ -35,6 +35,12 @@ const SUPABASE_ANON_KEY =
   (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_SUPABASE_ANON_KEY as string)) ||
   '';
 
+// Gateway URL for admin cache API
+const GATEWAY_URL =
+  (typeof window !== 'undefined' && (window as unknown as { ENV?: { GATEWAY_URL?: string } }).ENV?.GATEWAY_URL) ||
+  (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_GATEWAY_URL as string)) ||
+  'http://localhost:3004';
+
 const FETCH_TYPES = ['custom', 'simple_http', 'simple_rss'];
 
 function escHtml(s: string): string {
@@ -223,11 +229,20 @@ export function renderServiceSchedulingPage(container: HTMLElement, accessToken:
   }
 
   function renderActiveTab(): void {
+    const content = container.querySelector('#tab-content') as HTMLElement;
+
+    // Clean up previous tab before rendering new one
+    const cacheViewerCleanup = (content as unknown as { __cacheViewerCleanup?: () => void })
+      .__cacheViewerCleanup;
+    if (cacheViewerCleanup) {
+      cacheViewerCleanup();
+      delete (content as unknown as { __cacheViewerCleanup?: () => void }).__cacheViewerCleanup;
+    }
     if (statusPollInterval) {
       clearInterval(statusPollInterval);
       statusPollInterval = null;
     }
-    const content = container.querySelector('#tab-content') as HTMLElement;
+
     switch (activeTab) {
       case 'service-config':
         renderServiceConfigTab(content, accessToken, (redisKey) => {
@@ -243,7 +258,7 @@ export function renderServiceSchedulingPage(container: HTMLElement, accessToken:
         renderSourceSchedulingTab(content, accessToken);
         break;
       case 'cache-viewer':
-        content.innerHTML = `<p style="color:var(--text-muted);padding:20px">Cache Viewer tab — Coming soon${cacheViewerSearch ? ` (search: ${escHtml(cacheViewerSearch)})` : ''}</p>`;
+        renderCacheViewerTab(content, accessToken, cacheViewerSearch ?? '');
         break;
     }
   }
@@ -511,7 +526,7 @@ function renderServiceConfigTab(
 
     container.querySelectorAll('[data-view-cache]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const key = (btn as HTMLElement).dataset['viewCache'] ?? '';
+        const key = (btn as HTMLElement).dataset['viewCache'] ?? (btn as HTMLElement).getAttribute('data-view-cache') ?? '';
         onSwitchToCacheViewer(key);
       });
     });
@@ -822,6 +837,319 @@ function renderSourceSchedulingTab(container: HTMLElement, accessToken: string):
       container.innerHTML = `<div style="padding:10px 14px;background:rgba(229,62,62,0.1);border:1px solid var(--danger,#e53e3e);border-radius:var(--radius);color:var(--danger,#e53e3e)">${escHtml((err as Error).message)}</div>`;
     }
   }
+
+  void load();
+}
+
+function renderCacheViewerTab(container: HTMLElement, accessToken: string, initialSearch = ''): void {
+  let adminApiKey = '';
+  let keys: Array<{ key: string; ttl: number; size: number; type: string }> = [];
+  let filteredKeys = keys;
+  let selectedKey = '';
+  let autoRefresh = false;
+  let refreshInterval: ReturnType<typeof setInterval> | null = null;
+
+  const errorStyle = 'padding:10px 14px;background:rgba(229,62,62,0.1);border:1px solid var(--danger,#e53e3e);border-radius:var(--radius);color:var(--danger,#e53e3e)';
+  const btnStyle = 'padding:4px 8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:11px;color:var(--text)';
+  const btnDangerStyle = 'padding:4px 8px;background:transparent;border:1px solid var(--danger,#e53e3e);border-radius:var(--radius);cursor:pointer;font-size:11px;color:var(--danger,#e53e3e)';
+  const selectStyle = 'padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px';
+
+  async function loadApiKey(): Promise<void> {
+    const res = await fetch('/api/admin/admin-api-key', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `Failed to load API key: ${res.statusText}`);
+    }
+    const data = (await res.json()) as { key: string };
+    adminApiKey = data.key ?? '';
+  }
+
+  async function fetchKeys(): Promise<void> {
+    const res = await fetch(`${GATEWAY_URL}/admin/cache/keys`, {
+      headers: { Authorization: `Bearer ${adminApiKey}` },
+    });
+
+    if (!res.ok) {
+      if (res.status === 401) throw new Error('Unauthorized - check ADMIN_API_KEY');
+      throw new Error(`Failed to fetch keys: ${res.statusText}`);
+    }
+
+    const data = (await res.json()) as { keys?: Array<{ key: string; ttl: number; size: number; type: string }> };
+    keys = data.keys ?? [];
+  }
+
+  async function fetchValue(key: string): Promise<{ value: unknown; ttl: number } | null> {
+    const res = await fetch(`${GATEWAY_URL}/admin/cache/key/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${adminApiKey}` },
+    });
+
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`Failed to fetch value: ${res.statusText}`);
+    }
+
+    return res.json();
+  }
+
+  async function deleteKey(key: string): Promise<void> {
+    const res = await fetch(`${GATEWAY_URL}/admin/cache/key/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${adminApiKey}` },
+    });
+
+    if (!res.ok) throw new Error(`Failed to delete: ${res.statusText}`);
+  }
+
+  function keyPrefixColor(key: string): string {
+    if (key.startsWith('ai:')) return '#8b5cf6';
+    if (key.startsWith('news:')) return '#3b82f6';
+    if (key.startsWith('config:')) return '#10b981';
+    if (key.startsWith('market:')) return '#f59e0b';
+    return 'var(--text-muted)';
+  }
+
+  function ttlProgress(ttl: number, maxTtl: number): string {
+    if (ttl === -1) return '100%';
+    const percent = Math.min(100, (ttl / maxTtl) * 100);
+    return `${percent}%`;
+  }
+
+  function renderJson(value: unknown, indent = 0): string {
+    const pad = '  '.repeat(indent);
+
+    if (value === null) return '<span style="color:#94a3b8">null</span>';
+    if (typeof value === 'boolean') return `<span style="color:#fb923c">${value}</span>`;
+    if (typeof value === 'number') return `<span style="color:#60a5fa">${value}</span>`;
+    if (typeof value === 'string') return `<span style="color:#34d399">"${escHtml(value)}"</span>`;
+
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '[]';
+      const items = value.map((v) => `${pad}  ${renderJson(v, indent + 1)}`).join(',\n');
+      return `[\n${items}\n${pad}]`;
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      const entries = Object.entries(value);
+      if (entries.length === 0) return '{}';
+      const props = entries
+        .map(
+          ([k, v]) =>
+            `${pad}  <span style="color:var(--text)">"${escHtml(k)}"</span>: ${renderJson(v, indent + 1)}`,
+        )
+        .join(',\n');
+      return `{\n${props}\n${pad}}`;
+    }
+
+    return String(value);
+  }
+
+  function showToast(msg: string, ok = true): void {
+    const el = container.querySelector<HTMLElement>('#cv-toast');
+    if (el) {
+      el.textContent = msg;
+      el.style.display = 'block';
+      el.style.color = ok ? 'var(--success,#38a169)' : 'var(--danger,#e53e3e)';
+      setTimeout(() => {
+        el.style.display = 'none';
+      }, 2500);
+    }
+  }
+
+  async function load(): Promise<void> {
+    try {
+      container.innerHTML = '<p style="color:var(--text-muted)">Loading API key...</p>';
+
+      await loadApiKey();
+      await fetchKeys();
+
+      filteredKeys = keys;
+      if (initialSearch) {
+        filteredKeys = keys.filter((k) => k.key.includes(initialSearch));
+        if (filteredKeys.length > 0) selectedKey = filteredKeys[0]!.key;
+      }
+
+      renderUI();
+    } catch (err) {
+      container.innerHTML = `<div style="${errorStyle}">${escHtml((err as Error).message)}</div>`;
+    }
+  }
+
+  function renderUI(): void {
+    container.innerHTML = `
+      <div id="cv-toast" style="display:none;position:fixed;top:20px;right:20px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);z-index:1000;font-size:13px"></div>
+      <div style="display:grid;grid-template-columns:400px 1fr;gap:16px;height:calc(100vh - 250px)">
+        <div style="display:flex;flex-direction:column;gap:12px;overflow:hidden">
+          <div>
+            <h2 style="margin:0 0 8px 0;font-size:18px;font-weight:600">Redis Cache (${filteredKeys.length} keys)</h2>
+            <input type="text" id="search-input" placeholder="Search keys..." value="${escHtml(initialSearch)}"
+              style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;margin-bottom:8px;box-sizing:border-box" />
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <select id="sort-select" style="${selectStyle}">
+                <option value="name">Sort by Name</option>
+                <option value="ttl">Sort by TTL</option>
+                <option value="size">Sort by Size</option>
+              </select>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">
+                <input type="checkbox" id="auto-refresh" style="cursor:pointer;accent-color:var(--accent)" />
+                Auto-refresh (30s)
+              </label>
+              <button id="refresh-now" style="${btnStyle}">↻</button>
+            </div>
+          </div>
+          <div id="key-list" style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+            ${filteredKeys
+              .map(
+                (k) => `
+              <div class="key-item" data-key="${escHtml(k.key)}"
+                style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer;${k.key === selectedKey ? 'background:var(--bg)' : ''}">
+                <div style="font-family:monospace;font-size:11px;color:${keyPrefixColor(k.key)};margin-bottom:4px">${escHtml(k.key)}</div>
+                <div style="display:flex;gap:8px;font-size:10px;color:var(--text-muted)">
+                  <span>TTL: ${k.ttl === -1 ? '∞' : `${k.ttl}s`}</span>
+                  <span>Size: ${Math.round(k.size / 1024)}KB</span>
+                  <span>Type: ${k.type}</span>
+                </div>
+                <div style="height:2px;background:var(--border);margin-top:4px;border-radius:2px">
+                  <div style="height:100%;background:var(--accent);border-radius:2px;width:${ttlProgress(k.ttl, 3600)}"></div>
+                </div>
+              </div>
+            `,
+              )
+              .join('')}
+          </div>
+        </div>
+        <div id="value-panel" style="display:flex;flex-direction:column;gap:12px;overflow:hidden">
+          ${selectedKey ? '<p style="color:var(--text-muted)">Loading value...</p>' : '<p style="color:var(--text-muted)">Select a key to view</p>'}
+        </div>
+      </div>
+    `;
+
+    const searchInput = container.querySelector('#search-input') as HTMLInputElement;
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.toLowerCase();
+      filteredKeys = keys.filter((k) => k.key.toLowerCase().includes(query));
+      renderUI();
+    });
+
+    const sortSelect = container.querySelector('#sort-select') as HTMLSelectElement;
+    sortSelect.addEventListener('change', () => {
+      const sortBy = sortSelect.value;
+      filteredKeys = [...filteredKeys].sort((a, b) => {
+        if (sortBy === 'name') return a.key.localeCompare(b.key);
+        if (sortBy === 'ttl') return b.ttl - a.ttl;
+        if (sortBy === 'size') return b.size - a.size;
+        return 0;
+      });
+      renderUI();
+    });
+
+    const autoRefreshCb = container.querySelector('#auto-refresh') as HTMLInputElement;
+    autoRefreshCb.checked = autoRefresh;
+    autoRefreshCb.addEventListener('change', () => {
+      autoRefresh = autoRefreshCb.checked;
+      if (autoRefresh) {
+        refreshInterval = window.setInterval(async () => {
+          await fetchKeys();
+          filteredKeys = keys.filter((k) =>
+            k.key.toLowerCase().includes(searchInput.value.toLowerCase()),
+          );
+          renderUI();
+        }, 30000);
+      } else if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+      }
+    });
+
+    const refreshBtn = container.querySelector('#refresh-now') as HTMLButtonElement;
+    refreshBtn.addEventListener('click', async () => {
+      await fetchKeys();
+      filteredKeys = keys.filter((k) =>
+        k.key.toLowerCase().includes(searchInput.value.toLowerCase()),
+      );
+      renderUI();
+      showToast('Keys refreshed', true);
+    });
+
+    container.querySelectorAll('.key-item').forEach((item) => {
+      item.addEventListener('click', () => {
+        selectedKey = item.getAttribute('data-key')!;
+        renderUI();
+        void loadValue(selectedKey);
+      });
+    });
+
+    if (selectedKey) void loadValue(selectedKey);
+  }
+
+  async function loadValue(key: string): Promise<void> {
+    const panel = container.querySelector('#value-panel') as HTMLElement;
+    if (!panel) return;
+    panel.innerHTML = '<p style="color:var(--text-muted)">Loading...</p>';
+
+    try {
+      const data = await fetchValue(key);
+      if (!data) {
+        panel.innerHTML = '<p style="color:var(--text-muted)">Key not found</p>';
+        return;
+      }
+
+      panel.innerHTML = `
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+            <h3 style="margin:0;font-size:16px;font-weight:600;font-family:monospace">${escHtml(key)}</h3>
+            <div style="display:flex;gap:8px">
+              <button id="copy-btn" style="${btnStyle}">📋 Copy</button>
+              <button id="invalidate-btn" style="${btnDangerStyle}">🗑️ Invalidate</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:16px;font-size:12px;color:var(--text-muted);margin-bottom:12px">
+            <span>TTL: ${data.ttl === -1 ? '∞' : `${data.ttl}s`}</span>
+            <span>Type: string</span>
+            <span>Size: ${Math.round(JSON.stringify(data.value).length / 1024)}KB</span>
+          </div>
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;overflow:auto;max-height:calc(100vh - 400px)">
+            <pre style="margin:0;font-family:monospace;font-size:11px;line-height:1.6;white-space:pre-wrap">${renderJson(data.value)}</pre>
+          </div>
+        </div>
+      `;
+
+      const copyBtn = panel.querySelector('#copy-btn') as HTMLButtonElement;
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(JSON.stringify(data.value, null, 2));
+        showToast('Copied to clipboard', true);
+      });
+
+      const invalidateBtn = panel.querySelector('#invalidate-btn') as HTMLButtonElement;
+      invalidateBtn.addEventListener('click', async () => {
+        if (!confirm(`Delete key "${key}"?`)) return;
+
+        try {
+          await deleteKey(key);
+          keys = keys.filter((k) => k.key !== key);
+          filteredKeys = filteredKeys.filter((k) => k.key !== key);
+          selectedKey = '';
+          renderUI();
+          showToast('Key deleted', true);
+        } catch (err) {
+          showToast(`Error: ${(err as Error).message}`, false);
+        }
+      });
+    } catch (err) {
+      panel.innerHTML = `<div style="${errorStyle}">${escHtml((err as Error).message)}</div>`;
+    }
+  }
+
+  const cleanup = (): void => {
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+      refreshInterval = null;
+    }
+  };
+
+  (container as unknown as { __cacheViewerCleanup?: () => void }).__cacheViewerCleanup = cleanup;
 
   void load();
 }
