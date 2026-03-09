@@ -73,8 +73,7 @@ export async function getProviderCredentials(provider: string): Promise<Provider
   if (provider === 'ollama') {
     let apiUrl: string | undefined;
     let model: string | undefined;
-    let cfId: string | undefined;
-    let cfSecret: string | undefined;
+    let bearerToken: string | undefined;
     let maxTokensSummary = 400;
 
     const supabaseUrl = process.env.SUPABASE_URL;
@@ -88,15 +87,13 @@ export async function getProviderCredentials(provider: string): Promise<Provider
           const row = data[0] as {
             api_url: string | null;
             model: string | null;
-            cf_access_client_id: string | null;
-            cf_access_client_secret: string | null;
+            bearer_token: string | null;
             max_tokens: number | null;
             max_tokens_summary: number | null;
           };
           apiUrl = row.api_url ?? undefined;
           model = row.model ?? undefined;
-          cfId = row.cf_access_client_id ?? undefined;
-          cfSecret = row.cf_access_client_secret ?? undefined;
+          bearerToken = row.bearer_token ?? undefined;
           if (row.max_tokens_summary != null) maxTokensSummary = row.max_tokens_summary;
         }
       } catch { /* fall through to env */ }
@@ -105,26 +102,27 @@ export async function getProviderCredentials(provider: string): Promise<Provider
     // Env fallback for local dev / missing Supabase config
     apiUrl ??= process.env.OLLAMA_API_URL;
     model ??= process.env.OLLAMA_MODEL;
-    cfId ??= process.env.OLLAMA_CF_ACCESS_CLIENT_ID;
-    cfSecret ??= process.env.OLLAMA_CF_ACCESS_CLIENT_SECRET;
+    bearerToken ??= process.env.OLLAMA_BEARER_TOKEN;
 
     if (!apiUrl) return null;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const apiKey = await getSecret('OLLAMA_API_KEY');
-    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
     
-    // CF Access headers are optional - add them if provided
-    // This allows connecting to both CF-protected endpoints (with tokens) 
-    // and local/unprotected endpoints (without tokens)
-    if (cfId) headers['CF-Access-Client-Id'] = cfId;
-    if (cfSecret) headers['CF-Access-Client-Secret'] = cfSecret;
+    // Bearer token authentication for LiteLLM proxy
+    if (bearerToken) {
+      headers['Authorization'] = `Bearer ${bearerToken}`;
+    }
+    // Fallback to OLLAMA_API_KEY if no bearer token (backward compatibility)
+    else {
+      const apiKey = await getSecret('OLLAMA_API_KEY');
+      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    }
 
     // qwen3 thinking models: use the native Ollama /api/chat endpoint which supports
     // think:false directly. The OpenAI-compat /v1/chat/completions ignores think:false
     // and routes all output to message.reasoning instead of message.content, causing timeouts.
-    const resolvedModel = model || 'qwen3:8b';
-    const isQwen3 = resolvedModel.startsWith('qwen3');
+    const resolvedModel = model || 'qwen/qwen3.5-9b';
+    const isQwen3 = resolvedModel.includes('qwen3');
     if (isQwen3) {
       return {
         apiUrl: new URL('/api/chat', apiUrl).toString(),

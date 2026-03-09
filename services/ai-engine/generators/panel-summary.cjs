@@ -37,22 +37,15 @@ async function fetchLLMProvider(supabase) {
   if (!apiKey && secretName) {
     apiKey = process.env[secretName] ?? '';
   }
-  // API key is optional (e.g., Ollama behind Cloudflare Access doesn't need one)
+  // API key is optional (e.g., Ollama behind LiteLLM proxy doesn't need one)
   // If secretName is null/empty, the provider doesn't require an API key
 
-  // Fetch Cloudflare Access credentials if provider is Ollama
-  let cfAccessClientId = '';
-  let cfAccessClientSecret = '';
+  // Fetch Bearer token if provider is Ollama
+  let bearerToken = '';
   if (providerName === 'ollama') {
-    const [idResult, secretResult] = await Promise.all([
-      supabase.rpc('get_vault_secret_value', { secret_name: 'OLLAMA_CF_ACCESS_CLIENT_ID' }),
-      supabase.rpc('get_vault_secret_value', { secret_name: 'OLLAMA_CF_ACCESS_CLIENT_SECRET' }),
-    ]);
-    if (!idResult.error && idResult.data != null) {
-      cfAccessClientId = String(idResult.data);
-    }
-    if (!secretResult.error && secretResult.data != null) {
-      cfAccessClientSecret = String(secretResult.data);
+    const tokenResult = await supabase.rpc('get_vault_secret_value', { secret_name: 'OLLAMA_BEARER_TOKEN' });
+    if (!tokenResult.error && tokenResult.data != null) {
+      bearerToken = String(tokenResult.data);
     }
   }
 
@@ -62,27 +55,24 @@ async function fetchLLMProvider(supabase) {
     model_name: model,
     provider_type: row.provider_type ?? 'openai',
     provider_name: providerName,
-    cf_access_client_id: cfAccessClientId,
-    cf_access_client_secret: cfAccessClientSecret,
+    bearer_token: bearerToken,
   };
 }
 
 async function callLLM(provider, systemPrompt, userPrompt, http) {
-  const { api_key, base_url, model_name, cf_access_client_id, cf_access_client_secret } = provider;
+  const { api_key, base_url, model_name, bearer_token } = provider;
   const url = base_url.includes('/chat/completions') ? base_url : base_url.replace(/\/+$/, '') + '/chat/completions';
 
   const headers = {
     'Content-Type': 'application/json',
   };
 
-  // Add Cloudflare Access headers if present
-  if (cf_access_client_id && cf_access_client_secret) {
-    headers['CF-Access-Client-Id'] = cf_access_client_id;
-    headers['CF-Access-Client-Secret'] = cf_access_client_secret;
+  // Add Bearer token if present (Ollama via LiteLLM proxy)
+  if (bearer_token) {
+    headers.Authorization = `Bearer ${bearer_token}`;
   }
-
-  // Add Authorization header if API key is present
-  if (api_key) {
+  // Otherwise, add standard API key if present
+  else if (api_key) {
     headers.Authorization = `Bearer ${api_key}`;
   }
 

@@ -32,8 +32,8 @@ describe('relay multi-provider LLM client contract', () => {
       'must read per-function provider config');
   });
 
-  it('sends CF-Access-Client-Id header for Ollama', () => {
-    assert.ok(src.includes('CF-Access-Client-Id'), 'must send CF-Access-Client-Id header');
+  it('sends Authorization Bearer header for Ollama', () => {
+    assert.ok(src.includes('bearer_token') || src.includes('Authorization'), 'must send Authorization Bearer header');
   });
 
   it('handles qwen3 native API', () => {

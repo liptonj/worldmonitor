@@ -294,17 +294,21 @@ async function resolveAllProviders() {
     if (!ollamaErr && Array.isArray(ollamaData) && ollamaData.length > 0) {
       const row = ollamaData[0];
       if (row.api_url) {
+        const headers = {
+          'Content-Type': 'application/json',
+        };
+        // Add Bearer token if present
+        if (row.bearer_token) {
+          headers['Authorization'] = `Bearer ${row.bearer_token}`;
+        }
+        
         providerRegistry.set('ollama', {
           apiUrl: row.api_url.replace(/\/+$/, '').replace(/\/v1$/, ''),
-          model: row.model || 'qwen3:8b',
-          type: (row.model || '').toLowerCase().startsWith('qwen3') ? 'qwen3' : 'openai-compat',
+          model: row.model || 'qwen/qwen3.5-9b',
+          type: (row.model || '').toLowerCase().includes('qwen3') ? 'qwen3' : 'openai-compat',
           maxTokens: row.max_tokens || 3000,
           maxTokensSummary: row.max_tokens_summary || 400,
-          headers: {
-            'Content-Type': 'application/json',
-            ...(row.cf_access_client_id && { 'CF-Access-Client-Id': row.cf_access_client_id }),
-            ...(row.cf_access_client_secret && { 'CF-Access-Client-Secret': row.cf_access_client_secret }),
-          },
+          headers,
         });
         console.log(`[llm] registered ollama: model=${row.model} url=${row.api_url}`);
       }

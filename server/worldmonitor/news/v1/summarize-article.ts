@@ -139,7 +139,8 @@ export async function summarizeArticle(
         };
         const logMaxTokens = (extraBody as Record<string, unknown>)?.max_tokens ?? (extraBody as Record<string, Record<string, unknown>>)?.options?.num_predict ?? 'default';
         const logThink = (extraBody as Record<string, unknown>)?.think ?? (extraBody as Record<string, Record<string, unknown>>)?.options?.think;
-        console.log(`[SummarizeArticle:${provider}] → ${apiUrl} model=${model} think=${logThink} max_tokens=${logMaxTokens} hasCFAccess=${!!providerHeaders['CF-Access-Client-Id']}`);
+        const hasAuth = !!providerHeaders['Authorization'];
+        console.log(`[SummarizeArticle:${provider}] → ${apiUrl} model=${model} think=${logThink} max_tokens=${logMaxTokens} hasAuth=${hasAuth}`);
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { ...providerHeaders, 'User-Agent': CHROME_UA },

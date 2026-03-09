@@ -63,7 +63,7 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
       const providerName = row.name ?? '';
 
       // Ollama: resolve entirely via get_ollama_credentials (anon-accessible, SECURITY DEFINER).
-      // Ollama authenticates via CF Access headers, not an API key.
+      // Ollama authenticates via Bearer token.
       if (providerName === 'ollama') {
         const ollamaProvider = await resolveOllamaProvider(supabase);
         if (ollamaProvider) {
@@ -111,8 +111,7 @@ export async function getActiveLlmProvider(): Promise<LlmProvider | null> {
 interface OllamaCredentials {
   api_url?: string | null;
   model?: string | null;
-  cf_access_client_id?: string | null;
-  cf_access_client_secret?: string | null;
+  bearer_token?: string | null;
 }
 
 async function resolveOllamaProvider(
@@ -130,18 +129,13 @@ async function resolveOllamaProvider(
       return null;
     }
 
-    const extraHeaders: Record<string, string> = {};
-    if (creds.cf_access_client_id) extraHeaders['CF-Access-Client-Id'] = creds.cf_access_client_id;
-    if (creds.cf_access_client_secret) extraHeaders['CF-Access-Client-Secret'] = creds.cf_access_client_secret;
-
     const chatUrl = creds.api_url.replace(/\/+$/, '') + '/chat/completions';
 
     return {
       name: 'ollama',
       apiUrl: chatUrl,
       model: creds.model ?? '',
-      apiKey: 'ollama',
-      ...(Object.keys(extraHeaders).length > 0 ? { extraHeaders } : {}),
+      apiKey: creds.bearer_token ?? 'ollama',
     };
   } catch (err) {
     console.error('[LLM] resolveOllamaProvider exception:', err);
