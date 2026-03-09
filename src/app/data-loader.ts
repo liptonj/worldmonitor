@@ -97,6 +97,15 @@ export class DataLoaderManager implements AppModule, DataLoaderBridge {
   private static readonly HYDRATION_ALIASES: Record<string, string> = {
     'strategic-posture': 'strategicPosture',
     'strategic-risk': 'strategicRisk',
+    'conflict': 'acledEvents',
+    'ais': 'aisSnapshot',
+    'climate': 'climateAnomalies',
+    'gps-interference': 'gpsInterference',
+    'ucdp-events': 'ucdpEvents',
+    'supply-chain': 'chokepoints',
+    'etf-flows': 'etfFlows',
+    'macro-signals': 'macroSignals',
+    'service-status': 'serviceStatuses',
   };
 
   async loadChannelWithFallback<T>(channel: string, renderFn: (data: T) => void): Promise<boolean> {
