@@ -60,6 +60,13 @@ describe('channel-state integration (Task 3.2)', () => {
       const s = getChannelState('fred');
       assert.equal(s.state, 'loading', 'null payload should not transition to ready');
     });
+
+    it('does not set ready when payload is undefined', () => {
+      setChannelState('oil', 'loading', 'bootstrap');
+      dispatchForTesting('oil', undefined);
+      const s = getChannelState('oil');
+      assert.equal(s.state, 'loading', 'undefined payload should not transition to ready');
+    });
   });
 
   describe('stale detection', () => {
@@ -75,6 +82,7 @@ describe('channel-state integration (Task 3.2)', () => {
 
       const s = getChannelState(channel);
       assert.equal(s.state, 'stale');
+      assert.equal(s.lastDataAt, oldTimestamp, 'stale transition must preserve lastDataAt');
     });
 
     it('leaves ready channels alone when data is fresh', () => {

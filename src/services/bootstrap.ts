@@ -58,16 +58,22 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
     const json = (await resp.json()) as Record<string, unknown>;
     // Relay returns { channel: data }; Vercel returns { data: Record }. Support both.
     const data = (json.data as Record<string, unknown>) ?? json;
+    const channelsWithData = new Set<string>();
     for (const [k, v] of Object.entries(data)) {
       if (v !== null && v !== undefined) {
         hydrationCache.set(k, v);
+        channelsWithData.add(k);
       }
     }
     // Save for next visit (fire-and-forget)
     void setPersistentCache(cacheKey, data).catch(() => {});
 
+    // Only mark channels as ready if they received data. Channels with no data
+    // stay loading until WebSocket push or timeout (Task 3.3).
     for (const ch of bootstrapChannels) {
-      setChannelState(ch, 'ready', 'bootstrap');
+      if (channelsWithData.has(ch)) {
+        setChannelState(ch, 'ready', 'bootstrap');
+      }
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : 'Bootstrap fetch failed';

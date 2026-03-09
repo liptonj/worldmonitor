@@ -28,16 +28,18 @@ export function runStaleCheck(): void {
     if (status.state !== 'ready' || status.lastDataAt === null) continue;
     const age = now - status.lastDataAt;
     if (age > def.staleAfterMs) {
-      setChannelState(channel, 'stale');
+      setChannelState(channel, 'stale', undefined, { lastDataAt: status.lastDataAt });
     }
   }
 }
 
 /**
  * Starts the periodic stale check. Safe to call multiple times (no-op if already running).
+ * Runs an initial check immediately to surface stale data sooner.
  */
 export function startStaleDetection(): void {
   if (staleCheckTimer) return;
+  runStaleCheck();
   staleCheckTimer = setInterval(runStaleCheck, STALE_CHECK_INTERVAL_MS);
 }
 
