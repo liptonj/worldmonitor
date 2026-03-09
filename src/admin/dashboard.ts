@@ -6,8 +6,9 @@ import { renderLlmConfigPage } from './pages/llm-config';
 import { renderAppKeysPage } from './pages/app-keys';
 import { renderDisplaySettingsPage } from './pages/display-settings';
 import { renderMarketSymbolsPage } from './pages/market-symbols';
+import { renderServiceSchedulingPage } from './pages/service-scheduling';
 
-type PageId = 'secrets' | 'feature-flags' | 'news-sources' | 'llm-config' | 'app-keys' | 'display-settings' | 'market-symbols';
+type PageId = 'secrets' | 'feature-flags' | 'news-sources' | 'llm-config' | 'app-keys' | 'display-settings' | 'market-symbols' | 'service-scheduling';
 
 const NAV: Array<{ id: PageId; label: string; icon: string }> = [
   { id: 'secrets', label: 'API Keys & Secrets', icon: '🔑' },
@@ -17,6 +18,7 @@ const NAV: Array<{ id: PageId; label: string; icon: string }> = [
   { id: 'app-keys', label: 'App Access Keys', icon: '🗝️' },
   { id: 'display-settings', label: 'Display Settings', icon: '🖥️' },
   { id: 'market-symbols', label: 'Market Symbols', icon: '📈' },
+  { id: 'service-scheduling', label: 'Service Scheduling', icon: '⏱️' },
 ];
 
 export function renderDashboard(
@@ -90,6 +92,9 @@ export function renderDashboard(
         break;
       case 'market-symbols':
         renderMarketSymbolsPage(content, accessToken);
+        break;
+      case 'service-scheduling':
+        renderServiceSchedulingPage(content, accessToken);
         break;
     }
   }
