@@ -200,6 +200,7 @@ export class Panel {
   private pendingContentHtml: string | null = null;
   private contentDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private channelUnsubscribes: (() => void)[] = [];
+  private destroyed = false;
 
   constructor(options: PanelOptions) {
     this.panelId = options.id;
@@ -300,7 +301,7 @@ export class Panel {
   }
 
   private subscribeToChannelState(): void {
-    if (this.channelKeys.length === 0) return;
+    if (this.destroyed || this.channelKeys.length === 0) return;
     for (const channel of this.channelKeys) {
       const unsub = subscribeChannelState(channel, (status: ChannelStatus) => {
         this.handleChannelStatus(channel, status);
@@ -310,6 +311,7 @@ export class Panel {
   }
 
   private handleChannelStatus(channel: string, status: ChannelStatus): void {
+    if (this.destroyed) return;
     switch (status.state) {
       case 'ready':
         this.onChannelReady(channel, { status });
@@ -329,6 +331,10 @@ export class Panel {
       case 'idle':
         this.clearDataBadge();
         break;
+      default: {
+        const _: never = status.state;
+        void _;
+      }
     }
   }
 
@@ -858,6 +864,7 @@ export class Panel {
   }
 
   public destroy(): void {
+    this.destroyed = true;
     for (const unsub of this.channelUnsubscribes) {
       unsub();
     }
