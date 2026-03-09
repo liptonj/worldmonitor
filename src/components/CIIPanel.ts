@@ -7,6 +7,7 @@ import { h, replaceChildren, rawHtml } from '@/utils/dom-utils';
 export class CIIPanel extends Panel {
   private scores: CountryScore[] = [];
   private focalPointsReady = false;
+  private focalPointsFallbackId: ReturnType<typeof setTimeout> | null = null;
   private onShareStory?: (code: string, name: string) => void;
 
   constructor() {
@@ -19,11 +20,20 @@ export class CIIPanel extends Panel {
 
     // Fallback: if focal-points-ready never fires (e.g. news doesn't cluster),
     // render CII with available data after 10s instead of waiting forever
-    setTimeout(() => {
+    this.focalPointsFallbackId = setTimeout(() => {
       if (!this.focalPointsReady) {
         this.refresh(true);
       }
+      this.focalPointsFallbackId = null;
     }, 10_000);
+  }
+
+  public override destroy(): void {
+    if (this.focalPointsFallbackId !== null) {
+      clearTimeout(this.focalPointsFallbackId);
+      this.focalPointsFallbackId = null;
+    }
+    super.destroy();
   }
 
   public setShareStoryHandler(handler: (code: string, name: string) => void): void {
