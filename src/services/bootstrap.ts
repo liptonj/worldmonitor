@@ -1,55 +1,12 @@
+import { RELAY_CHANNELS } from '@/config/channel-registry';
 import type { NewsSourceRow } from '@/services/feed-client';
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
 import { RELAY_HTTP_BASE, getRelayFetchHeaders } from '@/services/relay-http';
 
 const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
-/** All relay channels to request in bootstrap and subscribe via WebSocket. Must match relay PHASE4_CHANNEL_KEYS. */
-export const RELAY_CHANNELS = [
-  'markets',
-  'predictions',
-  'fred',
-  'oil',
-  'bis',
-  'flights',
-  'weather',
-  'natural',
-  'eonet',
-  'gdacs',
-  'gps-interference',
-  'cables',
-  'cyber',
-  'climate',
-  'conflict',
-  'ucdp-events',
-  'telegram',
-  'oref',
-  'ais',
-  'intelligence',
-  'trade',
-  'supply-chain',
-  'giving',
-  'spending',
-  'gulf-quotes',
-  'tech-events',
-  'strategic-posture',
-  'strategic-risk',
-  'stablecoins',
-  'etf-flows',
-  'macro-signals',
-  'service-status',
-  'config:news-sources',
-  'config:feature-flags',
-  'iran-events',
-  'ai:intel-digest',
-  'ai:panel-summary',
-  'ai:article-summaries',
-  'ai:classifications',
-  'ai:country-briefs',
-  'ai:posture-analysis',
-  'ai:instability-analysis',
-  'ai:risk-overview',
-] as const;
+/** Re-export for consumers (e.g. App.ts). Source of truth: channel-registry. */
+export { RELAY_CHANNELS };
 
 const hydrationCache = new Map<string, unknown>();
 
