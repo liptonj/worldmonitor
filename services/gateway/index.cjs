@@ -83,6 +83,40 @@ const GDELT_DOC_API = 'https://api.gdeltproject.org/api/v2/doc/doc';
 const GDELT_TIMEOUT_MS = 12_000;
 const GDELT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
+// Envelope fields added by workers that should be stripped before sending to frontend.
+// Keep any payload fields (stocks, commodities, events, etc.)
+const ENVELOPE_FIELDS = new Set(['timestamp', 'source', 'status', 'errors']);
+
+/**
+ * Unwrap relay envelope: workers store { timestamp, source, status, data, ...payload }.
+ * Frontend expects just the payload. For simple envelopes with only `data`, return data.
+ * For richer payloads (markets has stocks/commodities), strip envelope fields and return the rest.
+ */
+function unwrapEnvelope(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return raw;
+  }
+  // Count how many non-envelope fields exist
+  const payloadKeys = Object.keys(raw).filter(k => !ENVELOPE_FIELDS.has(k));
+  
+  // If only 'data' remains as payload, return just data (simple envelope)
+  if (payloadKeys.length === 1 && payloadKeys[0] === 'data') {
+    return raw.data;
+  }
+  
+  // Otherwise, strip envelope fields and return the rest (rich payload like markets)
+  if (payloadKeys.length > 0) {
+    const result = {};
+    for (const k of payloadKeys) {
+      result[k] = raw[k];
+    }
+    return result;
+  }
+  
+  // No payload fields found - return as-is
+  return raw;
+}
+
 function routeHttpRequest(pathname, redis) {
   const headers = { [CORS_HEADER]: CORS_VALUE };
   const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
@@ -115,11 +149,10 @@ function routeHttpRequest(pathname, redis) {
           headers: { ...jsonHeaders, 'Cache-Control': 'no-store' },
         };
       }
-      // Workers store data in envelope format: { timestamp, source, data, status }.
-      // Frontend expects the unwrapped payload. Extract .data if present, else return as-is.
-      const payload = (raw && typeof raw === 'object' && 'data' in raw && raw.data !== undefined)
-        ? raw.data
-        : raw;
+      // Workers store data in envelope format: { timestamp, source, data, status, errors, ... }.
+      // Frontend expects the payload without envelope metadata.
+      // Strip envelope fields but keep everything else (e.g., markets has stocks, commodities, etc.)
+      const payload = unwrapEnvelope(raw);
       return {
         status: 200,
         body: JSON.stringify(payload),
@@ -138,10 +171,7 @@ function routeHttpRequest(pathname, redis) {
       for (let i = 0; i < channels.length; i++) {
         const hydrationKey = CHANNEL_TO_HYDRATION_KEY[channels[i]] || channels[i];
         const raw = settled[i].status === 'fulfilled' ? (settled[i].value ?? null) : null;
-        // Unwrap envelope: workers store { timestamp, source, data, status }; frontend expects just data
-        out[hydrationKey] = (raw && typeof raw === 'object' && 'data' in raw && raw.data !== undefined)
-          ? raw.data
-          : raw;
+        out[hydrationKey] = unwrapEnvelope(raw);
       }
       return {
         status: 200,
@@ -171,10 +201,7 @@ function routeHttpRequest(pathname, redis) {
           headers: { ...jsonHeaders, 'Cache-Control': 'no-store' },
         };
       }
-      // Unwrap envelope: workers store { timestamp, source, data, status }; frontend expects just data
-      const payload = (raw && typeof raw === 'object' && 'data' in raw && raw.data !== undefined)
-        ? raw.data
-        : raw;
+      const payload = unwrapEnvelope(raw);
       return {
         status: 200,
         body: JSON.stringify(payload),
