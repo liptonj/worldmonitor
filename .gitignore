@@ -50,3 +50,4 @@ redispdocker.md
 
 pnpm-lock.yaml
 .deploy-history.log
+.env.production
