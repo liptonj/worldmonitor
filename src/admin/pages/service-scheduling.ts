@@ -13,6 +13,17 @@ type ServiceConfig = {
   consecutive_failures: number;
 };
 
+type NewsSource = {
+  id: string;
+  name: string;
+  category: string | null;
+  tier: number;
+  lang: string;
+  enabled: boolean;
+  poll_interval_minutes: number | null;
+  custom_cron: string | null;
+};
+
 type TabId = 'service-config' | 'source-scheduling' | 'cache-viewer';
 
 const SUPABASE_URL =
@@ -40,6 +51,12 @@ function numInput(name: string, value: number, min = 0, max = 999999, width = '7
     style="width:${width};padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px"/>`;
 }
 
+function numInputOptional(name: string, value: number | null, min = 0, max = 999, width = '70px'): string {
+  const displayValue = value ?? '';
+  return `<input type="number" data-field="${name}" value="${displayValue}" min="${min}" max="${max}"
+    style="width:${width};padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px"/>`;
+}
+
 function selectInput(name: string, options: string[], value: string): string {
   return `<select data-field="${name}" style="padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px">
     ${options.map((o) => `<option value="${o}"${o === value ? ' selected' : ''}>${o}</option>`).join('')}
@@ -63,6 +80,25 @@ function cronToHuman(expr: string): string {
   if (expr === '0 0 * * *') return 'daily at midnight';
   if (expr === '*/1 * * * *') return 'every minute';
   return expr;
+}
+
+function tierColor(tier: number): string {
+  switch (tier) {
+    case 1:
+      return '#22c55e'; // green
+    case 2:
+      return '#3b82f6'; // blue
+    case 3:
+      return '#f59e0b'; // amber
+    case 4:
+      return '#ef4444'; // red
+    default:
+      return 'var(--text-muted)';
+  }
+}
+
+function badge(text: string, bgColor: string): string {
+  return `<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:${bgColor};color:#fff">${escHtml(text)}</span>`;
 }
 
 function statusBadge(status: string | null, failures: number, lastRun: string | null): string {
@@ -204,7 +240,7 @@ export function renderServiceSchedulingPage(container: HTMLElement, accessToken:
         });
         break;
       case 'source-scheduling':
-        content.innerHTML = '<p style="color:var(--text-muted);padding:20px">Source Scheduling tab — Coming soon</p>';
+        renderSourceSchedulingTab(content, accessToken);
         break;
       case 'cache-viewer':
         content.innerHTML = `<p style="color:var(--text-muted);padding:20px">Cache Viewer tab — Coming soon${cacheViewerSearch ? ` (search: ${escHtml(cacheViewerSearch)})` : ''}</p>`;
@@ -496,6 +532,293 @@ function renderServiceConfigTab(
       showError((e as Error).message || 'Failed to load services');
       const tables = container.querySelector('#sc-tables');
       if (tables) tables.innerHTML = '';
+    }
+  }
+
+  void load();
+}
+
+function renderSourceSchedulingTab(container: HTMLElement, accessToken: string): void {
+  const TIER_DEFAULTS: Record<number, number> = { 1: 5, 2: 15, 3: 30, 4: 60 };
+
+  async function fetchSources(): Promise<NewsSource[]> {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/news_sources?select=id,name,category,tier,lang,enabled,poll_interval_minutes,custom_cron&order=name.asc`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${accessToken}`,
+          'Accept-Profile': 'wm_admin',
+        },
+      },
+    );
+    if (!res.ok) throw new Error(`Failed to fetch sources: ${res.statusText}`);
+    return res.json();
+  }
+
+  function effectiveInterval(source: NewsSource): string {
+    if (source.custom_cron) return cronToHuman(source.custom_cron);
+    if (source.poll_interval_minutes) return `every ${source.poll_interval_minutes} min`;
+    return `every ${TIER_DEFAULTS[source.tier]} min (tier default)`;
+  }
+
+  function hasOverride(source: NewsSource): boolean {
+    return source.poll_interval_minutes !== null || source.custom_cron !== null;
+  }
+
+  const selectStyle =
+    'padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;min-width:120px';
+  const inputStyle =
+    'padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;min-width:180px';
+  const thStyle = 'text-align:left;padding:8px 6px;white-space:nowrap';
+  const tdStyle = 'padding:8px 6px';
+
+  async function load(): Promise<void> {
+    try {
+      container.innerHTML = '<p style="color:var(--text-muted)">Loading sources...</p>';
+
+      const sources = await fetchSources();
+      let filteredSources = sources;
+
+      let filterCategory = '';
+      let filterTier = '';
+      let filterLang = '';
+      let filterEnabled = '';
+      let filterSearch = '';
+
+      function applyFilters(): void {
+        filteredSources = sources.filter((s) => {
+          if (filterCategory && s.category !== filterCategory) return false;
+          if (filterTier && s.tier.toString() !== filterTier) return false;
+          if (filterLang && s.lang !== filterLang) return false;
+          if (filterEnabled === 'yes' && !s.enabled) return false;
+          if (filterEnabled === 'no' && s.enabled) return false;
+          if (filterSearch && !s.name.toLowerCase().includes(filterSearch.toLowerCase())) return false;
+          return true;
+        });
+        renderTable();
+      }
+
+      function showToast(msg: string, ok = true): void {
+        const el = container.querySelector<HTMLElement>('#ss-toast');
+        if (el) {
+          el.textContent = msg;
+          el.style.display = 'block';
+          el.style.color = ok ? 'var(--success,#38a169)' : 'var(--danger,#e53e3e)';
+          setTimeout(() => {
+            el!.style.display = 'none';
+          }, 2500);
+        }
+      }
+
+      function renderTable(): void {
+        const categories = Array.from(new Set(sources.map((s) => s.category).filter(Boolean))).sort() as string[];
+        const languages = Array.from(new Set(sources.map((s) => s.lang))).sort();
+
+        container.innerHTML = `
+          <div id="ss-toast" style="display:none;position:fixed;top:20px;right:20px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);z-index:1000;font-size:13px"></div>
+          <div style="margin-bottom:16px">
+            <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600">Source Scheduling (${filteredSources.length} sources)</h2>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <select id="filter-category" style="${selectStyle}">
+                <option value="">All Categories</option>
+                ${categories.map((c) => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('')}
+              </select>
+
+              <select id="filter-tier" style="${selectStyle}">
+                <option value="">All Tiers</option>
+                <option value="1">Tier 1</option>
+                <option value="2">Tier 2</option>
+                <option value="3">Tier 3</option>
+                <option value="4">Tier 4</option>
+              </select>
+
+              <select id="filter-lang" style="${selectStyle}">
+                <option value="">All Languages</option>
+                ${languages.map((l) => `<option value="${escHtml(l)}">${escHtml(l)}</option>`).join('')}
+              </select>
+
+              <select id="filter-enabled" style="${selectStyle}">
+                <option value="">All Status</option>
+                <option value="yes">Enabled Only</option>
+                <option value="no">Disabled Only</option>
+              </select>
+
+              <input type="text" id="filter-search" placeholder="Search by name..." style="${inputStyle}" />
+            </div>
+          </div>
+
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr style="background:var(--surface);border-bottom:2px solid var(--border)">
+                  <th style="${thStyle}">Name</th>
+                  <th style="${thStyle}">Category</th>
+                  <th style="${thStyle}">Tier</th>
+                  <th style="${thStyle}">Effective Interval</th>
+                  <th style="${thStyle}">Poll Interval (min)</th>
+                  <th style="${thStyle}">Custom Cron</th>
+                  <th style="${thStyle}">Enabled</th>
+                  <th style="${thStyle}">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filteredSources
+                  .map(
+                    (s) => `
+                  <tr data-source-id="${escHtml(s.id)}" style="border-bottom:1px solid var(--border)">
+                    <td style="${tdStyle}">
+                      ${escHtml(s.name)}
+                      ${hasOverride(s) ? badge('custom', 'var(--accent)') : ''}
+                    </td>
+                    <td style="${tdStyle}">${escHtml(s.category || '-')}</td>
+                    <td style="${tdStyle}">${badge(`T${s.tier}`, tierColor(s.tier))}</td>
+                    <td style="${tdStyle}">${escHtml(effectiveInterval(s))}</td>
+                    <td style="${tdStyle}">
+                      ${numInputOptional('poll_interval', s.poll_interval_minutes, 0, 999)}
+                      <span style="font-size:10px;color:var(--text-muted);display:block;margin-top:2px">(blank = tier default)</span>
+                    </td>
+                    <td style="${tdStyle}">${textInput('custom_cron', s.custom_cron || '', '*/5 * * * *', '150px')}</td>
+                    <td style="${tdStyle}">${checkInput('enabled', s.enabled, '')}</td>
+                    <td style="${tdStyle}">
+                      <button class="btn-save" style="padding:4px 8px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);cursor:pointer;font-size:11px;margin-right:4px">Save</button>
+                      <button class="btn-reset" style="padding:4px 8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:11px;color:var(--text)">Reset</button>
+                    </td>
+                  </tr>
+                `,
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+
+        const filterEls = {
+          category: container.querySelector('#filter-category') as HTMLSelectElement,
+          tier: container.querySelector('#filter-tier') as HTMLSelectElement,
+          lang: container.querySelector('#filter-lang') as HTMLSelectElement,
+          enabled: container.querySelector('#filter-enabled') as HTMLSelectElement,
+          search: container.querySelector('#filter-search') as HTMLInputElement,
+        };
+
+        filterEls.category.value = filterCategory;
+        filterEls.tier.value = filterTier;
+        filterEls.lang.value = filterLang;
+        filterEls.enabled.value = filterEnabled;
+        filterEls.search.value = filterSearch;
+
+        [filterEls.category, filterEls.tier, filterEls.lang, filterEls.enabled].forEach((el) => {
+          el.addEventListener('change', () => {
+            filterCategory = filterEls.category.value;
+            filterTier = filterEls.tier.value;
+            filterLang = filterEls.lang.value;
+            filterEnabled = filterEls.enabled.value;
+            applyFilters();
+          });
+        });
+
+        filterEls.search.addEventListener('input', () => {
+          filterSearch = filterEls.search.value;
+          applyFilters();
+        });
+
+        container.querySelectorAll('.btn-save').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const row = (btn as HTMLElement).closest('tr');
+            if (!row) return;
+
+            const id = row.getAttribute('data-source-id')!;
+            const source = sources.find((s) => s.id === id);
+            if (!source) return;
+
+            const pollInput = row.querySelector('[data-field="poll_interval"]') as HTMLInputElement;
+            const cronInput = row.querySelector('[data-field="custom_cron"]') as HTMLInputElement;
+            const enabledInput = row.querySelector('[data-field="enabled"]') as HTMLInputElement;
+
+            const pollValue = parseInt(pollInput.value, 10) || null;
+            const cronValue = cronInput.value.trim() || null;
+
+            try {
+              const res = await fetch(
+                `${SUPABASE_URL}/rest/v1/news_sources?id=eq.${encodeURIComponent(id)}`,
+                {
+                  method: 'PATCH',
+                  headers: {
+                    apikey: SUPABASE_ANON_KEY,
+                    Authorization: `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Accept-Profile': 'wm_admin',
+                    'Content-Profile': 'wm_admin',
+                  },
+                  body: JSON.stringify({
+                    poll_interval_minutes: pollValue,
+                    custom_cron: cronValue,
+                    enabled: enabledInput.checked,
+                  }),
+                },
+              );
+
+              if (!res.ok) throw new Error(`Save failed: ${res.statusText}`);
+
+              source.poll_interval_minutes = pollValue;
+              source.custom_cron = cronValue;
+              source.enabled = enabledInput.checked;
+
+              showToast('Saved successfully', true);
+            } catch (err) {
+              showToast(`Error: ${(err as Error).message}`, false);
+            }
+          });
+        });
+
+        container.querySelectorAll('.btn-reset').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const row = (btn as HTMLElement).closest('tr');
+            if (!row) return;
+
+            const id = row.getAttribute('data-source-id')!;
+            const source = sources.find((s) => s.id === id);
+            if (!source) return;
+
+            if (!confirm(`Reset ${source.name} to tier default?`)) return;
+
+            try {
+              const res = await fetch(
+                `${SUPABASE_URL}/rest/v1/news_sources?id=eq.${encodeURIComponent(id)}`,
+                {
+                  method: 'PATCH',
+                  headers: {
+                    apikey: SUPABASE_ANON_KEY,
+                    Authorization: `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Accept-Profile': 'wm_admin',
+                    'Content-Profile': 'wm_admin',
+                  },
+                  body: JSON.stringify({
+                    poll_interval_minutes: null,
+                    custom_cron: null,
+                  }),
+                },
+              );
+
+              if (!res.ok) throw new Error(`Reset failed: ${res.statusText}`);
+
+              source.poll_interval_minutes = null;
+              source.custom_cron = null;
+
+              renderTable();
+              showToast('Reset to tier default', true);
+            } catch (err) {
+              showToast(`Error: ${(err as Error).message}`, false);
+            }
+          });
+        });
+      }
+
+      renderTable();
+    } catch (err) {
+      container.innerHTML = `<div style="padding:10px 14px;background:rgba(229,62,62,0.1);border:1px solid var(--danger,#e53e3e);border-radius:var(--radius);color:var(--danger,#e53e3e)">${escHtml((err as Error).message)}</div>`;
     }
   }
 
