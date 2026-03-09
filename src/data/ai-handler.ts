@@ -11,6 +11,20 @@ export function createAiHandlers(ctx: AppContext): Record<string, (payload: unkn
       digestPanel?.applyAiDigest?.(payload);
     },
     'ai:panel-summary': (payload: unknown) => {
+      // Check for error codes from server (provider_missing, prompt_missing, timeout, etc.)
+      const response = payload as { errorCode?: string; summary?: string } | undefined;
+      if (response?.errorCode) {
+        console.error(`[AI Panel Summary] errorCode=${response.errorCode}`);
+        // Error handling via i18n keys: errorProviderMissing, errorPromptMissing, errorTimeout, errorRetry
+        let errorKey = 'errorRetry'; // default generic error
+        if (response.errorCode === 'provider_missing') errorKey = 'errorProviderMissing';
+        else if (response.errorCode === 'prompt_missing') errorKey = 'errorPromptMissing';
+        else if (response.errorCode === 'timeout') errorKey = 'errorTimeout';
+        (ctx as unknown as { latestPanelSummary?: unknown }).latestPanelSummary = { ...response, errorKey };
+        (window as unknown as { __wmLatestPanelSummary?: unknown }).__wmLatestPanelSummary = { ...response, errorKey };
+        document.dispatchEvent(new CustomEvent('wm:panel-summary-updated', { detail: { ...response, errorKey } }));
+        return;
+      }
       (ctx as unknown as { latestPanelSummary?: unknown }).latestPanelSummary = payload;
       (window as unknown as { __wmLatestPanelSummary?: unknown }).__wmLatestPanelSummary = payload;
       document.dispatchEvent(new CustomEvent('wm:panel-summary-updated', { detail: payload }));

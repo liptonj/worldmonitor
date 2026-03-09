@@ -1,0 +1,67 @@
+# Docker Compose Override for Splunk Logging
+# Usage: docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
+
+version: '3.8'
+
+x-logging: &default-logging
+  driver: splunk
+  options:
+    splunk-token: "${SPLUNK_HEC_TOKEN}"
+    splunk-url: "${SPLUNK_URL}"
+    splunk-insecureskipverify: "${SPLUNK_INSECURE_SKIP_VERIFY:-true}"
+    splunk-format: "json"
+    splunk-index: "${SPLUNK_INDEX:-docker_logs}"
+    splunk-sourcetype: "_json"
+    splunk-verify-connection: "false"
+    tag: "{{.Name}}/{{.ID}}"
+    labels: "service,environment"
+    env: "LOG_LEVEL"
+
+services:
+  redis:
+    logging: *default-logging
+    labels:
+      service: "redis"
+      environment: "${ENVIRONMENT:-production}"
+
+  watchtower:
+    logging: *default-logging
+    labels:
+      service: "watchtower"
+      environment: "${ENVIRONMENT:-production}"
+
+  gateway:
+    logging: *default-logging
+    labels:
+      service: "gateway"
+      environment: "${ENVIRONMENT:-production}"
+
+  orchestrator:
+    logging: *default-logging
+    labels:
+      service: "orchestrator"
+      environment: "${ENVIRONMENT:-production}"
+
+  worker:
+    logging: *default-logging
+    labels:
+      service: "worker"
+      environment: "${ENVIRONMENT:-production}"
+
+  ais-processor:
+    logging: *default-logging
+    labels:
+      service: "ais-processor"
+      environment: "${ENVIRONMENT:-production}"
+
+  ingest-telegram:
+    logging: *default-logging
+    labels:
+      service: "ingest-telegram"
+      environment: "${ENVIRONMENT:-production}"
+
+  ai-engine:
+    logging: *default-logging
+    labels:
+      service: "ai-engine"
+      environment: "${ENVIRONMENT:-production}"

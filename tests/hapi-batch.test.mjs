@@ -18,10 +18,10 @@ describe('HAPI batch', () => {
     assert.ok(src.includes('fetchAllHapiSummaries'), 'missing fetchAllHapiSummaries in conflict service');
   });
 
-  it('data-loader uses fetchAllHapiSummaries not looping fetchHapiSummary', () => {
-    const src = readFileSync('src/app/data-loader.ts', 'utf-8');
-    assert.ok(src.includes('fetchAllHapiSummaries'), 'data-loader should use fetchAllHapiSummaries');
-    // fetchHapiSummary (singular) should no longer be called directly in data-loader
-    assert.ok(!src.includes('fetchHapiSummary('), 'data-loader should not call fetchHapiSummary directly');
+  it('intelligence-loader uses fetchAllHapiSummaries not looping fetchHapiSummary', () => {
+    const src = readFileSync('src/data/intelligence-loader.ts', 'utf-8');
+    assert.ok(src.includes('fetchAllHapiSummaries'), 'intelligence-loader should use fetchAllHapiSummaries');
+    // fetchHapiSummary (singular) should no longer be called directly in intelligence-loader
+    assert.ok(!src.includes('fetchHapiSummary('), 'intelligence-loader should not call fetchHapiSummary directly');
   });
 });

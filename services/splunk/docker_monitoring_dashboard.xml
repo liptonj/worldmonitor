@@ -1,0 +1,350 @@
+<form version="1.1">
+  <label>World Monitor - Docker Container Dashboard</label>
+  <description>Real-time monitoring of Docker containers and services</description>
+  
+  <!-- Time Range Picker -->
+  <fieldset submitButton="true" autoRun="true">
+    <input type="time" token="time_range" searchWhenChanged="true">
+      <label>Time Range</label>
+      <default>
+        <earliest>-60m@m</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    
+    <input type="dropdown" token="service_filter" searchWhenChanged="true">
+      <label>Service</label>
+      <choice value="*">All Services</choice>
+      <choice value="gateway">Gateway</choice>
+      <choice value="orchestrator">Orchestrator</choice>
+      <choice value="worker">Worker</choice>
+      <choice value="ais-processor">AIS Processor</choice>
+      <choice value="ingest-telegram">Telegram Ingest</choice>
+      <choice value="ai-engine">AI Engine</choice>
+      <choice value="redis">Redis</choice>
+      <choice value="watchtower">Watchtower</choice>
+      <default>*</default>
+    </input>
+    
+    <input type="dropdown" token="log_level_filter" searchWhenChanged="true">
+      <label>Log Level</label>
+      <choice value="*">All Levels</choice>
+      <choice value="ERROR">ERROR</choice>
+      <choice value="WARN">WARN</choice>
+      <choice value="INFO">INFO</choice>
+      <choice value="DEBUG">DEBUG</choice>
+      <default>*</default>
+    </input>
+  </fieldset>
+
+  <!-- Row 1: Key Metrics -->
+  <row>
+    <panel>
+      <title>Total Events</title>
+      <single>
+        <search>
+          <query>
+index=docker_logs service="$service_filter$" 
+| eval log_level=if(match(_raw, "ERROR"), "ERROR", if(match(_raw, "WARN"), "WARN", if(match(_raw, "INFO"), "INFO", if(match(_raw, "DEBUG"), "DEBUG", "UNKNOWN"))))
+| search log_level="$log_level_filter$"
+| stats count
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65A637","0x6DB7C6","0xF7BC38","0xF58F39","0xD93F3C"]</option>
+        <option name="underLabel">Log Events</option>
+      </single>
+    </panel>
+    
+    <panel>
+      <title>Error Count</title>
+      <single>
+        <search>
+          <query>
+index=docker_logs service="$service_filter$" 
+| eval log_level=if(match(_raw, "ERROR"), "ERROR", "")
+| search log_level="ERROR"
+| stats count
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65A637","0xF7BC38","0xD93F3C"]</option>
+        <option name="rangeValues">[0,10]</option>
+        <option name="underLabel">Errors</option>
+      </single>
+    </panel>
+    
+    <panel>
+      <title>Active Services</title>
+      <single>
+        <search>
+          <query>
+index=docker_logs earliest=-5m
+| stats dc(attrs.name) as active_services
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0xD93F3C","0xF7BC38","0x65A637"]</option>
+        <option name="rangeValues">[4,7]</option>
+        <option name="underLabel">Services Reporting</option>
+      </single>
+    </panel>
+    
+    <panel>
+      <title>Warning Count</title>
+      <single>
+        <search>
+          <query>
+index=docker_logs service="$service_filter$" 
+| eval log_level=if(match(_raw, "WARN"), "WARN", "")
+| search log_level="WARN"
+| stats count
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65A637","0xF7BC38","0xF58F39"]</option>
+        <option name="rangeValues">[0,20]</option>
+        <option name="underLabel">Warnings</option>
+      </single>
+    </panel>
+  </row>
+
+  <!-- Row 2: Log Volume Over Time -->
+  <row>
+    <panel>
+      <title>Log Volume by Service</title>
+      <chart>
+        <search>
+          <query>
+index=docker_logs service="$service_filter$"
+| eval service=coalesce(attrs.name, source)
+| timechart span=1m count by service limit=10
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="charting.chart">area</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.axisTitleX.text">Time</option>
+        <option name="charting.axisTitleY.text">Events</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- Row 3: Error Rate and Log Levels -->
+  <row>
+    <panel>
+      <title>Error Rate Trend</title>
+      <chart>
+        <search>
+          <query>
+index=docker_logs service="$service_filter$"
+| eval log_level=if(match(_raw, "ERROR"), "ERROR", if(match(_raw, "WARN"), "WARN", "OTHER"))
+| search log_level IN (ERROR, WARN)
+| timechart span=5m count by log_level
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleX.text">Time</option>
+        <option name="charting.axisTitleY.text">Count</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.chart.nullValueMode">connect</option>
+      </chart>
+    </panel>
+    
+    <panel>
+      <title>Log Level Distribution</title>
+      <chart>
+        <search>
+          <query>
+index=docker_logs service="$service_filter$"
+| eval log_level=case(
+    match(_raw, "ERROR"), "ERROR",
+    match(_raw, "WARN"), "WARN",
+    match(_raw, "INFO"), "INFO",
+    match(_raw, "DEBUG"), "DEBUG",
+    1=1, "OTHER"
+)
+| stats count by log_level
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="charting.chart">pie</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- Row 4: Service Health Status -->
+  <row>
+    <panel>
+      <title>Service Activity (Events per Minute)</title>
+      <table>
+        <search>
+          <query>
+index=docker_logs earliest=-5m
+| eval service=coalesce(attrs.name, source)
+| stats count as total_events, 
+        earliest(_time) as first_seen, 
+        latest(_time) as last_seen by service
+| eval events_per_min=round(total_events/5, 2)
+| eval time_since_last=round((now()-last_seen)/60, 1)
+| eval status=case(
+    time_since_last &lt; 2, "🟢 Active",
+    time_since_last &lt; 5, "🟡 Slow",
+    1=1, "🔴 Inactive"
+)
+| sort - events_per_min
+| table service, status, events_per_min, total_events, time_since_last
+| rename service as "Service", 
+         status as "Status",
+         events_per_min as "Events/Min",
+         total_events as "Total Events (5m)",
+         time_since_last as "Minutes Since Last Log"
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Status">
+          <colorPalette type="map">{"🟢 Active":#65A637,"🟡 Slow":#F7BC38,"🔴 Inactive":#D93F3C}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- Row 5: Recent Errors -->
+  <row>
+    <panel>
+      <title>Recent Errors (Last 50)</title>
+      <table>
+        <search>
+          <query>
+index=docker_logs service="$service_filter$"
+| eval log_level=if(match(_raw, "ERROR"), "ERROR", "")
+| search log_level="ERROR"
+| eval service=coalesce(attrs.name, source)
+| eval message=_raw
+| table _time, service, message
+| head 50
+| rename _time as "Timestamp", service as "Service", message as "Error Message"
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="wrap">true</option>
+        <format type="color" field="Service">
+          <colorPalette type="sharedList"></colorPalette>
+          <scale type="sharedCategory"></scale>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- Row 6: Top Log Patterns -->
+  <row>
+    <panel>
+      <title>Top Log Messages (Pattern Detection)</title>
+      <table>
+        <search>
+          <query>
+index=docker_logs service="$service_filter$"
+| eval message=_raw
+| rex field=message mode=sed "s/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/TIMESTAMP/g"
+| rex field=message mode=sed "s/\d+\.\d+\.\d+\.\d+/IP_ADDRESS/g"
+| rex field=message mode=sed "s/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/UUID/g"
+| stats count by message
+| sort - count
+| head 20
+| rename message as "Log Pattern", count as "Occurrences"
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- Row 7: Container Resource Indicators (if available in logs) -->
+  <row>
+    <panel>
+      <title>Service Event Rate Comparison</title>
+      <chart>
+        <search>
+          <query>
+index=docker_logs 
+| eval service=coalesce(attrs.name, source)
+| bucket _time span=1m
+| stats count by _time, service
+| xyseries _time service count
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.axisTitleX.text">Time</option>
+        <option name="charting.axisTitleY.text">Log Events</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- Row 8: Raw Log Search -->
+  <row>
+    <panel>
+      <title>Recent Logs (Last 100)</title>
+      <table>
+        <search>
+          <query>
+index=docker_logs service="$service_filter$"
+| eval log_level=case(
+    match(_raw, "ERROR"), "ERROR",
+    match(_raw, "WARN"), "WARN",
+    match(_raw, "INFO"), "INFO",
+    match(_raw, "DEBUG"), "DEBUG",
+    1=1, "UNKNOWN"
+)
+| search log_level="$log_level_filter$"
+| eval service=coalesce(attrs.name, source)
+| table _time, service, log_level, _raw
+| head 100
+| rename _time as "Timestamp", service as "Service", log_level as "Level", _raw as "Message"
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="wrap">true</option>
+        <format type="color" field="Level">
+          <colorPalette type="map">{"ERROR":#D93F3C,"WARN":#F7BC38,"INFO":#65A637,"DEBUG":#6DB7C6,"UNKNOWN":#999999}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+</form>

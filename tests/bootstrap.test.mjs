@@ -184,7 +184,7 @@ describe('Panel hydration consumers', () => {
     { name: 'ETFFlowsPanel', path: 'src/components/ETFFlowsPanel.ts', key: 'etfFlows' },
     { name: 'MacroSignalsPanel', path: 'src/components/MacroSignalsPanel.ts', key: 'macroSignals' },
     { name: 'ServiceStatusPanel (via infrastructure)', path: 'src/services/infrastructure/index.ts', key: 'serviceStatuses' },
-    { name: 'Sectors (via data-loader)', path: 'src/app/data-loader.ts', key: 'sectors' },
+    { name: 'Sectors (via markets-loader)', path: 'src/data/markets-loader.ts', key: 'sectors' },
   ];
 
   for (const panel of panels) {
@@ -197,7 +197,11 @@ describe('Panel hydration consumers', () => {
 });
 
 describe('Bootstrap key hydration coverage', () => {
-  const DEDICATED_GETTERS = { newsSources: 'getHydratedNewsSources', featureFlags: 'getHydratedFeatureFlags' };
+  const DEDICATED_GETTERS = { 
+    newsSources: 'getHydratedNewsSources', 
+    featureFlags: 'getHydratedFeatureFlags',
+    wildfires: 'getFiresCache' 
+  };
 
   it('every bootstrap key has a getHydratedData consumer or dedicated getter in src/', () => {
     const bootstrapSrc = readFileSync(join(root, 'api', 'bootstrap.js'), 'utf-8');

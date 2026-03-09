@@ -53,9 +53,9 @@ describe('breaking-news-alerts oref_siren integration', () => {
   });
 });
 
-describe('oref breaking news wiring (intelligence-handler + data-loader)', () => {
+describe('oref breaking news wiring (intelligence-handler + intelligence-loader)', () => {
   const IH = readFileSync(join(__dirname, '..', 'src', 'data', 'intelligence-handler.ts'), 'utf8');
-  const DL = readFileSync(join(__dirname, '..', 'src', 'app', 'data-loader.ts'), 'utf8');
+  const IL = readFileSync(join(__dirname, '..', 'src', 'data', 'intelligence-loader.ts'), 'utf8');
 
   it('intelligence-handler imports dispatchOrefBreakingAlert', () => {
     assert.ok(IH.includes('dispatchOrefBreakingAlert'), 'intelligence-handler should import dispatchOrefBreakingAlert');
@@ -77,8 +77,8 @@ describe('oref breaking news wiring (intelligence-handler + data-loader)', () =>
     assert.ok(orefHandlerBody.includes('renderOrefAlerts'), 'oref handler should call renderOrefAlerts');
   });
 
-  it('data-loader loads oref via domainHandlers on initial load', () => {
-    assert.ok(DL.includes('loadChannelWithFallback') && (DL.includes("'oref'") || DL.includes('"oref"')), 'data-loader should load oref channel');
-    assert.ok(DL.includes("domainHandlers['oref']"), 'data-loader should pass data to domainHandlers.oref');
+  it('intelligence-loader loads oref via getHandler on initial load', () => {
+    assert.ok(IL.includes('loadChannelWithFallback') && (IL.includes("'oref'") || IL.includes('"oref"')), 'intelligence-loader should load oref channel');
+    assert.ok(IL.includes("getHandler('oref')"), 'intelligence-loader should pass data to getHandler(oref)');
   });
 });

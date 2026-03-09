@@ -4,19 +4,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 describe('relay AI client wiring', () => {
-  it('App.ts subscribes to ai:intel-digest channel', () => {
-    const src = readFileSync('src/App.ts', 'utf8');
-    assert.ok(src.includes("'ai:intel-digest'") || src.includes('"ai:intel-digest"'));
+  it('channel registry includes ai:intel-digest', () => {
+    const src = readFileSync('src/config/channel-registry.ts', 'utf8');
+    assert.ok(src.includes("'ai:intel-digest'") || src.includes('"ai:intel-digest"'), 'channel registry must include ai:intel-digest');
   });
 
-  it('App.ts subscribes to ai:panel-summary channel', () => {
-    const src = readFileSync('src/App.ts', 'utf8');
-    assert.ok(src.includes("'ai:panel-summary'") || src.includes('"ai:panel-summary"'));
+  it('channel registry includes ai:panel-summary', () => {
+    const src = readFileSync('src/config/channel-registry.ts', 'utf8');
+    assert.ok(src.includes("'ai:panel-summary'") || src.includes('"ai:panel-summary"'), 'channel registry must include ai:panel-summary');
   });
 
-  it('App.ts subscribes to ai:country-briefs channel', () => {
-    const src = readFileSync('src/App.ts', 'utf8');
-    assert.ok(src.includes("'ai:country-briefs'") || src.includes('"ai:country-briefs"'));
+  it('channel registry includes ai:country-briefs', () => {
+    const src = readFileSync('src/config/channel-registry.ts', 'utf8');
+    assert.ok(src.includes("'ai:country-briefs'") || src.includes('"ai:country-briefs"'), 'channel registry must include ai:country-briefs');
   });
 
   it('SummarizeViewModal uses cached panel summary', () => {

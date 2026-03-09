@@ -121,34 +121,34 @@ describe('summarize-view error contract', () => {
 });
 
 describe('summarize-view UI error message mapping', () => {
-  const uiSrc = readFileSync('src/app/event-handlers.ts', 'utf8');
+  const uiSrc = readFileSync('src/data/ai-handler.ts', 'utf8');
   const i18nSrc = readFileSync('src/locales/en.json', 'utf8');
 
   it('UI imports/uses errorProviderMissing i18n key', () => {
     assert.ok(
       uiSrc.includes('errorProviderMissing'),
-      'event-handlers.ts must reference errorProviderMissing i18n key'
+      'ai-handler.ts must reference errorProviderMissing i18n key'
     );
   });
 
   it('UI imports/uses errorPromptMissing i18n key', () => {
     assert.ok(
       uiSrc.includes('errorPromptMissing'),
-      'event-handlers.ts must reference errorPromptMissing i18n key'
+      'ai-handler.ts must reference errorPromptMissing i18n key'
     );
   });
 
   it('UI imports/uses errorTimeout i18n key', () => {
     assert.ok(
       uiSrc.includes('errorTimeout'),
-      'event-handlers.ts must reference errorTimeout i18n key'
+      'ai-handler.ts must reference errorTimeout i18n key'
     );
   });
 
   it('UI imports/uses errorRetry i18n key for generic errors', () => {
     assert.ok(
       uiSrc.includes('errorRetry'),
-      'event-handlers.ts must reference errorRetry i18n key'
+      'ai-handler.ts must reference errorRetry i18n key'
     );
   });
 
@@ -182,8 +182,8 @@ describe('summarize-view UI error message mapping', () => {
 
   it('UI logs errorCode for config errors', () => {
     assert.ok(
-      uiSrc.includes('errorCode=provider_missing') || uiSrc.includes("errorCode='provider_missing'") || uiSrc.includes("errorCode=%s"),
-      'event-handlers.ts must log errorCode when a config error is returned'
+      uiSrc.includes('errorCode=') || uiSrc.includes("errorCode:'") || uiSrc.includes('errorCode:"') || uiSrc.includes("errorCode=${"),
+      'ai-handler.ts must log errorCode when a config error is returned'
     );
   });
 });
