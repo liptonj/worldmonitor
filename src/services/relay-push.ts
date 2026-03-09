@@ -75,6 +75,16 @@ function connect(relayWsUrl: string, channels: string[]): void {
     try {
       const msg = JSON.parse(raw) as Record<string, unknown>;
       if (msg.type === 'wm-push' && typeof msg.channel === 'string') {
+        const hasData = msg.data !== undefined && msg.data !== null;
+        const hasHandlers = handlers.has(msg.channel);
+        if (!hasData || !hasHandlers) {
+          console.warn('[relay-push] wm-push received', {
+            channel: msg.channel,
+            hasData,
+            hasHandlers,
+            handlerCount: handlers.get(msg.channel)?.size ?? 0,
+          });
+        }
         dispatch(msg.channel, msg.data);
       }
     } catch {
