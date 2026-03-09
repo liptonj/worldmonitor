@@ -475,8 +475,13 @@ function main() {
     log.info('Gateway listening', { http: PORT, grpc: GATEWAY_GRPC_PORT });
   });
 
+  const statsInterval = setInterval(() => {
+    log.info('WebSocket stats', { connectedClients: wss.clients.size });
+  }, 60_000);
+
   const shutdown = () => {
     log.info('Shutting down');
+    clearInterval(statsInterval);
     grpcServer.tryShutdown(() => {});
     server.close(() => process.exit(0));
   };

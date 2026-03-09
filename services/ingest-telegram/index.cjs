@@ -1,10 +1,10 @@
 'use strict';
 
-// Ingests OSINT messages from Telegram channels
-// Maintains persistent session, writes message buffer to Redis, broadcasts via gRPC
-
 const fs = require('fs');
 const path = require('path');
+const { TelegramClient } = require('telegram');
+const { StringSession } = require('telegram/sessions');
+const { NewMessage } = require('telegram/events');
 const config = require('@worldmonitor/shared/config.cjs');
 const { createLogger } = require('@worldmonitor/shared/logger.cjs');
 const { setex: redisSetex } = require('@worldmonitor/shared/redis.cjs');
@@ -15,7 +15,7 @@ const log = createLogger('ingest-telegram');
 function loadChannelsFromSet(channelSet) {
   const channelsFile = process.env.TELEGRAM_CHANNELS_FILE || '/app/data/telegram-channels.json';
   const set = String(channelSet || 'full').toLowerCase();
-  
+
   try {
     if (!fs.existsSync(channelsFile)) {
       log.warn('Channels file not found', { path: channelsFile });
@@ -35,11 +35,14 @@ function loadChannelsFromSet(channelSet) {
     return [];
   }
 }
-const REDIS_KEY = 'relay:telegram:v1';
-const BUFFER_TTL = 3600; // 1 hour
-const MAX_BUFFER_SIZE = 500;
 
-// In-memory message buffer (ring buffer, newest first)
+const REDIS_KEY = 'relay:telegram:v1';
+const BUFFER_TTL = 3600;
+const MAX_BUFFER_SIZE = 500;
+const PERSIST_INTERVAL_MS = 30_000;
+const RECONNECT_DELAY_MS = 10_000;
+const MAX_RECONNECT_DELAY_MS = 300_000;
+
 const messageBuffer = [];
 
 function _resetBuffer() {
@@ -47,7 +50,6 @@ function _resetBuffer() {
 }
 
 function addMessage(message) {
-  // Prepend (newest first)
   messageBuffer.unshift(message);
   if (messageBuffer.length > MAX_BUFFER_SIZE) {
     messageBuffer.pop();
@@ -85,12 +87,58 @@ async function persistBuffer(gatewayClient) {
   }
 }
 
-async function startTelegramClient(gatewayClient) {
-  // TODO: Initialize GramJS/telegram client with session string from TELEGRAM_SESSION env var
-  // TODO: Connect and start listening to configured channels
-  // TODO: On each new message, call addMessage() and persistBuffer()
+function buildHandleToConfig(channels) {
+  const map = new Map();
+  for (const ch of channels) {
+    map.set(ch.handle.toLowerCase(), ch);
+  }
+  return map;
+}
 
+function formatMessage(event, channelConfig) {
+  const msg = event.message;
+  const chatId = msg.peerId?.channelId?.toString() || msg.peerId?.chatId?.toString() || '';
+  const text = msg.message || '';
+
+  return {
+    id: msg.id,
+    chatId,
+    channel: channelConfig?.handle || '',
+    label: channelConfig?.label || channelConfig?.handle || '',
+    topic: channelConfig?.topic || 'unknown',
+    region: channelConfig?.region || 'unknown',
+    tier: channelConfig?.tier || 3,
+    text: text.slice(0, 4000),
+    date: msg.date ? msg.date * 1000 : Date.now(),
+    hasMedia: !!(msg.media),
+    views: msg.views || 0,
+    forwards: msg.forwards || 0,
+    replyTo: msg.replyTo?.replyToMsgId || null,
+    ingestedAt: Date.now(),
+  };
+}
+
+async function resolveChannelEntities(client, handles) {
+  const resolved = new Map();
+  for (const handle of handles) {
+    try {
+      const entity = await client.getEntity(handle);
+      if (entity) {
+        const entityId = entity.id?.toString();
+        resolved.set(entityId, handle.toLowerCase());
+        log.info('Resolved channel', { handle, entityId });
+      }
+    } catch (err) {
+      log.warn('Failed to resolve channel', { handle, error: err.message });
+    }
+  }
+  return resolved;
+}
+
+async function startTelegramClient(gatewayClient) {
   const sessionString = process.env.TELEGRAM_SESSION;
+  const apiId = parseInt(process.env.TELEGRAM_API_ID || '0', 10);
+  const apiHash = process.env.TELEGRAM_API_HASH || '';
   const channelSet = process.env.TELEGRAM_CHANNEL_SET;
   const channelsEnv = process.env.TELEGRAM_CHANNELS;
 
@@ -98,9 +146,12 @@ async function startTelegramClient(gatewayClient) {
     log.warn('TELEGRAM_SESSION not set — Telegram ingest disabled');
     return;
   }
+  if (!apiId || !apiHash) {
+    log.warn('TELEGRAM_API_ID or TELEGRAM_API_HASH not set — Telegram ingest disabled');
+    return;
+  }
 
   let channels = [];
-  
   if (channelSet) {
     channels = loadChannelsFromSet(channelSet);
   } else if (channelsEnv) {
@@ -112,23 +163,119 @@ async function startTelegramClient(gatewayClient) {
     return;
   }
 
+  const handleToConfig = buildHandleToConfig(channels);
   const handles = channels.map((c) => c.handle);
-  log.info('Telegram client initialized (stub)', { channelCount: channels.length, handles });
+  log.info('Starting Telegram client', { channelCount: channels.length, handles });
 
-  // Periodic persist: every 60 seconds
+  const session = new StringSession(sessionString);
+  const client = new TelegramClient(session, apiId, apiHash, {
+    connectionRetries: 5,
+    retryDelay: 2000,
+    autoReconnect: true,
+  });
+
+  let entityIdToHandle = new Map();
+  let reconnectDelay = RECONNECT_DELAY_MS;
+  let connected = false;
+
+  async function connect() {
+    try {
+      await client.connect();
+      connected = true;
+      reconnectDelay = RECONNECT_DELAY_MS;
+      log.info('Connected to Telegram');
+
+      entityIdToHandle = await resolveChannelEntities(client, handles);
+      log.info('Resolved channel entities', { count: entityIdToHandle.size });
+
+      if (entityIdToHandle.size === 0) {
+        log.error('No channels could be resolved — check handles');
+      }
+    } catch (err) {
+      connected = false;
+      log.error('Failed to connect to Telegram', { error: err.message });
+      scheduleReconnect();
+    }
+  }
+
+  function scheduleReconnect() {
+    log.info('Scheduling reconnect', { delayMs: reconnectDelay });
+    setTimeout(async () => {
+      try {
+        await connect();
+      } catch (err) {
+        log.error('Reconnect failed', { error: err.message });
+        reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY_MS);
+        scheduleReconnect();
+      }
+    }, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY_MS);
+  }
+
+  client.addEventHandler(async (event) => {
+    try {
+      const msg = event.message;
+      if (!msg || !msg.message) return;
+
+      const chatId = msg.peerId?.channelId?.toString() || '';
+      const handle = entityIdToHandle.get(chatId);
+      if (!handle) return;
+
+      const channelConfig = handleToConfig.get(handle);
+      const formatted = formatMessage(event, channelConfig);
+
+      addMessage(formatted);
+      log.debug('New message', {
+        channel: formatted.channel,
+        id: formatted.id,
+        textLen: formatted.text.length,
+        bufferSize: messageBuffer.length,
+      });
+
+      await persistBuffer(gatewayClient);
+    } catch (err) {
+      log.error('Error handling message event', { error: err.message });
+    }
+  }, new NewMessage({}));
+
+  client._handleUpdate = ((orig) => {
+    return function (...args) {
+      try {
+        return orig.apply(this, args);
+      } catch (err) {
+        log.error('Update handler error', { error: err.message });
+      }
+    };
+  })(client._handleUpdate);
+
+  await connect();
+
   const persistInterval = setInterval(async () => {
     try {
-      await persistBuffer(gatewayClient);
+      if (connected) {
+        await persistBuffer(gatewayClient);
+      }
     } catch (err) {
       log.error('Periodic persist failed', { error: err.message });
     }
+  }, PERSIST_INTERVAL_MS);
+
+  const statsInterval = setInterval(() => {
+    log.info('Telegram stats', {
+      connected,
+      bufferSize: messageBuffer.length,
+      resolvedChannels: entityIdToHandle.size,
+      targetChannels: handles.length,
+    });
   }, 60_000);
 
-  // Return cleanup function
   return () => {
     clearInterval(persistInterval);
+    clearInterval(statsInterval);
+    try {
+      client.disconnect();
+    } catch { /* ignore */ }
   };
-  // TODO: replace with actual GramJS client that calls addMessage() on new messages
 }
 
 async function main() {
@@ -140,7 +287,7 @@ async function main() {
   const shutdown = () => {
     log.info('Shutting down ingest-telegram');
     if (cleanup) cleanup();
-    process.exit(0);
+    setTimeout(() => process.exit(0), 1000);
   };
 
   process.on('SIGTERM', shutdown);
@@ -159,5 +306,7 @@ module.exports = {
   getMessageBuffer,
   persistBuffer,
   startTelegramClient,
+  formatMessage,
+  buildHandleToConfig,
   _resetBuffer,
 };

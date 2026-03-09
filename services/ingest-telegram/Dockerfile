@@ -3,8 +3,8 @@ FROM ${BASE_IMAGE}
 
 WORKDIR /app/ingest-telegram
 
-COPY ingest-telegram/package.json ./
-RUN npm install --omit=dev
+COPY ingest-telegram/package.json ingest-telegram/package-lock.json ./
+RUN npm ci --omit=dev
 
 COPY ingest-telegram/index.cjs ./
 

@@ -11,6 +11,8 @@ const {
   getMessageBuffer,
   persistBuffer,
   startTelegramClient,
+  formatMessage,
+  buildHandleToConfig,
   _resetBuffer,
 } = require('../index.cjs');
 
@@ -67,48 +69,152 @@ describe('buffer structure after addMessage', () => {
   });
 });
 
-describe('startTelegramClient cleanup', () => {
-  const prevSession = process.env.TELEGRAM_SESSION;
-  const prevChannels = process.env.TELEGRAM_CHANNELS;
-  const prevRedis = process.__REDIS_TEST_CLIENT__;
-
-  beforeEach(() => {
-    process.env.TELEGRAM_SESSION = 'test-session';
-    process.env.TELEGRAM_CHANNELS = 'test-channel';
-    _resetBuffer();
+describe('buildHandleToConfig', () => {
+  it('creates lowercase handle map', () => {
+    const channels = [
+      { handle: 'BNONews', label: 'BNO News', topic: 'breaking', tier: 2 },
+      { handle: 'AuroraIntel', label: 'Aurora Intel', topic: 'conflict', tier: 2 },
+    ];
+    const map = buildHandleToConfig(channels);
+    assert.strictEqual(map.size, 2);
+    assert.strictEqual(map.get('bnonews').label, 'BNO News');
+    assert.strictEqual(map.get('auroraintel').topic, 'conflict');
+    assert.strictEqual(map.get('BNONEWS'), undefined);
   });
+});
+
+describe('formatMessage', () => {
+  it('formats a message event with channel config', () => {
+    const event = {
+      message: {
+        id: 42,
+        peerId: { channelId: BigInt(12345) },
+        message: 'Breaking: test event occurred',
+        date: 1709251200,
+        media: null,
+        views: 1500,
+        forwards: 30,
+        replyTo: null,
+      },
+    };
+    const channelConfig = {
+      handle: 'BNONews',
+      label: 'BNO News',
+      topic: 'breaking',
+      region: 'global',
+      tier: 2,
+    };
+
+    const result = formatMessage(event, channelConfig);
+    assert.strictEqual(result.id, 42);
+    assert.strictEqual(result.channel, 'BNONews');
+    assert.strictEqual(result.label, 'BNO News');
+    assert.strictEqual(result.topic, 'breaking');
+    assert.strictEqual(result.region, 'global');
+    assert.strictEqual(result.tier, 2);
+    assert.strictEqual(result.text, 'Breaking: test event occurred');
+    assert.strictEqual(result.date, 1709251200000);
+    assert.strictEqual(result.hasMedia, false);
+    assert.strictEqual(result.views, 1500);
+    assert.strictEqual(result.forwards, 30);
+    assert.strictEqual(result.replyTo, null);
+    assert.ok(result.ingestedAt > 0);
+  });
+
+  it('truncates long text to 4000 chars', () => {
+    const longText = 'x'.repeat(5000);
+    const event = {
+      message: {
+        id: 1,
+        peerId: { channelId: BigInt(1) },
+        message: longText,
+        date: 1709251200,
+        media: null,
+        views: 0,
+        forwards: 0,
+        replyTo: null,
+      },
+    };
+    const result = formatMessage(event, null);
+    assert.strictEqual(result.text.length, 4000);
+  });
+
+  it('detects media presence', () => {
+    const event = {
+      message: {
+        id: 1,
+        peerId: { channelId: BigInt(1) },
+        message: 'photo',
+        date: 1709251200,
+        media: { photo: {} },
+        views: 0,
+        forwards: 0,
+        replyTo: null,
+      },
+    };
+    const result = formatMessage(event, null);
+    assert.strictEqual(result.hasMedia, true);
+  });
+
+  it('handles missing channel config gracefully', () => {
+    const event = {
+      message: {
+        id: 1,
+        peerId: { channelId: BigInt(1) },
+        message: 'test',
+        date: 1709251200,
+        media: null,
+        views: 0,
+        forwards: 0,
+        replyTo: null,
+      },
+    };
+    const result = formatMessage(event, null);
+    assert.strictEqual(result.channel, '');
+    assert.strictEqual(result.label, '');
+    assert.strictEqual(result.topic, 'unknown');
+    assert.strictEqual(result.region, 'unknown');
+    assert.strictEqual(result.tier, 3);
+  });
+});
+
+describe('startTelegramClient - disabled states', () => {
+  const prevSession = process.env.TELEGRAM_SESSION;
+  const prevApiId = process.env.TELEGRAM_API_ID;
+  const prevApiHash = process.env.TELEGRAM_API_HASH;
+  const prevChannels = process.env.TELEGRAM_CHANNELS;
+  const prevChannelSet = process.env.TELEGRAM_CHANNEL_SET;
 
   afterEach(() => {
     process.env.TELEGRAM_SESSION = prevSession;
+    process.env.TELEGRAM_API_ID = prevApiId;
+    process.env.TELEGRAM_API_HASH = prevApiHash;
     process.env.TELEGRAM_CHANNELS = prevChannels;
-    process.__REDIS_TEST_CLIENT__ = prevRedis;
+    process.env.TELEGRAM_CHANNEL_SET = prevChannelSet;
   });
 
-  it('returns cleanup function and clearing it stops the interval', async (t) => {
-    const setexCalls = { count: 0 };
-    const mockClient = {
-      setex: async () => {
-        setexCalls.count += 1;
-      },
-    };
-    process.__REDIS_TEST_CLIENT__ = mockClient;
+  it('returns undefined when TELEGRAM_SESSION is not set', async () => {
+    delete process.env.TELEGRAM_SESSION;
+    const result = await startTelegramClient(null);
+    assert.strictEqual(result, undefined);
+  });
 
-    t.mock.timers.enable(['setInterval']);
+  it('returns undefined when TELEGRAM_API_ID is not set', async () => {
+    process.env.TELEGRAM_SESSION = 'test';
+    delete process.env.TELEGRAM_API_ID;
+    process.env.TELEGRAM_API_HASH = 'test-hash';
+    const result = await startTelegramClient(null);
+    assert.strictEqual(result, undefined);
+  });
 
-    const cleanup = await startTelegramClient(null);
-    assert.strictEqual(typeof cleanup, 'function', 'startTelegramClient returns cleanup function');
-
-    t.mock.timers.tick(65_000);
-    await Promise.resolve();
-    assert.strictEqual(setexCalls.count, 1, 'persistBuffer called once after 65s');
-
-    cleanup();
-
-    t.mock.timers.tick(65_000);
-    await Promise.resolve();
-    assert.strictEqual(setexCalls.count, 1, 'persistBuffer not called again after cleanup');
-
-    t.mock.timers.reset();
+  it('returns undefined when no channels configured', async () => {
+    process.env.TELEGRAM_SESSION = 'test';
+    process.env.TELEGRAM_API_ID = '12345';
+    process.env.TELEGRAM_API_HASH = 'test-hash';
+    delete process.env.TELEGRAM_CHANNELS;
+    delete process.env.TELEGRAM_CHANNEL_SET;
+    const result = await startTelegramClient(null);
+    assert.strictEqual(result, undefined);
   });
 });
 

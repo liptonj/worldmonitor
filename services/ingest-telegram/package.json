@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@worldmonitor/shared": "file:../shared",
     "@grpc/grpc-js": "^1",
-    "@grpc/proto-loader": "^0.7"
+    "@grpc/proto-loader": "^0.7",
+    "@worldmonitor/shared": "file:../shared",
+    "telegram": "^2.26.22"
   }
 }
