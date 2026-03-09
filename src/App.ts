@@ -477,6 +477,11 @@ export class App {
     const sourcesReady = Promise.resolve();
     this.dataLoader.setSourcesReady(sourcesReady);
 
+    // Drain all remaining bootstrap data through domain handlers.
+    // News and ai:panel-summary are already consumed above; getHydratedData
+    // is delete-on-read so those entries won't be re-processed.
+    void this.dataLoader.loadAllData();
+
     performance.mark('wm:bootstrap-done');
     performance.measure('wm:bootstrap', 'wm:layout-done', 'wm:bootstrap-done');
 

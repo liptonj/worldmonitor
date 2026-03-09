@@ -24,11 +24,11 @@ describe('App.ts relay push wiring', () => {
     );
   });
 
-  it('App.ts does not call loadAllData for API fetches', () => {
+  it('App.ts calls loadAllData after bootstrap to drain hydration cache', () => {
     const src = readFileSync('src/App.ts', 'utf8');
     assert.ok(
-      !src.includes('void this.dataLoader.loadAllData()'),
-      'loadAllData should not be called eagerly at startup — relay push handles data'
+      src.includes('void this.dataLoader.loadAllData()'),
+      'loadAllData must be called after bootstrap to drain cached data through domain handlers'
     );
   });
 });
