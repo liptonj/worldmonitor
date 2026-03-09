@@ -17,6 +17,7 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   cii: { name: 'Country Instability', enabled: true, priority: 1 },
   'strategic-risk': { name: 'Strategic Risk Overview', enabled: true, priority: 1, channels: ['strategic-risk'] },
   intel: { name: 'Intel Feed', enabled: true, priority: 1 },
+  'telegram-intel': { name: 'Telegram Intel', enabled: true, priority: 1, channels: ['telegram'] },
   'gdelt-intel': { name: 'Live Intelligence', enabled: true, priority: 1 },
   'global-digest': { name: 'Intelligence Digest', enabled: true, priority: 1 },
   cascade: { name: 'Infrastructure Cascade', enabled: true, priority: 1 },

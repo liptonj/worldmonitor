@@ -31,6 +31,18 @@ const FULL_FEEDS = {
     { name: 'UN News', url: 'https://news.un.org/feed/subscribe/en/news/all/rss.xml' },
     { name: 'Federal Reserve', url: 'https://www.federalreserve.gov/feeds/press_all.xml' },
   ],
+  intel: [
+    // Defense & Security
+    { name: 'Defense One', url: 'https://www.defenseone.com/rss/all/' },
+    { name: 'Breaking Defense', url: 'https://breakingdefense.com/feed/' },
+    { name: 'The War Zone', url: 'https://www.twz.com/feed' },
+    { name: 'Defense News', url: 'https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml' },
+    { name: 'Military Times', url: 'https://www.militarytimes.com/arc/outboundfeeds/rss/?outputType=xml' },
+    { name: 'USNI News', url: 'https://news.usni.org/feed' },
+    // OSINT & Security
+    { name: 'Bellingcat', url: 'https://news.google.com/rss/search?q=site:bellingcat.com+when:30d&hl=en-US&gl=US&ceid=US:en' },
+    { name: 'Krebs Security', url: 'https://krebsonsecurity.com/feed/' },
+  ],
 };
 
 const TECH_FEEDS = {
