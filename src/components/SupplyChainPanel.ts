@@ -10,6 +10,8 @@ import { escapeHtml } from '@/utils/sanitize';
 type TabId = 'chokepoints' | 'shipping' | 'minerals';
 
 export class SupplyChainPanel extends Panel {
+  override readonly channelKeys = ['supply-chain'];
+
   private shippingData: GetShippingRatesResponse | null = null;
   private chokepointData: GetChokepointStatusResponse | null = null;
   private mineralsData: GetCriticalMineralsResponse | null = null;

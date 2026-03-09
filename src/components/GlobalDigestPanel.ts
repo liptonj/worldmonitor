@@ -9,6 +9,8 @@ import DOMPurify from 'dompurify';
 const client = new IntelligenceServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 
 export class GlobalDigestPanel extends Panel {
+  override readonly channelKeys = ['intelligence'];
+
   private contentEl: HTMLElement;
   private footerEl: HTMLElement;
   private refreshBtn: HTMLButtonElement;

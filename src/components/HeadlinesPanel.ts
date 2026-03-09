@@ -1,12 +1,15 @@
 import { Panel } from './Panel';
 import { h, text } from '@/utils/dom-utils';
 import { t } from '@/services/i18n';
+import { SITE_VARIANT } from '@/config';
 import type { NewsItem } from '@/types';
 
 const MAX_ITEMS = 50;
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export class HeadlinesPanel extends Panel {
+  override readonly channelKeys = SITE_VARIANT === 'tech' ? ['news:tech'] : ['news:full'];
+
   private seenKeys = new Set<string>();
   private items: NewsItem[] = [];
 

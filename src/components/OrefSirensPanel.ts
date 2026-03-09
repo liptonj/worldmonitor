@@ -9,6 +9,8 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 const HISTORY_TTL = 3 * 60 * 1000;
 
 export class OrefSirensPanel extends Panel {
+  override readonly channelKeys = ['oref'];
+
   private alerts: OrefAlert[] = [];
   private historyCount24h = 0;
   private totalHistoryCount = 0;

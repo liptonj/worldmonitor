@@ -26,6 +26,8 @@ function changeClass(val: number): string {
 }
 
 export class ETFFlowsPanel extends Panel {
+  override readonly channelKeys = ['etf-flows'];
+
   private data: ETFFlowsResult | null = null;
   private loading = true;
   private error: string | null = null;

@@ -23,6 +23,8 @@ import { fetchCachedRiskScores, ingestRiskScoresPayload } from '@/services/cache
 import { getCachedPosture } from '@/services/cached-theater-posture';
 
 export class StrategicRiskPanel extends Panel {
+  override readonly channelKeys = ['strategic-risk'];
+
   private overview: StrategicRiskOverview | null = null;
   private alerts: UnifiedAlert[] = [];
   private convergenceAlerts: GeoConvergenceAlert[] = [];

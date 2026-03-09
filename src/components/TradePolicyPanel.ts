@@ -11,6 +11,8 @@ import { escapeHtml } from '@/utils/sanitize';
 type TabId = 'restrictions' | 'tariffs' | 'flows' | 'barriers';
 
 export class TradePolicyPanel extends Panel {
+  override readonly channelKeys = ['trade'];
+
   private restrictionsData: GetTradeRestrictionsResponse | null = null;
   private tariffsData: GetTariffTrendsResponse | null = null;
   private flowsData: GetTradeFlowsResponse | null = null;

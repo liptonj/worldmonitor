@@ -14,6 +14,8 @@ import type { CascadeResult, CascadeImpactLevel, InfrastructureNode } from '@/ty
 type NodeFilter = 'all' | 'cable' | 'pipeline' | 'port' | 'chokepoint';
 
 export class CascadePanel extends Panel {
+  override readonly channelKeys = ['cables', 'cyber'];
+
   private graph: DependencyGraph | null = null;
   private selectedNode: string | null = null;
   private cascadeResult: CascadeResult | null = null;

@@ -7,6 +7,8 @@ import { t } from '@/services/i18n';
 type GivingTab = 'platforms' | 'categories' | 'crypto' | 'institutional';
 
 export class GivingPanel extends Panel {
+  override readonly channelKeys = ['giving'];
+
   private data: GivingSummary | null = null;
   private activeTab: GivingTab = 'platforms';
 

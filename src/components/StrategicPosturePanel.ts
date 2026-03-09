@@ -9,6 +9,8 @@ import type { NewsItem, DeductContextDetail } from '@/types';
 import { buildNewsContext } from '@/utils/news-context';
 
 export class StrategicPosturePanel extends Panel {
+  override readonly channelKeys = ['strategic-posture'];
+
   private postures: TheaterPostureSummary[] = [];
   private vesselTimeouts: ReturnType<typeof setTimeout>[] = [];
   private loadingElapsedInterval: ReturnType<typeof setInterval> | null = null;

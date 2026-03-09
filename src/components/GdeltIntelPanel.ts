@@ -13,6 +13,8 @@ import {
 } from '@/services/gdelt-intel';
 
 export class GdeltIntelPanel extends Panel {
+  override readonly channelKeys = ['gdelt'];
+
   private activeTopic: IntelTopic = getIntelTopics()[0]!;
   private topicData = new Map<string, TopicIntelligence>();
   private tabsEl: HTMLElement | null = null;

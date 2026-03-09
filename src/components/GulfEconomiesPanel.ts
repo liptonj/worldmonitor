@@ -25,6 +25,8 @@ function renderSection(title: string, quotes: GulfQuote[]): string {
 }
 
 export class GulfEconomiesPanel extends Panel {
+  override readonly channelKeys = ['gulf-quotes'];
+
   private hasData = false;
 
   constructor() {

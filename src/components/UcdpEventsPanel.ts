@@ -4,6 +4,8 @@ import type { UcdpGeoEvent, UcdpEventType } from '@/types';
 import { t } from '@/services/i18n';
 
 export class UcdpEventsPanel extends Panel {
+  override readonly channelKeys = ['ucdp-events'];
+
   private events: UcdpGeoEvent[] = [];
   private activeTab: UcdpEventType = 'state-based';
   private onEventClick?: (lat: number, lon: number) => void;

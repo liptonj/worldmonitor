@@ -5,6 +5,8 @@ import { t } from '@/services/i18n';
 import { convertTemp, getTempUnitLabel, convertPrecip, getPrecipUnitLabel } from '@/utils/display-prefs';
 
 export class ClimateAnomalyPanel extends Panel {
+  override readonly channelKeys = ['climate'];
+
   private anomalies: ClimateAnomaly[] = [];
   private onZoneClick?: (lat: number, lon: number) => void;
 

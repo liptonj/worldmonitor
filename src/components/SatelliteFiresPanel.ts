@@ -3,6 +3,8 @@ import type { FireRegionStats } from '@/services/wildfires';
 import { t } from '@/services/i18n';
 
 export class SatelliteFiresPanel extends Panel {
+  override readonly channelKeys = ['natural'];
+
   private stats: FireRegionStats[] = [];
   private totalCount = 0;
   private lastUpdated: Date | null = null;

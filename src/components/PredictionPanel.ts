@@ -4,6 +4,8 @@ import { escapeHtml, sanitizeUrl } from '@/utils/sanitize';
 import { t } from '@/services/i18n';
 
 export class PredictionPanel extends Panel {
+  override readonly channelKeys = ['predictions'];
+
   constructor() {
     super({
       id: 'polymarket',

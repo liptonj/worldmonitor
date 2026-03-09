@@ -25,6 +25,8 @@ function healthClass(status: string): string {
 }
 
 export class StablecoinPanel extends Panel {
+  override readonly channelKeys = ['stablecoins'];
+
   private data: StablecoinResult | null = null;
   private loading = true;
   private error: string | null = null;

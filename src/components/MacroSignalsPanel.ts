@@ -118,6 +118,8 @@ function formatNum(v: number | null, suffix = '%'): string {
 }
 
 export class MacroSignalsPanel extends Panel {
+  override readonly channelKeys = ['macro-signals'];
+
   private data: MacroSignalData | null = null;
   private loading = true;
   private error: string | null = null;

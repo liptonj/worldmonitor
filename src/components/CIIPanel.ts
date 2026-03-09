@@ -5,6 +5,8 @@ import { t } from '../services/i18n';
 import { h, replaceChildren, rawHtml } from '@/utils/dom-utils';
 
 export class CIIPanel extends Panel {
+  override readonly channelKeys = ['conflict', 'strategic-risk'];
+
   private scores: CountryScore[] = [];
   private focalPointsReady = false;
   private focalPointsFallbackId: ReturnType<typeof setTimeout> | null = null;

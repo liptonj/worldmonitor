@@ -10,6 +10,8 @@ import {
 } from '@/services/telegram-intel';
 
 export class TelegramIntelPanel extends Panel {
+  override readonly channelKeys = ['telegram'];
+
   private items: TelegramItem[] = [];
   private activeTopic = 'all';
   private tabsEl: HTMLElement | null = null;

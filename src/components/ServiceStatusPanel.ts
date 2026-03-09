@@ -34,6 +34,8 @@ function getCategoryLabel(category: CategoryFilter): string {
 }
 
 export class ServiceStatusPanel extends Panel {
+  override readonly channelKeys = ['service-status'];
+
   private services: ServiceStatus[] = [];
   private loading = true;
   private error: string | null = null;

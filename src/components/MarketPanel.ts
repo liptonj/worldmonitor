@@ -8,6 +8,8 @@ import { miniSparkline } from '@/utils/sparkline';
 
 
 export class MarketPanel extends Panel {
+  override readonly channelKeys = ['markets'];
+
   constructor() {
     super({ id: 'markets', title: t('panels.markets') });
   }
@@ -41,6 +43,8 @@ export class MarketPanel extends Panel {
 }
 
 export class HeatmapPanel extends Panel {
+  override readonly channelKeys = ['markets'];
+
   constructor() {
     super({ id: 'heatmap', title: t('panels.heatmap') });
   }
@@ -72,6 +76,8 @@ export class HeatmapPanel extends Panel {
 }
 
 export class CommoditiesPanel extends Panel {
+  override readonly channelKeys = ['markets'];
+
   constructor() {
     super({ id: 'commodities', title: t('panels.commodities') });
   }
@@ -107,6 +113,8 @@ export class CommoditiesPanel extends Panel {
 }
 
 export class CryptoPanel extends Panel {
+  override readonly channelKeys = ['markets'];
+
   constructor() {
     super({ id: 'crypto', title: t('panels.crypto') });
   }
