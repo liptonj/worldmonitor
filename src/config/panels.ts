@@ -56,7 +56,6 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'population-exposure': { name: 'Population Exposure', enabled: false, priority: 2 },
   'security-advisories': { name: 'Security Advisories', enabled: true, priority: 2 },
   'oref-sirens': { name: 'Israel Sirens', enabled: false, priority: 2 },
-  'telegram-intel': { name: 'Telegram Intel', enabled: true, priority: 2, channels: ['telegram'] },
   'world-clock': { name: 'World Clock', enabled: true, priority: 2 },
 };
 
