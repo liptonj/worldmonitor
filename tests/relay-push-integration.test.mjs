@@ -6,18 +6,19 @@ import { subscribe, destroyRelayPush, dispatchForTesting } from '../src/services
 
 describe('relay-push integration: channel-to-apply wiring', () => {
   const appSrc = readFileSync('src/App.ts', 'utf-8');
+  const dataLoaderSrc = readFileSync('src/app/data-loader.ts', 'utf-8');
 
-  it('markets channel is wired to applyMarkets', () => {
+  it('App.ts auto-wires from CHANNEL_REGISTRY via loop', () => {
     assert.ok(
-      appSrc.includes("'markets'") && appSrc.includes('applyMarkets'),
-      "App.ts must subscribe to 'markets' and call applyMarkets"
+      appSrc.includes('CHANNEL_REGISTRY') && appSrc.includes('getPushHandler') && appSrc.includes('subscribeRelayPush'),
+      'App.ts must loop over CHANNEL_REGISTRY and subscribe via getPushHandler'
     );
   });
 
   it('news channel is wired to applyNewsDigest', () => {
     assert.ok(
-      (appSrc.includes('news:') || appSrc.includes('`news:')) && appSrc.includes('applyNewsDigest'),
-      "App.ts must subscribe to news channel and call applyNewsDigest"
+      (appSrc.includes('news:') || appSrc.includes('`news:')) && (appSrc.includes('applyNewsDigest') || dataLoaderSrc.includes('applyNewsDigest')),
+      'news channel must be subscribed and use applyNewsDigest'
     );
   });
 
@@ -51,9 +52,12 @@ describe('relay-push integration: channel-to-apply wiring', () => {
 
   for (const [channel, applyFn] of dataLoaderChannels) {
     it(`channel '${channel}' is wired to ${applyFn}`, () => {
+      const channelPattern = channel.includes('-') ? `'${channel}'` : `${channel}:`;
+      const inDataLoader = dataLoaderSrc.includes(channelPattern) && dataLoaderSrc.includes(applyFn);
+      const inApp = appSrc.includes(`'${channel}'`) && appSrc.includes(applyFn);
       assert.ok(
-        appSrc.includes(`'${channel}'`) && appSrc.includes(applyFn),
-        `App.ts must subscribe to '${channel}' and call ${applyFn}`
+        inDataLoader || inApp,
+        `Channel '${channel}' must be wired to ${applyFn} (in data-loader CHANNEL_TO_APPLY_METHOD or App)`
       );
     });
   }

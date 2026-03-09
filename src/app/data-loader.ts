@@ -147,6 +147,38 @@ export interface DataLoaderCallbacks {
   renderCriticalBanner: (postures: TheaterPostureSummary[]) => void;
 }
 
+/** Maps channel key to DataLoader apply* method name. Used by getHandler for auto-wiring. */
+const CHANNEL_TO_APPLY_METHOD: Record<string, keyof RelayPushHandlers> = {
+  markets: 'applyMarkets',
+  predictions: 'applyPredictions',
+  fred: 'applyFredData',
+  oil: 'applyOilData',
+  bis: 'applyBisData',
+  intelligence: 'applyIntelligence',
+  pizzint: 'applyPizzInt',
+  trade: 'applyTradePolicy',
+  'supply-chain': 'applySupplyChain',
+  natural: 'applyNatural',
+  climate: 'applyClimate',
+  conflict: 'applyConflict',
+  'ucdp-events': 'applyUcdpEvents',
+  cyber: 'applyCyberThreats',
+  cables: 'applyCableHealth',
+  flights: 'applyFlightDelays',
+  ais: 'applyAisSignals',
+  weather: 'applyWeatherAlerts',
+  spending: 'applySpending',
+  giving: 'applyGiving',
+  telegram: 'applyTelegramIntel',
+  oref: 'applyOref',
+  'iran-events': 'applyIranEvents',
+  'tech-events': 'applyTechEvents',
+  'gulf-quotes': 'applyGulfQuotes',
+  'gps-interference': 'applyGpsInterference',
+  eonet: 'applyEonet',
+  gdacs: 'applyGdacs',
+};
+
 export class DataLoaderManager implements AppModule, RelayPushHandlers {
   private ctx: AppContext;
   private callbacks: DataLoaderCallbacks;
@@ -173,6 +205,20 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
   constructor(ctx: AppContext, callbacks: DataLoaderCallbacks) {
     this.ctx = ctx;
     this.callbacks = callbacks;
+  }
+
+  /**
+   * Returns a bound handler for relay push payloads, or undefined if this channel is not handled by DataLoader.
+   * Used by App.setupRelayPush to auto-wire subscriptions from CHANNEL_REGISTRY.
+   */
+  getHandler(channel: string): ((payload: unknown) => void) | undefined {
+    const methodName = channel.startsWith('news:') ? 'applyNewsDigest' : CHANNEL_TO_APPLY_METHOD[channel];
+    if (!methodName) return undefined;
+    const fn = this[methodName];
+    if (typeof fn !== 'function') return undefined;
+    return (payload: unknown) => {
+      void (fn as (p: unknown) => void).call(this, payload);
+    };
   }
 
   public setSourcesReady(promise: Promise<unknown>): void {

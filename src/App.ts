@@ -23,6 +23,7 @@ import { initI18n } from '@/services/i18n';
 
 import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, loadNewsSources, applyNewsSources } from '@/services/feed-client';
 import { loadFeatureFlags, applyFeatureFlags } from '@/services/feature-flag-client';
+import { CHANNEL_REGISTRY } from '@/config/channel-registry';
 import { fetchBootstrapData, RELAY_CHANNELS } from '@/services/bootstrap';
 import { DesktopUpdater } from '@/app/desktop-updater';
 import { CountryIntelManager } from '@/app/country-intel';
@@ -596,92 +597,98 @@ export class App {
 
     initRelayPush(channels);
 
-    subscribeRelayPush(`news:${variant}`, (p) => { void this.dataLoader.applyNewsDigest(p); });
-    subscribeRelayPush('markets',        (p) => { void this.dataLoader.applyMarkets(p); });
-    subscribeRelayPush('predictions',    (p) => { void this.dataLoader.applyPredictions(p); });
-    subscribeRelayPush('fred',           (p) => { void this.dataLoader.applyFredData(p); });
-    subscribeRelayPush('oil',            (p) => { void this.dataLoader.applyOilData(p); });
-    subscribeRelayPush('bis',            (p) => { void this.dataLoader.applyBisData(p); });
-    subscribeRelayPush('intelligence',   (p) => { void this.dataLoader.applyIntelligence(p); });
-    subscribeRelayPush('pizzint',        (p) => { void this.dataLoader.applyPizzInt(p); });
-    subscribeRelayPush('trade',          (p) => { void this.dataLoader.applyTradePolicy(p); });
-    subscribeRelayPush('supply-chain',   (p) => { void this.dataLoader.applySupplyChain(p); });
-    subscribeRelayPush('natural',        (p) => { void this.dataLoader.applyNatural(p); });
-    subscribeRelayPush('climate',        (p) => { void this.dataLoader.applyClimate(p); });
-    subscribeRelayPush('conflict',       (p) => { void this.dataLoader.applyConflict(p); });
-    subscribeRelayPush('ucdp-events',    (p) => { void this.dataLoader.applyUcdpEvents(p); });
-    subscribeRelayPush('cyber',          (p) => { void this.dataLoader.applyCyberThreats(p); });
-    subscribeRelayPush('cables',         (p) => { void this.dataLoader.applyCableHealth(p); });
-    subscribeRelayPush('flights',        (p) => { void this.dataLoader.applyFlightDelays(p); });
-    subscribeRelayPush('ais',            (p) => { void this.dataLoader.applyAisSignals(p); });
-    subscribeRelayPush('weather',        (p) => { void this.dataLoader.applyWeatherAlerts(p); });
-    subscribeRelayPush('spending',       (p) => { void this.dataLoader.applySpending(p); });
-    subscribeRelayPush('giving',         (p) => { void this.dataLoader.applyGiving(p); });
-    subscribeRelayPush('telegram',       (p) => { void this.dataLoader.applyTelegramIntel(p); });
-    subscribeRelayPush('oref',           (p) => { void this.dataLoader.applyOref(p); });
-    subscribeRelayPush('iran-events',    (p) => { void this.dataLoader.applyIranEvents(p); });
-    subscribeRelayPush('tech-events',    (p) => { void this.dataLoader.applyTechEvents(p); });
-    subscribeRelayPush('gulf-quotes',    (p) => { void this.dataLoader.applyGulfQuotes(p); });
-    subscribeRelayPush('gps-interference', (p) => { void this.dataLoader.applyGpsInterference(p); });
-    subscribeRelayPush('eonet',          (p) => { void this.dataLoader.applyEonet(p); });
-    subscribeRelayPush('gdacs',          (p) => { void this.dataLoader.applyGdacs(p); });
+    for (const [channel] of Object.entries(CHANNEL_REGISTRY)) {
+      const handler = this.getPushHandler(channel);
+      if (handler) subscribeRelayPush(channel, handler);
+    }
+    const newsHandler = this.getPushHandler(`news:${variant}`);
+    if (newsHandler) subscribeRelayPush(`news:${variant}`, newsHandler);
+    if (variant === 'full') {
+      const pizzintHandler = this.getPushHandler('pizzint');
+      if (pizzintHandler) subscribeRelayPush('pizzint', pizzintHandler);
+    }
+  }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const panel = (key: string) => (this.state.panels[key] as any)?.applyPush?.bind(this.state.panels[key]);
-    subscribeRelayPush('strategic-posture', (p) => panel('strategic-posture')?.(p));
-    subscribeRelayPush('strategic-risk',    (p) => panel('strategic-risk')?.(p));
-    subscribeRelayPush('stablecoins',       (p) => panel('stablecoins')?.(p));
-    subscribeRelayPush('etf-flows',         (p) => panel('etf-flows')?.(p));
-    subscribeRelayPush('macro-signals',     (p) => panel('macro-signals')?.(p));
-    subscribeRelayPush('service-status',    (p) => panel('service-status')?.(p));
-    subscribeRelayPush('config:news-sources',  (p) => applyNewsSources(p));
-    subscribeRelayPush('config:feature-flags', (p) => applyFeatureFlags(p));
+  /**
+   * Returns the relay push handler for a channel. DataLoader handles most channels;
+   * panel, config, and AI channels use App-specific logic.
+   */
+  private getPushHandler(channel: string): ((payload: unknown) => void) | undefined {
+    const dlHandler = this.dataLoader.getHandler(channel);
+    if (dlHandler) return dlHandler;
 
-    subscribeRelayPush('ai:intel-digest', (payload) => {
+    const panelChannels = ['strategic-posture', 'strategic-risk', 'stablecoins', 'etf-flows', 'macro-signals', 'service-status'];
+    if (panelChannels.includes(channel)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const digestPanel = this.state.panels['global-digest'] as any;
-      digestPanel?.applyAiDigest?.(payload);
-    });
-    subscribeRelayPush('ai:panel-summary', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state as any).latestPanelSummary = payload;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).__wmLatestPanelSummary = payload;
-      document.dispatchEvent(new CustomEvent('wm:panel-summary-updated', { detail: payload }));
-    });
-    subscribeRelayPush('ai:article-summaries', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state as any).articleSummaries = payload;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).__wmArticleSummaries = payload;
-      document.dispatchEvent(new CustomEvent('wm:article-summaries-updated', { detail: payload }));
-    });
-    subscribeRelayPush('ai:classifications', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state as any).classifications = payload;
-      // Expose globally for threat-classifier.ts relay lookup (zero Vercel calls)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).__wmRelayClassifications = payload;
-      document.dispatchEvent(new CustomEvent('wm:classifications-updated', { detail: payload }));
-    });
-    subscribeRelayPush('ai:country-briefs', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.state as any).countryBriefs = payload;
-    });
-    subscribeRelayPush('ai:posture-analysis', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const posturePanel = this.state.panels['strategic-posture'] as any;
-      posturePanel?.applyAiAnalysis?.(payload);
-    });
-    subscribeRelayPush('ai:instability-analysis', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const riskPanel = this.state.panels['strategic-risk'] as any;
-      riskPanel?.applyInstabilityAnalysis?.(payload);
-    });
-    subscribeRelayPush('ai:risk-overview', (payload) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const riskPanel = this.state.panels['strategic-risk'] as any;
-      riskPanel?.applyAiOverview?.(payload);
-    });
+      const panel = (key: string) => (this.state.panels[key] as any)?.applyPush?.bind(this.state.panels[key]);
+      return (p) => panel(channel)?.(p);
+    }
+
+    if (channel === 'config:news-sources') return (p) => applyNewsSources(p);
+    if (channel === 'config:feature-flags') return (p) => applyFeatureFlags(p);
+
+    if (channel === 'ai:intel-digest') {
+      return (payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const digestPanel = this.state.panels['global-digest'] as any;
+        digestPanel?.applyAiDigest?.(payload);
+      };
+    }
+    if (channel === 'ai:panel-summary') {
+      return (payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.state as any).latestPanelSummary = payload;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__wmLatestPanelSummary = payload;
+        document.dispatchEvent(new CustomEvent('wm:panel-summary-updated', { detail: payload }));
+      };
+    }
+    if (channel === 'ai:article-summaries') {
+      return (payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.state as any).articleSummaries = payload;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__wmArticleSummaries = payload;
+        document.dispatchEvent(new CustomEvent('wm:article-summaries-updated', { detail: payload }));
+      };
+    }
+    if (channel === 'ai:classifications') {
+      return (payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.state as any).classifications = payload;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__wmRelayClassifications = payload;
+        document.dispatchEvent(new CustomEvent('wm:classifications-updated', { detail: payload }));
+      };
+    }
+    if (channel === 'ai:country-briefs') {
+      return (payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.state as any).countryBriefs = payload;
+      };
+    }
+    if (channel === 'ai:posture-analysis') {
+      return (payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const posturePanel = this.state.panels['strategic-posture'] as any;
+        posturePanel?.applyAiAnalysis?.(payload);
+      };
+    }
+    if (channel === 'ai:instability-analysis') {
+      return (payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const riskPanel = this.state.panels['strategic-risk'] as any;
+        riskPanel?.applyInstabilityAnalysis?.(payload);
+      };
+    }
+    if (channel === 'ai:risk-overview') {
+      return (payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const riskPanel = this.state.panels['strategic-risk'] as any;
+        riskPanel?.applyAiOverview?.(payload);
+      };
+    }
+
+    return undefined;
   }
 }
