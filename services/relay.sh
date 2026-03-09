@@ -120,14 +120,15 @@ case "$COMMAND" in
         echo "====================="
         echo ""
         
-        # Check if Splunk is configured (try both .env and .env.production)
+        # Check if Splunk is configured
+        # Check parent directory first (where .env usually is), then local directory
         ENV_FILE=""
-        if [[ -f ".env" ]]; then
+        if [[ -f "../.env" ]]; then
+            ENV_FILE="../.env"
+        elif [[ -f ".env" ]]; then
             ENV_FILE=".env"
         elif [[ -f ".env.production" ]]; then
             ENV_FILE=".env.production"
-        elif [[ -f "../.env" ]]; then
-            ENV_FILE="../.env"
         fi
         
         if [[ -n "$ENV_FILE" ]]; then
@@ -148,7 +149,7 @@ case "$COMMAND" in
                     # Try to test connection
                     echo ""
                     echo "Testing connection to Splunk HEC..."
-                    if curl -k -s -o /dev/null -w "%{http_code}" -H "Authorization: Splunk $SPLUNK_TOKEN" "$SPLUNK_URL/services/collector/health" | grep -q "200"; then
+                    if curl -k -s -o /dev/null -w "%{http_code}" -H "Authorization: Splunk $SPLUNK_TOKEN" "$SPLUNK_URL/services/collector/health" 2>/dev/null | grep -q "200"; then
                         echo "✓ Splunk HEC: Reachable"
                     else
                         HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" -H "Authorization: Splunk $SPLUNK_TOKEN" "$SPLUNK_URL/services/collector/health" 2>/dev/null || echo "000")
@@ -165,7 +166,7 @@ case "$COMMAND" in
             fi
         else
             echo "✗ Configuration: No .env file found"
-            echo "  Searched: .env, .env.production, ../.env"
+            echo "  Searched: ../.env, .env, .env.production"
             echo "  Current directory: $(pwd)"
             echo ""
         fi

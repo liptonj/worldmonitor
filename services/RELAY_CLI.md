@@ -144,13 +144,19 @@ This shows:
 
 ### Configuration
 
-Splunk requires these environment variables in `.env.production`:
+Splunk requires these environment variables in `.env` (in project root):
 
 ```bash
+# In /home/ubuntu/worldmon/.env
 SPLUNK_HEC_TOKEN=your-token-here
 SPLUNK_URL=https://your-splunk-host:8088
 SPLUNK_INDEX=docker_logs
 ```
+
+The relay script checks these locations in order:
+1. `../.env` (parent directory - typical setup)
+2. `.env` (services directory)
+3. `.env.production` (services directory)
 
 ## Services
 
