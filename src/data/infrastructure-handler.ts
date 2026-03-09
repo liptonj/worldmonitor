@@ -4,6 +4,7 @@
  */
 
 import type { AppContext } from '@/app/app-context';
+import { intelStore } from '@/stores/intel-store';
 import { SITE_VARIANT } from '@/config';
 import { adaptCyberThreatsResponse } from '@/services';
 import { getAisStatus } from '@/services/maritime';
@@ -19,7 +20,7 @@ import type { TechEventsPanel } from '@/components/TechEventsPanel';
 
 export function createInfrastructureHandlers(ctx: AppContext): Record<string, (payload: unknown) => void> {
   function renderCyberThreats(threats: import('@/types').CyberThreat[]): void {
-    ctx.cyberThreatsCache = threats;
+    intelStore.cyberThreatsCache = threats;
     ctx.map?.setCyberThreats(threats);
     ctx.map?.setLayerReady('cyberThreats', threats.length > 0);
     ingestCyberThreatsForCII(threats);
@@ -32,7 +33,7 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
   function renderFlightDelays(delays: import('@/services/aviation').AirportDelayAlert[]): void {
     ctx.map?.setFlightDelays(delays);
     ctx.map?.setLayerReady('flights', delays.length > 0);
-    ctx.intelligenceCache.flightDelays = delays;
+    intelStore.intelligenceCache.flightDelays = delays;
     const severe = delays.filter(d => d.severity === 'major' || d.severity === 'severe' || d.delayType === 'closure');
     if (severe.length > 0) ingestAviationForCII(severe);
     ctx.statusPanel?.updateFeed('Flights', {

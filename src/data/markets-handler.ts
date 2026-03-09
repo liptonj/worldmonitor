@@ -6,6 +6,7 @@
  */
 
 import type { AppContext } from '@/app/app-context';
+import { marketsStore } from '@/stores/markets-store';
 import { dataFreshness } from '@/services/data-freshness';
 import type { GetMarketDashboardResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
 import type { ListPredictionMarketsResponse } from '@/generated/client/worldmonitor/prediction/v1/service_client';
@@ -33,7 +34,7 @@ export function createMarketsHandlers(
       change: q.change ?? null,
       sparkline: q.sparkline.length > 0 ? q.sparkline : undefined,
     }));
-    ctx.latestMarkets = stockData;
+    marketsStore.latestMarkets = stockData;
     (ctx.panels['markets'] as MarketPanel).renderMarkets(stockData, dashboard.rateLimited);
 
     if (dashboard.finnhubSkipped) {
@@ -76,7 +77,7 @@ export function createMarketsHandlers(
   }
 
   function renderPredictions(predictions: import('@/services/prediction').PredictionMarket[]): void {
-    ctx.latestPredictions = predictions;
+    marketsStore.latestPredictions = predictions;
     (ctx.panels['polymarket'] as PredictionPanel).renderPredictions(predictions);
     ctx.statusPanel?.updateFeed('Polymarket', { status: 'ok', itemCount: predictions.length });
     ctx.statusPanel?.updateApi('Polymarket', { status: 'ok' });

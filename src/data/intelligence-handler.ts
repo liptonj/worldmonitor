@@ -4,6 +4,7 @@
 
 import type { AppContext } from '@/app/app-context';
 import type { SocialUnrestEvent } from '@/types';
+import { intelStore } from '@/stores/intel-store';
 import { mapConflictPayload, mapUcdpPayload } from '@/services/conflict';
 import { dataFreshness } from '@/services/data-freshness';
 import { ingestConflictsForCII, ingestProtestsForCII, ingestOrefForCII, ingestStrikesForCII } from '@/services/country-instability';
@@ -31,12 +32,12 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
     const alertCount = data.alerts?.length ?? 0;
     const historyCount24h = data.historyCount24h ?? 0;
     ingestOrefForCII(alertCount, historyCount24h);
-    ctx.intelligenceCache.orefAlerts = { alertCount, historyCount24h };
+    intelStore.intelligenceCache.orefAlerts = { alertCount, historyCount24h };
     if (data.alerts?.length) dispatchOrefBreakingAlert(data.alerts);
   }
 
   function renderIranEvents(events: import('@/generated/client/worldmonitor/conflict/v1/service_client').IranEvent[]): void {
-    ctx.intelligenceCache.iranEvents = events;
+    intelStore.intelligenceCache.iranEvents = events;
     ctx.map?.setIranEvents(events);
     ctx.map?.setLayerReady('iranAttacks', events.length > 0);
     const coerced = events.map(e => ({ ...e, timestamp: Number(e.timestamp) || 0 }));
@@ -96,7 +97,7 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
         confidence: 'high' as const,
         validated: false,
       }));
-      ctx.intelligenceCache.protests = { events: protestEvents, sources: { acled: data.count, gdelt: 0 } };
+      intelStore.intelligenceCache.protests = { events: protestEvents, sources: { acled: data.count, gdelt: 0 } };
       if (ctx.mapLayers.protests) {
         ctx.map?.setProtests(protestEvents);
         ctx.map?.setLayerReady('protests', protestEvents.length > 0);

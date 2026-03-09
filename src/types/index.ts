@@ -881,6 +881,24 @@ export interface MilitaryActivitySummary {
   lastUpdate: Date;
 }
 
+/** Intelligence domain cache — outages, protests, military, earthquakes, etc. */
+export interface IntelligenceCache {
+  flightDelays?: import('@/services/aviation').AirportDelayAlert[];
+  outages?: InternetOutage[];
+  protests?: { events: SocialUnrestEvent[]; sources: { acled: number; gdelt: number } };
+  military?: { flights: MilitaryFlight[]; flightClusters: MilitaryFlightCluster[]; vessels: MilitaryVessel[]; vesselClusters: MilitaryVesselCluster[] };
+  earthquakes?: import('@/services/earthquakes').Earthquake[];
+  usniFleet?: USNIFleetReport;
+  iranEvents?: import('@/generated/client/worldmonitor/conflict/v1/service_client').IranEvent[];
+  orefAlerts?: { alertCount: number; historyCount24h: number };
+  advisories?: import('@/services/security-advisories').SecurityAdvisory[];
+  /** Cached EONET events for relay-push merge with GDACS */
+  eonetEvents?: NaturalEvent[];
+  /** Cached GDACS events (as NaturalEvent) for relay-push merge with EONET */
+  gdacsEvents?: NaturalEvent[];
+  weatherAlerts?: import('@/services/weather').WeatherAlert[];
+}
+
 // PizzINT - Pentagon Pizza Index Types
 export type PizzIntDefconLevel = 1 | 2 | 3 | 4 | 5;
 export type PizzIntDataFreshness = 'fresh' | 'stale';

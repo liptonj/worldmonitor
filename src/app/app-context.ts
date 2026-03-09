@@ -1,13 +1,7 @@
-import type { NewsItem, Monitor, PanelConfig, MapLayers, InternetOutage, SocialUnrestEvent, MilitaryFlight, MilitaryFlightCluster, MilitaryVessel, MilitaryVesselCluster, CyberThreat, USNIFleetReport } from '@/types';
-import type { AirportDelayAlert } from '@/services/aviation';
-import type { IranEvent } from '@/generated/client/worldmonitor/conflict/v1/service_client';
-import type { SecurityAdvisory } from '@/services/security-advisories';
+import type { NewsItem, Monitor, PanelConfig, MapLayers } from '@/types';
 import type { MapContainer, Panel, NewsPanel, SignalModal, StatusPanel, SearchModal } from '@/components';
 import type { IntelligenceGapBadge } from '@/components';
-import type { MarketData, ClusteredEvent } from '@/types';
-import type { PredictionMarket } from '@/services/prediction';
 import type { TimeRange } from '@/components';
-import type { Earthquake } from '@/services/earthquakes';
 import type { CountryBriefPanel } from '@/components/CountryBriefPanel';
 import type { CountryTimeline } from '@/components/CountryTimeline';
 import type { PlaybackControl } from '@/components';
@@ -50,23 +44,6 @@ export interface CountryBriefSignals {
   isTier1: boolean;
 }
 
-export interface IntelligenceCache {
-  flightDelays?: AirportDelayAlert[];
-  outages?: InternetOutage[];
-  protests?: { events: SocialUnrestEvent[]; sources: { acled: number; gdelt: number } };
-  military?: { flights: MilitaryFlight[]; flightClusters: MilitaryFlightCluster[]; vessels: MilitaryVessel[]; vesselClusters: MilitaryVesselCluster[] };
-  earthquakes?: Earthquake[];
-  usniFleet?: USNIFleetReport;
-  iranEvents?: IranEvent[];
-  orefAlerts?: { alertCount: number; historyCount24h: number };
-  advisories?: SecurityAdvisory[];
-  /** Cached EONET events for relay-push merge with GDACS */
-  eonetEvents?: import('@/types').NaturalEvent[];
-  /** Cached GDACS events (as NaturalEvent) for relay-push merge with EONET */
-  gdacsEvents?: import('@/types').NaturalEvent[];
-  weatherAlerts?: import('@/services/weather').WeatherAlert[];
-}
-
 export interface AppModule {
   init(): void | Promise<void>;
   destroy(): void;
@@ -83,14 +60,6 @@ export interface AppContext {
   panelSettings: Record<string, PanelConfig>;
 
   mapLayers: MapLayers;
-
-  allNews: NewsItem[];
-  newsByCategory: Record<string, NewsItem[]>;
-  latestMarkets: MarketData[];
-  latestPredictions: PredictionMarket[];
-  latestClusters: ClusteredEvent[];
-  intelligenceCache: IntelligenceCache;
-  cyberThreatsCache: CyberThreat[] | null;
 
   disabledSources: Set<string>;
   currentTimeRange: TimeRange;

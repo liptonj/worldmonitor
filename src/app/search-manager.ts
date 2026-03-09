@@ -23,6 +23,8 @@ import { trackSearchResultSelected, trackCountrySelected } from '@/services/anal
 import { t } from '@/services/i18n';
 import { saveToStorage, setTheme } from '@/utils';
 import { CountryIntelManager } from '@/app/country-intel';
+import { newsStore } from '@/stores/news-store';
+import { marketsStore } from '@/stores/markets-store';
 
 export interface SearchManagerCallbacks {
   openCountryBriefByCode: (code: string, country: string) => void;
@@ -510,17 +512,17 @@ export class SearchManager implements AppModule {
 
     this.ctx.searchModal.registerSource('country', this.buildCountrySearchItems());
 
-    const newsItems = this.ctx.allNews.slice(0, 500).map(n => ({
+    const newsItems = newsStore.allNews.slice(0, 500).map(n => ({
       id: n.link,
       title: n.title,
       subtitle: n.source,
       data: n,
     }));
-    console.log(`[Search] Indexing ${newsItems.length} news items (allNews total: ${this.ctx.allNews.length})`);
+    console.log(`[Search] Indexing ${newsItems.length} news items (allNews total: ${newsStore.allNews.length})`);
     this.ctx.searchModal.registerSource('news', newsItems);
 
-    if (this.ctx.latestPredictions.length > 0) {
-      this.ctx.searchModal.registerSource('prediction', this.ctx.latestPredictions.map(p => ({
+    if (marketsStore.latestPredictions.length > 0) {
+      this.ctx.searchModal.registerSource('prediction', marketsStore.latestPredictions.map(p => ({
         id: p.title,
         title: p.title,
         subtitle: `${Math.round(p.yesPrice)}% probability`,
@@ -528,8 +530,8 @@ export class SearchManager implements AppModule {
       })));
     }
 
-    if (this.ctx.latestMarkets.length > 0) {
-      this.ctx.searchModal.registerSource('market', this.ctx.latestMarkets.map(m => ({
+    if (marketsStore.latestMarkets.length > 0) {
+      this.ctx.searchModal.registerSource('market', marketsStore.latestMarkets.map(m => ({
         id: m.symbol,
         title: `${m.symbol} - ${m.name}`,
         subtitle: `$${m.price?.toFixed(2) || 'N/A'}`,

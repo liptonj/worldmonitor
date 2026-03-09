@@ -33,6 +33,7 @@ import { DataLoaderManager } from '@/app/data-loader';
 import { EventHandlerManager } from '@/app/event-handlers';
 import { resolveUserRegion } from '@/utils/user-location';
 import { initDisplayPrefs } from '@/utils/display-prefs';
+import { newsStore } from '@/stores/news-store';
 import { initRelayPush, subscribe as subscribeRelayPush, destroyRelayPush } from '@/services/relay-push';
 import { startStaleDetection, stopStaleDetection } from '@/services/stale-detection';
 
@@ -252,13 +253,6 @@ export class App {
       newsPanels: {},
       panelSettings,
       mapLayers,
-      allNews: [],
-      newsByCategory: {},
-      latestMarkets: [],
-      latestPredictions: [],
-      latestClusters: [],
-      intelligenceCache: {},
-      cyberThreatsCache: null,
       disabledSources,
       currentTimeRange: '7d',
       inFlight: new Set(),
@@ -544,7 +538,7 @@ export class App {
 
         let attempts = 0;
         const checkAndOpen = () => {
-          if (dataFreshness.hasSufficientData() && this.state.latestClusters.length > 0) {
+          if (dataFreshness.hasSufficientData() && newsStore.latestClusters.length > 0) {
             this.countryIntel.openCountryStory(countryCode.toUpperCase(), countryName);
             return;
           }

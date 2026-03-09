@@ -33,6 +33,9 @@ import { t } from '@/services/i18n';
 import { trackCountrySelected, trackCountryBriefOpened } from '@/services/analytics';
 import type { StrategicPosturePanel } from '@/components/StrategicPosturePanel';
 import type { NewsItem } from '@/types';
+import { newsStore } from '@/stores/news-store';
+import { marketsStore } from '@/stores/markets-store';
+import { intelStore } from '@/stores/intel-store';
 import { getNearbyInfrastructure } from '@/services/related-assets';
 
 type IntlDisplayNamesCtor = new (
@@ -87,7 +90,7 @@ export class CountryIntelManager implements AppModule {
         } : null;
         const posturePanel = this.ctx.panels['strategic-posture'] as StrategicPosturePanel | undefined;
         const postures = posturePanel?.getPostures() || [];
-        const data = collectStoryData(code, name, this.ctx.latestClusters, postures, this.ctx.latestPredictions, signals, convergence);
+        const data = collectStoryData(code, name, newsStore.latestClusters, postures, marketsStore.latestPredictions, signals, convergence);
         const canvas = await renderStoryToCanvas(data);
         const dataUrl = canvas.toDataURL('image/png');
         const a = document.createElement('a');
@@ -197,7 +200,7 @@ export class CountryIntelManager implements AppModule {
 
     const searchTerms = CountryIntelManager.getCountrySearchTerms(country, code);
     const otherCountryTerms = CountryIntelManager.getOtherCountryTerms(code);
-    const matchingNews = this.ctx.allNews.filter((n) => {
+    const matchingNews = newsStore.allNews.filter((n) => {
       const t = n.title.toLowerCase();
       return searchTerms.some((term) => t.includes(term));
     });
@@ -240,8 +243,8 @@ export class CountryIntelManager implements AppModule {
         context.regionalConvergence = convergences.map((r) => r.description);
       }
 
-      if (this.ctx.intelligenceCache.advisories) {
-        const countryAdvisories = this.ctx.intelligenceCache.advisories.filter(a => a.country === code);
+      if (intelStore.intelligenceCache.advisories) {
+        const countryAdvisories = intelStore.intelligenceCache.advisories.filter(a => a.country === code);
         if (countryAdvisories.length > 0) {
           context.travelAdvisories = countryAdvisories.map(a => ({ source: a.source, level: a.level, title: a.title }));
         }
@@ -407,8 +410,8 @@ export class CountryIntelManager implements AppModule {
     const inCountry = (lat: number, lon: number) => hasGeoShape && this.isInCountry(lat, lon, code);
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
-    if (this.ctx.intelligenceCache.protests?.events) {
-      for (const e of this.ctx.intelligenceCache.protests.events) {
+    if (intelStore.intelligenceCache.protests?.events) {
+      for (const e of intelStore.intelligenceCache.protests.events) {
         if (e.country?.toLowerCase() === countryLower || inCountry(e.lat, e.lon)) {
           events.push({
             timestamp: new Date(e.time).getTime(),
@@ -420,8 +423,8 @@ export class CountryIntelManager implements AppModule {
       }
     }
 
-    if (this.ctx.intelligenceCache.earthquakes) {
-      for (const eq of this.ctx.intelligenceCache.earthquakes) {
+    if (intelStore.intelligenceCache.earthquakes) {
+      for (const eq of intelStore.intelligenceCache.earthquakes) {
         if (inCountry(eq.location?.latitude ?? 0, eq.location?.longitude ?? 0) || eq.place?.toLowerCase().includes(countryLower)) {
           events.push({
             timestamp: eq.occurredAt,
@@ -433,8 +436,8 @@ export class CountryIntelManager implements AppModule {
       }
     }
 
-    if (this.ctx.intelligenceCache.military) {
-      for (const f of this.ctx.intelligenceCache.military.flights) {
+    if (intelStore.intelligenceCache.military) {
+      for (const f of intelStore.intelligenceCache.military.flights) {
         if (hasGeoShape ? this.isInCountry(f.lat, f.lon, code) : f.operatorCountry?.toUpperCase() === code) {
           events.push({
             timestamp: new Date(f.lastSeen).getTime(),
@@ -444,7 +447,7 @@ export class CountryIntelManager implements AppModule {
           });
         }
       }
-      for (const v of this.ctx.intelligenceCache.military.vessels) {
+      for (const v of intelStore.intelligenceCache.military.vessels) {
         if (hasGeoShape ? this.isInCountry(v.lat, v.lon, code) : v.operatorCountry?.toUpperCase() === code) {
           events.push({
             timestamp: new Date(v.lastAisUpdate).getTime(),
@@ -507,7 +510,7 @@ export class CountryIntelManager implements AppModule {
 
     const searchTerms = CountryIntelManager.getCountrySearchTerms(country, code);
     const otherCountryTerms = CountryIntelManager.getOtherCountryTerms(code);
-    const criticalNews = this.ctx.latestClusters.filter((cluster) => {
+    const criticalNews = newsStore.latestClusters.filter((cluster) => {
       const title = cluster.primaryTitle.toLowerCase();
       const ourPos = CountryIntelManager.firstMentionPosition(title, searchTerms);
       const otherPos = CountryIntelManager.firstMentionPosition(title, otherCountryTerms);
@@ -516,33 +519,33 @@ export class CountryIntelManager implements AppModule {
     }).length;
 
     let protests = 0;
-    if (this.ctx.intelligenceCache.protests?.events) {
-      protests = this.ctx.intelligenceCache.protests.events.filter((e) =>
+    if (intelStore.intelligenceCache.protests?.events) {
+      protests = intelStore.intelligenceCache.protests.events.filter((e) =>
         e.country?.toLowerCase() === countryLower || (hasGeoShape && this.isInCountry(e.lat, e.lon, code))
       ).length;
     }
 
     let militaryFlights = 0;
     let militaryVessels = 0;
-    if (this.ctx.intelligenceCache.military) {
-      militaryFlights = this.ctx.intelligenceCache.military.flights.filter((f) =>
+    if (intelStore.intelligenceCache.military) {
+      militaryFlights = intelStore.intelligenceCache.military.flights.filter((f) =>
         hasGeoShape ? this.isInCountry(f.lat, f.lon, code) : f.operatorCountry?.toUpperCase() === code
       ).length;
-      militaryVessels = this.ctx.intelligenceCache.military.vessels.filter((v) =>
+      militaryVessels = intelStore.intelligenceCache.military.vessels.filter((v) =>
         hasGeoShape ? this.isInCountry(v.lat, v.lon, code) : v.operatorCountry?.toUpperCase() === code
       ).length;
     }
 
     let outages = 0;
-    if (this.ctx.intelligenceCache.outages) {
-      outages = this.ctx.intelligenceCache.outages.filter((o) =>
+    if (intelStore.intelligenceCache.outages) {
+      outages = intelStore.intelligenceCache.outages.filter((o) =>
         o.country?.toLowerCase() === countryLower || (hasGeoShape && this.isInCountry(o.lat, o.lon, code))
       ).length;
     }
 
     let earthquakes = 0;
-    if (this.ctx.intelligenceCache.earthquakes) {
-      earthquakes = this.ctx.intelligenceCache.earthquakes.filter((eq) => {
+    if (intelStore.intelligenceCache.earthquakes) {
+      earthquakes = intelStore.intelligenceCache.earthquakes.filter((eq) => {
         if (hasGeoShape) return this.isInCountry(eq.location?.latitude ?? 0, eq.location?.longitude ?? 0, code);
         return eq.place?.toLowerCase().includes(countryLower);
       }).length;
@@ -551,8 +554,8 @@ export class CountryIntelManager implements AppModule {
     const activeStrikes = this.getCountryStrikes(code, hasGeoShape).length;
 
     let aviationDisruptions = 0;
-    if (this.ctx.intelligenceCache.flightDelays) {
-      aviationDisruptions = this.ctx.intelligenceCache.flightDelays.filter(d =>
+    if (intelStore.intelligenceCache.flightDelays) {
+      aviationDisruptions = intelStore.intelligenceCache.flightDelays.filter(d =>
         (d.severity === 'major' || d.severity === 'severe' || d.delayType === 'closure') &&
         (hasGeoShape ? this.isInCountry(d.lat, d.lon, code) : d.country?.toLowerCase() === countryLower)
       ).length;
@@ -563,16 +566,16 @@ export class CountryIntelManager implements AppModule {
 
     let orefSirens = 0;
     let orefHistory24h = 0;
-    if (code === 'IL' && this.ctx.intelligenceCache.orefAlerts) {
-      orefSirens = this.ctx.intelligenceCache.orefAlerts.alertCount;
-      orefHistory24h = this.ctx.intelligenceCache.orefAlerts.historyCount24h;
+    if (code === 'IL' && intelStore.intelligenceCache.orefAlerts) {
+      orefSirens = intelStore.intelligenceCache.orefAlerts.alertCount;
+      orefHistory24h = intelStore.intelligenceCache.orefAlerts.historyCount24h;
     }
 
     let travelAdvisories = 0;
     let travelAdvisoryMaxLevel: string | null = null;
     const advisoryLevelRank: Record<string, number> = { 'do-not-travel': 4, 'reconsider': 3, 'caution': 2, 'normal': 1, 'info': 0 };
-    if (this.ctx.intelligenceCache.advisories) {
-      const countryAdvisories = this.ctx.intelligenceCache.advisories.filter(a => a.country === code);
+    if (intelStore.intelligenceCache.advisories) {
+      const countryAdvisories = intelStore.intelligenceCache.advisories.filter(a => a.country === code);
       travelAdvisories = countryAdvisories.length;
       for (const a of countryAdvisories) {
         if (a.level && (advisoryLevelRank[a.level] || 0) > (advisoryLevelRank[travelAdvisoryMaxLevel || ''] || 0)) {
@@ -582,8 +585,8 @@ export class CountryIntelManager implements AppModule {
     }
 
     let cyberThreats = 0;
-    if (this.ctx.cyberThreatsCache) {
-      cyberThreats = this.ctx.cyberThreatsCache.filter((threat) => {
+    if (intelStore.cyberThreatsCache) {
+      cyberThreats = intelStore.cyberThreatsCache.filter((threat) => {
         if (threat.country && threat.country.length === 2) return threat.country.toUpperCase() === code;
         return hasGeoShape && this.isInCountry(threat.lat, threat.lon, code);
       }).length;
@@ -664,8 +667,8 @@ export class CountryIntelManager implements AppModule {
 
   private buildMilitarySummary(code: string, country: string): CountryDeepDiveMilitarySummary {
     const hasGeoShape = hasCountryGeometry(code) || !!CountryIntelManager.COUNTRY_BOUNDS[code];
-    const flights = this.ctx.intelligenceCache.military?.flights ?? [];
-    const vessels = this.ctx.intelligenceCache.military?.vessels ?? [];
+    const flights = intelStore.intelligenceCache.military?.flights ?? [];
+    const vessels = intelStore.intelligenceCache.military?.vessels ?? [];
 
     const flightsInCountry = flights.filter((flight) =>
       hasGeoShape ? this.isInCountry(flight.lat, flight.lon, code) : this.sameCountry(code, country, flight.operatorCountry)
@@ -794,7 +797,7 @@ export class CountryIntelManager implements AppModule {
   }
 
   openCountryStory(code: string, name: string): void {
-    if (!dataFreshness.hasSufficientData() || this.ctx.latestClusters.length === 0) {
+    if (!dataFreshness.hasSufficientData() || newsStore.latestClusters.length === 0) {
       this.showToast('Data still loading — try again in a moment');
       return;
     }
@@ -808,7 +811,7 @@ export class CountryIntelManager implements AppModule {
       signalTypes: [...cluster.signalTypes],
       regionalDescriptions: regional.map(r => r.description),
     } : null;
-    const data = collectStoryData(code, name, this.ctx.latestClusters, postures, this.ctx.latestPredictions, signals, convergence);
+    const data = collectStoryData(code, name, newsStore.latestClusters, postures, marketsStore.latestPredictions, signals, convergence);
     openStoryModal(data);
   }
 
@@ -822,10 +825,10 @@ export class CountryIntelManager implements AppModule {
     setTimeout(() => { el.classList.remove('visible'); setTimeout(() => el.remove(), 300); }, 3000);
   }
 
-  private getCountryStrikes(code: string, hasGeoShape: boolean): typeof this.ctx.intelligenceCache.iranEvents & object {
-    if (!this.ctx.intelligenceCache.iranEvents) return [];
+  private getCountryStrikes(code: string, hasGeoShape: boolean): typeof intelStore.intelligenceCache.iranEvents & object {
+    if (!intelStore.intelligenceCache.iranEvents) return [];
     const seen = new Set<string>();
-    return this.ctx.intelligenceCache.iranEvents.filter(e => {
+    return intelStore.intelligenceCache.iranEvents.filter(e => {
       if (seen.has(e.id)) return false;
       seen.add(e.id);
       return hasGeoShape && this.isInCountry(e.latitude, e.longitude, code);

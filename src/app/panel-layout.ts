@@ -18,6 +18,7 @@ import { getCurrentTheme } from '@/utils';
 import { trackCriticalBannerAction } from '@/services/analytics';
 import { isDesktopRuntime } from '@/services/runtime';
 import { isFeatureAvailable } from '@/services/runtime-config';
+import { newsStore } from '@/stores/news-store';
 
 const NEWS_PANEL_KEYS = [
   'politics', 'tech', 'finance', 'gov', 'intel', 'energy',
@@ -471,7 +472,7 @@ export class PanelLayoutManager implements AppModule {
 
       if (this.ctx.isDesktopApp) {
         const { DeductionPanel } = await import('@/components/DeductionPanel');
-        const deductionPanel = new DeductionPanel(() => this.ctx.allNews);
+        const deductionPanel = new DeductionPanel(() => newsStore.allNews);
         this.ctx.panels['deduction'] = deductionPanel;
         const el = deductionPanel.getElement();
         this.makeDraggable(el, 'deduction');
@@ -513,7 +514,7 @@ export class PanelLayoutManager implements AppModule {
       this.ctx.panels['strategic-risk'] = strategicRiskPanel;
 
       const { StrategicPosturePanel } = await import('@/components/StrategicPosturePanel');
-      const strategicPosturePanel = new StrategicPosturePanel(() => this.ctx.allNews);
+      const strategicPosturePanel = new StrategicPosturePanel(() => newsStore.allNews);
       strategicPosturePanel.setLocationClickHandler((lat, lon) => {
         this.ctx.map?.setCenter(lat, lon, 4);
       });
@@ -595,7 +596,7 @@ export class PanelLayoutManager implements AppModule {
       this.ctx.panels['live-webcams'] = liveWebcamsPanel;
 
       const { TechEventsPanel } = await import('@/components/TechEventsPanel');
-      this.ctx.panels['events'] = new TechEventsPanel('events', () => this.ctx.allNews);
+      this.ctx.panels['events'] = new TechEventsPanel('events', () => newsStore.allNews);
 
       const { ServiceStatusPanel } = await import('@/components/ServiceStatusPanel');
       const serviceStatusPanel = new ServiceStatusPanel();
@@ -747,7 +748,7 @@ export class PanelLayoutManager implements AppModule {
   }
 
   private applyTimeRangeFilterToNewsPanels(): void {
-    Object.entries(this.ctx.newsByCategory).forEach(([category, items]) => {
+    Object.entries(newsStore.newsByCategory).forEach(([category, items]) => {
       const panel = this.ctx.newsPanels[category];
       if (!panel) return;
       const filtered = this.filterItemsByTimeRange(items);

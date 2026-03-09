@@ -3,6 +3,7 @@
  */
 
 import type { AppContext } from '@/app/app-context';
+import { intelStore } from '@/stores/intel-store';
 import { mapClimatePayload } from '@/services/climate';
 import { parseGpsJamPayload } from '@/services/gps-interference';
 import { dataFreshness } from '@/services/data-freshness';
@@ -19,8 +20,8 @@ import type { HandlerCallbacks } from './types';
 
 /** Merges eonet/gdacs events and renders to map. Exported for loadNatural cache path. */
 export function mergeAndRenderNaturalEvents(ctx: AppContext): void {
-  const eonet = ctx.intelligenceCache.eonetEvents ?? [];
-  const gdacs = ctx.intelligenceCache.gdacsEvents ?? [];
+  const eonet = intelStore.intelligenceCache.eonetEvents ?? [];
+  const gdacs = intelStore.intelligenceCache.gdacsEvents ?? [];
   const seen = new Set<string>();
   const merged: import('@/types').NaturalEvent[] = [];
   for (const e of [...gdacs, ...eonet]) {
@@ -80,7 +81,7 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
   }
 
   function renderWeatherAlerts(alerts: import('@/services/weather').WeatherAlert[]): void {
-    ctx.intelligenceCache.weatherAlerts = alerts;
+    intelStore.intelligenceCache.weatherAlerts = alerts;
     ctx.map?.setWeatherAlerts(alerts);
     ctx.map?.setLayerReady('weather', alerts.length > 0);
     ctx.statusPanel?.updateFeed('Weather', { status: 'ok', itemCount: alerts.length });
@@ -109,7 +110,7 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
       const events = payload as import('@/types').NaturalEvent[];
       const valid = events.filter((e): e is import('@/types').NaturalEvent =>
         e && typeof e === 'object' && typeof e.lat === 'number' && typeof e.lon === 'number' && typeof e.id === 'string');
-      ctx.intelligenceCache.eonetEvents = valid;
+      intelStore.intelligenceCache.eonetEvents = valid;
       mergeAndRenderNaturalEvents(ctx);
     },
     gdacs: (payload: unknown) => {
@@ -139,7 +140,7 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
           closed: false,
         });
       }
-      ctx.intelligenceCache.gdacsEvents = events;
+      intelStore.intelligenceCache.gdacsEvents = events;
       mergeAndRenderNaturalEvents(ctx);
     },
     weather: (payload: unknown) => {

@@ -4,6 +4,7 @@
  */
 
 import type { DataLoaderBridge } from './loader-bridge';
+import { intelStore } from '@/stores/intel-store';
 import {
   fetchInternetOutages,
   fetchCableActivity,
@@ -19,8 +20,8 @@ const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
 export const infrastructureLoader = {
   async loadOutages(bridge: DataLoaderBridge): Promise<void> {
     const ctx = bridge.ctx;
-    if (ctx.intelligenceCache.outages) {
-      const outages = ctx.intelligenceCache.outages;
+    if (intelStore.intelligenceCache.outages) {
+      const outages = intelStore.intelligenceCache.outages;
       ctx.map?.setOutages(outages);
       ctx.map?.setLayerReady('outages', outages.length > 0);
       ctx.statusPanel?.updateFeed('NetBlocks', { status: 'ok', itemCount: outages.length });
@@ -28,7 +29,7 @@ export const infrastructureLoader = {
     }
     try {
       const outages = await fetchInternetOutages();
-      ctx.intelligenceCache.outages = outages;
+      intelStore.intelligenceCache.outages = outages;
       ctx.map?.setOutages(outages);
       ctx.map?.setLayerReady('outages', outages.length > 0);
       ingestOutagesForCII(outages);
@@ -49,8 +50,8 @@ export const infrastructureLoader = {
       ctx.map?.setLayerReady('cyberThreats', false);
       return;
     }
-    if (ctx.cyberThreatsCache) {
-      bridge.getHandler('cyber')?.({ threats: ctx.cyberThreatsCache });
+    if (intelStore.cyberThreatsCache) {
+      bridge.getHandler('cyber')?.({ threats: intelStore.cyberThreatsCache });
       return;
     }
     const loaded = await bridge.loadChannelWithFallback('cyber', data => bridge.getHandler('cyber')?.(data));
@@ -124,8 +125,8 @@ export const infrastructureLoader = {
 
   async loadFlightDelays(bridge: DataLoaderBridge): Promise<void> {
     const ctx = bridge.ctx;
-    if (ctx.intelligenceCache.flightDelays) {
-      bridge.getHandler('flights')?.(ctx.intelligenceCache.flightDelays);
+    if (intelStore.intelligenceCache.flightDelays) {
+      bridge.getHandler('flights')?.(intelStore.intelligenceCache.flightDelays);
       return;
     }
     const loaded = await bridge.loadChannelWithFallback('flights', data => bridge.getHandler('flights')?.(data));

@@ -24,6 +24,7 @@ import type { ListFireDetectionsResponse } from '@/generated/client/worldmonitor
 import type { TheaterPostureSummary } from '@/services/military-surge';
 import type { MonitorPanel } from '@/components/MonitorPanel';
 import type { DataLoaderBridge } from '@/data/loader-bridge';
+import { newsStore } from '@/stores/news-store';
 import type { CommodityDataItem } from '@/data/types';
 
 export interface DataLoaderCallbacks {
@@ -200,7 +201,7 @@ export class DataLoaderManager implements AppModule, DataLoaderBridge {
   }
 
   updateMonitorResults(): void {
-    (this._ctx.panels['monitors'] as MonitorPanel).renderResults(this._ctx.allNews);
+    (this._ctx.panels['monitors'] as MonitorPanel).renderResults(newsStore.allNews);
   }
 
   async runCorrelationAnalysis(): Promise<void> {

@@ -4,6 +4,7 @@
 
 import type { AppContext } from '@/app/app-context';
 import type { NewsItem } from '@/types';
+import { newsStore } from '@/stores/news-store';
 import type { DataLoaderBridge } from './loader-bridge';
 import { getFeeds, getIntelSources, SITE_VARIANT } from '@/config';
 import { fetchCategoryFeeds, getFeedFailures, updateBaseline, calculateDeviation } from '@/services';
@@ -32,8 +33,8 @@ const PER_FEED_FALLBACK_INTEL_LIMIT = 6;
 const PER_FEED_FALLBACK_BATCH_SIZE = 2;
 const HAPPY_ITEMS_CACHE_KEY = 'happy-all-items';
 
-function getStaleNewsItems(ctx: AppContext, category: string): NewsItem[] {
-  const staleItems = ctx.newsByCategory[category];
+function getStaleNewsItems(category: string): NewsItem[] {
+  const staleItems = newsStore.newsByCategory[category];
   if (!Array.isArray(staleItems) || staleItems.length === 0) return [];
   return [...staleItems].sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
 }
@@ -53,7 +54,7 @@ async function loadNewsCategory(bridge: DataLoaderBridge, category: string, feed
 
   const enabledFeeds = (feeds ?? []).filter(f => !ctx.disabledSources.has(f.name));
   if (enabledFeeds.length === 0) {
-    delete ctx.newsByCategory[category];
+    delete newsStore.newsByCategory[category];
     if (panel) panel.showError(t('common.allSourcesDisabled'));
     ctx.statusPanel?.updateFeed(category.charAt(0).toUpperCase() + category.slice(1), { status: 'ok', itemCount: 0 });
     return [];
@@ -89,7 +90,7 @@ async function loadNewsCategory(bridge: DataLoaderBridge, category: string, feed
     }
   };
 
-  const staleItems = getStaleNewsItems(ctx, category).filter(i => enabledNames.has(i.source));
+  const staleItems = getStaleNewsItems(category).filter(i => enabledNames.has(i.source));
   if (staleItems.length > 0) {
     console.warn(`[News] Digest missing for "${category}", serving stale headlines (${staleItems.length})`);
     renderNewsForCategory(ctx, category, staleItems);
@@ -190,11 +191,11 @@ export const newsLoader = {
       const enabledIntelNames = new Set(enabledIntelSources.map(f => f.name));
       const intelPanel = ctx.newsPanels['intel'];
       if (enabledIntelSources.length === 0) {
-        delete ctx.newsByCategory['intel'];
+        delete newsStore.newsByCategory['intel'];
         if (intelPanel) intelPanel.showError(t('common.allIntelSourcesDisabled'));
         ctx.statusPanel?.updateFeed('Intel', { status: 'ok', itemCount: 0 });
       } else {
-        const staleIntel = getStaleNewsItems(ctx, 'intel').filter(i => enabledIntelNames.has(i.source));
+        const staleIntel = getStaleNewsItems('intel').filter(i => enabledIntelNames.has(i.source));
         if (staleIntel.length > 0) {
           console.warn(`[News] Intel digest missing, serving stale headlines (${staleIntel.length})`);
           renderNewsForCategory(ctx, 'intel', staleIntel);
@@ -209,7 +210,7 @@ export const newsLoader = {
           collectedNews.push(...staleIntel);
         } else if (!isPerFeedFallbackEnabled()) {
           console.warn('[News] Intel digest missing, limited per-feed fallback disabled');
-          delete ctx.newsByCategory['intel'];
+          delete newsStore.newsByCategory['intel'];
           ctx.statusPanel?.updateFeed('Intel', { status: 'error', errorMessage: 'Digest unavailable' });
         } else {
           const fallbackIntelFeeds = selectLimitedFeeds(enabledIntelSources, PER_FEED_FALLBACK_INTEL_LIMIT);
@@ -229,14 +230,14 @@ export const newsLoader = {
             collectedNews.push(...intel);
             flashMapForNews(ctx, intel);
           } else {
-            delete ctx.newsByCategory['intel'];
+            delete newsStore.newsByCategory['intel'];
             console.error('[App] Intel feed failed:', intelResult[0]?.reason);
           }
         }
       }
     }
 
-    ctx.allNews = collectedNews;
+    newsStore.allNews = collectedNews;
     ctx.initialLoadComplete = true;
 
     updateAndCheck([{ type: 'news', region: 'global', count: collectedNews.length }]).then(anomalies => {
@@ -247,19 +248,19 @@ export const newsLoader = {
       }
     }).catch(() => {});
 
-    ctx.map?.updateHotspotActivity(ctx.allNews);
+    ctx.map?.updateHotspotActivity(newsStore.allNews);
 
     const monitorPanel = ctx.panels['monitors'] as MonitorPanel;
-    monitorPanel.renderResults(ctx.allNews);
+    monitorPanel.renderResults(newsStore.allNews);
     const headlinesPanel = ctx.panels['headlines'];
     if (headlinesPanel && 'renderItems' in headlinesPanel) {
-      (headlinesPanel as HeadlinesPanel).renderItems(ctx.allNews);
+      (headlinesPanel as HeadlinesPanel).renderItems(newsStore.allNews);
     }
 
-    void (mlWorker.isAvailable ? clusterNewsHybrid(ctx.allNews) : analysisWorker.clusterNews(ctx.allNews))
+    void (mlWorker.isAvailable ? clusterNewsHybrid(newsStore.allNews) : analysisWorker.clusterNews(newsStore.allNews))
       .then(clusters => {
         if (ctx.isDestroyed) return;
-        ctx.latestClusters = clusters;
+        newsStore.latestClusters = clusters;
         if (clusters.length > 0) {
           (ctx.panels['insights'] as InsightsPanel | undefined)?.updateInsights(clusters);
         }

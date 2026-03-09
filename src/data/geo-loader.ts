@@ -3,6 +3,7 @@
  */
 
 import type { DataLoaderBridge } from './loader-bridge';
+import { intelStore } from '@/stores/intel-store';
 import { SITE_VARIANT } from '@/config';
 import { fetchEarthquakes } from '@/services';
 import { dataFreshness } from '@/services/data-freshness';
@@ -14,16 +15,16 @@ import { mergeAndRenderNaturalEvents } from './geo-handler';
 export const geoLoader = {
   async loadNatural(bridge: DataLoaderBridge): Promise<void> {
     const ctx = bridge.ctx;
-    const hasCachedNatural = (ctx.intelligenceCache.eonetEvents?.length ?? 0) > 0 || (ctx.intelligenceCache.gdacsEvents?.length ?? 0) > 0;
-    const hasCachedEarthquakes = (ctx.intelligenceCache.earthquakes?.length ?? 0) > 0;
+    const hasCachedNatural = (intelStore.intelligenceCache.eonetEvents?.length ?? 0) > 0 || (intelStore.intelligenceCache.gdacsEvents?.length ?? 0) > 0;
+    const hasCachedEarthquakes = (intelStore.intelligenceCache.earthquakes?.length ?? 0) > 0;
 
     if (hasCachedNatural) mergeAndRenderNaturalEvents(ctx);
-    if (hasCachedEarthquakes && ctx.intelligenceCache.earthquakes) {
-      ctx.map?.setEarthquakes(ctx.intelligenceCache.earthquakes);
+    if (hasCachedEarthquakes && intelStore.intelligenceCache.earthquakes) {
+      ctx.map?.setEarthquakes(intelStore.intelligenceCache.earthquakes);
       ctx.statusPanel?.updateApi('USGS', { status: 'ok' });
     }
     if (hasCachedNatural || hasCachedEarthquakes) {
-      const mergedCount = (ctx.intelligenceCache.eonetEvents?.length ?? 0) + (ctx.intelligenceCache.gdacsEvents?.length ?? 0);
+      const mergedCount = (intelStore.intelligenceCache.eonetEvents?.length ?? 0) + (intelStore.intelligenceCache.gdacsEvents?.length ?? 0);
       ctx.map?.setLayerReady('natural', mergedCount > 0 || hasCachedEarthquakes);
       if (hasCachedNatural && hasCachedEarthquakes) return;
     }
@@ -35,14 +36,14 @@ export const geoLoader = {
     ]);
 
     if (earthquakeResult.status === 'fulfilled') {
-      ctx.intelligenceCache.earthquakes = earthquakeResult.value;
+      intelStore.intelligenceCache.earthquakes = earthquakeResult.value;
       ctx.map?.setEarthquakes(earthquakeResult.value);
       ingestEarthquakes(earthquakeResult.value);
       ctx.statusPanel?.updateApi('USGS', { status: 'ok' });
       dataFreshness.recordUpdate('usgs', earthquakeResult.value.length);
     } else {
       if (!hasCachedEarthquakes) {
-        ctx.intelligenceCache.earthquakes = [];
+        intelStore.intelligenceCache.earthquakes = [];
         ctx.map?.setEarthquakes([]);
         ctx.statusPanel?.updateApi('USGS', { status: 'error' });
         dataFreshness.recordError('usgs', String(earthquakeResult.reason));
@@ -80,8 +81,8 @@ export const geoLoader = {
 
   async loadWeatherAlerts(bridge: DataLoaderBridge): Promise<void> {
     const ctx = bridge.ctx;
-    if (ctx.intelligenceCache.weatherAlerts) {
-      bridge.getHandler('weather')?.(ctx.intelligenceCache.weatherAlerts);
+    if (intelStore.intelligenceCache.weatherAlerts) {
+      bridge.getHandler('weather')?.(intelStore.intelligenceCache.weatherAlerts);
       return;
     }
     const loaded = await bridge.loadChannelWithFallback('weather', data => bridge.getHandler('weather')?.(data));

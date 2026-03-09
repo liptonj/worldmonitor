@@ -4,6 +4,8 @@
  */
 
 import type { AppContext } from '@/app/app-context';
+import { newsStore } from '@/stores/news-store';
+import { marketsStore } from '@/stores/markets-store';
 import { mlWorker } from '@/services/ml-worker';
 import { clusterNewsHybrid } from '@/services/clustering';
 import { analysisWorker } from '@/services/analysis-worker';
@@ -22,20 +24,20 @@ export async function runCorrelationAnalysis(
   options: RunCorrelationAnalysisOptions
 ): Promise<void> {
   try {
-    if (ctx.latestClusters.length === 0 && ctx.allNews.length > 0) {
-      ctx.latestClusters = mlWorker.isAvailable
-        ? await clusterNewsHybrid(ctx.allNews)
-        : await analysisWorker.clusterNews(ctx.allNews);
+    if (newsStore.latestClusters.length === 0 && newsStore.allNews.length > 0) {
+      newsStore.latestClusters = mlWorker.isAvailable
+        ? await clusterNewsHybrid(newsStore.allNews)
+        : await analysisWorker.clusterNews(newsStore.allNews);
     }
-    if (ctx.latestClusters.length > 0) {
-      ingestNewsForCII(ctx.latestClusters);
-      dataFreshness.recordUpdate('gdelt', ctx.latestClusters.length);
+    if (newsStore.latestClusters.length > 0) {
+      ingestNewsForCII(newsStore.latestClusters);
+      dataFreshness.recordUpdate('gdelt', newsStore.latestClusters.length);
       (ctx.panels['cii'] as CIIPanel)?.refresh();
     }
     const signals = await analysisWorker.analyzeCorrelations(
-      ctx.latestClusters,
-      ctx.latestPredictions,
-      ctx.latestMarkets
+      newsStore.latestClusters,
+      marketsStore.latestPredictions,
+      marketsStore.latestMarkets
     );
     let geoSignals: ReturnType<typeof geoConvergenceToSignal>[] = [];
     if (!isInLearningMode()) {

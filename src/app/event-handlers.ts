@@ -46,6 +46,8 @@ import { SummarizeViewModal } from '@/components/SummarizeViewModal';
 import { t } from '@/services/i18n';
 import { TvModeController } from '@/services/tv-mode';
 import { formatClockTime } from '@/utils/display-prefs';
+import { newsStore } from '@/stores/news-store';
+import { marketsStore } from '@/stores/markets-store';
 
 export interface EventHandlerCallbacks {
   updateSearchIndex: () => void;
@@ -494,9 +496,9 @@ export class EventHandlerManager implements AppModule {
 
   setupExportPanel(): void {
     this.ctx.exportPanel = new ExportPanel(() => ({
-      news: this.ctx.latestClusters.length > 0 ? this.ctx.latestClusters : this.ctx.allNews,
-      markets: this.ctx.latestMarkets,
-      predictions: this.ctx.latestPredictions,
+      news: newsStore.latestClusters.length > 0 ? newsStore.latestClusters : newsStore.allNews,
+      markets: marketsStore.latestMarkets,
+      predictions: marketsStore.latestPredictions,
       timestamp: Date.now(),
     }));
 
@@ -619,15 +621,15 @@ export class EventHandlerManager implements AppModule {
       if (this.ctx.isPlaybackMode || this.ctx.isDestroyed) return;
 
       const marketPrices: Record<string, number> = {};
-      this.ctx.latestMarkets.forEach(m => {
+      marketsStore.latestMarkets.forEach(m => {
         if (m.price !== null) marketPrices[m.symbol] = m.price;
       });
 
       await saveSnapshot({
         timestamp: Date.now(),
-        events: this.ctx.latestClusters,
+        events: newsStore.latestClusters,
         marketPrices,
-        predictions: this.ctx.latestPredictions.map(p => ({
+        predictions: marketsStore.latestPredictions.map(p => ({
           title: p.title,
           yesPrice: p.yesPrice
         })),
@@ -645,7 +647,7 @@ export class EventHandlerManager implements AppModule {
     }
 
     const events = snapshot.events as ClusteredEvent[];
-    this.ctx.latestClusters = events;
+    newsStore.latestClusters = events;
 
     const predictions = snapshot.predictions.map((p, i) => ({
       id: `snap-${i}`,
@@ -655,7 +657,7 @@ export class EventHandlerManager implements AppModule {
       volume24h: 0,
       liquidity: 0,
     }));
-    this.ctx.latestPredictions = predictions;
+    marketsStore.latestPredictions = predictions;
     (this.ctx.panels['polymarket'] as PredictionPanel).renderPredictions(predictions);
 
     this.ctx.map?.setHotspotLevels(snapshot.hotspotLevels);

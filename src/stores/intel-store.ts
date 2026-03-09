@@ -1,5 +1,4 @@
-import type { CyberThreat } from '@/types';
-import type { IntelligenceCache } from '@/app/app-context';
+import type { CyberThreat, IntelligenceCache } from '@/types';
 
 export const intelStore = {
   intelligenceCache: {} as IntelligenceCache,

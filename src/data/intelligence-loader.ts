@@ -5,6 +5,7 @@
 
 import type { DataLoaderBridge } from './loader-bridge';
 import type { SocialUnrestEvent } from '@/types';
+import { intelStore } from '@/stores/intel-store';
 import {
   fetchInternetOutages,
   fetchMilitaryFlights,
@@ -59,7 +60,7 @@ export const intelligenceLoader = {
     tasks.push((async () => {
       try {
         const outages = await fetchInternetOutages();
-        ctx.intelligenceCache.outages = outages;
+        intelStore.intelligenceCache.outages = outages;
         ingestOutagesForCII(outages);
         signalAggregator.ingestOutages(outages);
         dataFreshness.recordUpdate('outages', outages.length);
@@ -77,7 +78,7 @@ export const intelligenceLoader = {
     const protestsTask = (async (): Promise<SocialUnrestEvent[]> => {
       try {
         await bridge.loadChannelWithFallback('conflict', data => bridge.getHandler('conflict')?.(data));
-        return ctx.intelligenceCache.protests?.events || [];
+        return intelStore.intelligenceCache.protests?.events || [];
       } catch {
         return [];
       }
@@ -110,13 +111,13 @@ export const intelligenceLoader = {
       try {
         if (isMilitaryVesselTrackingConfigured() && ctx.mapLayers.ais) initMilitaryVesselStream();
         const [flightData, vesselData] = await Promise.all([fetchMilitaryFlights(), fetchMilitaryVessels()]);
-        ctx.intelligenceCache.military = {
+        intelStore.intelligenceCache.military = {
           flights: flightData.flights,
           flightClusters: flightData.clusters,
           vessels: vesselData.vessels,
           vesselClusters: vesselData.clusters,
         };
-        fetchUSNIFleetReport().then(report => { if (report) ctx.intelligenceCache.usniFleet = report; }).catch(() => {});
+        fetchUSNIFleetReport().then(report => { if (report) intelStore.intelligenceCache.usniFleet = report; }).catch(() => {});
         ingestFlights(flightData.flights);
         ingestVessels(vesselData.vessels);
         ingestMilitaryForCII(flightData.flights, vesselData.vessels);
@@ -262,7 +263,7 @@ export const intelligenceLoader = {
     try {
       const ucdpEvts = (ctx.panels['ucdp-events'] as UcdpEventsPanel)?.getEvents?.() || [];
       const events = [
-        ...(ctx.intelligenceCache.protests?.events || []).slice(0, 10).map(e => ({
+        ...(intelStore.intelligenceCache.protests?.events || []).slice(0, 10).map(e => ({
           id: e.id, lat: e.lat, lon: e.lon, type: 'conflict' as const, name: e.title || 'Protest',
         })),
         ...ucdpEvts.slice(0, 10).map(e => ({
@@ -286,8 +287,8 @@ export const intelligenceLoader = {
 
   async loadIranEvents(bridge: DataLoaderBridge): Promise<void> {
     const ctx = bridge.ctx;
-    if (ctx.intelligenceCache.iranEvents) {
-      bridge.getHandler('iran-events')?.({ events: ctx.intelligenceCache.iranEvents });
+    if (intelStore.intelligenceCache.iranEvents) {
+      bridge.getHandler('iran-events')?.({ events: intelStore.intelligenceCache.iranEvents });
       return;
     }
     const loaded = await bridge.loadChannelWithFallback('iran-events', data => bridge.getHandler('iran-events')?.(data));
@@ -296,8 +297,8 @@ export const intelligenceLoader = {
 
   async loadProtests(bridge: DataLoaderBridge): Promise<void> {
     const ctx = bridge.ctx;
-    if (ctx.intelligenceCache.protests) {
-      const protestData = ctx.intelligenceCache.protests;
+    if (intelStore.intelligenceCache.protests) {
+      const protestData = intelStore.intelligenceCache.protests;
       ctx.map?.setProtests(protestData.events);
       ctx.map?.setLayerReady('protests', protestData.events.length > 0);
       const status = getProtestStatus();
@@ -322,8 +323,8 @@ export const intelligenceLoader = {
 
   async loadMilitary(bridge: DataLoaderBridge): Promise<void> {
     const ctx = bridge.ctx;
-    if (ctx.intelligenceCache.military) {
-      const { flights, flightClusters, vessels, vesselClusters } = ctx.intelligenceCache.military;
+    if (intelStore.intelligenceCache.military) {
+      const { flights, flightClusters, vessels, vesselClusters } = intelStore.intelligenceCache.military;
       ctx.map?.setMilitaryFlights(flights, flightClusters);
       ctx.map?.setMilitaryVessels(vessels, vesselClusters);
       ctx.map?.updateMilitaryForEscalation(flights, vessels);
@@ -343,13 +344,13 @@ export const intelligenceLoader = {
     try {
       if (isMilitaryVesselTrackingConfigured() && ctx.mapLayers.ais) initMilitaryVesselStream();
       const [flightData, vesselData] = await Promise.all([fetchMilitaryFlights(), fetchMilitaryVessels()]);
-      ctx.intelligenceCache.military = {
+      intelStore.intelligenceCache.military = {
         flights: flightData.flights,
         flightClusters: flightData.clusters,
         vessels: vesselData.vessels,
         vesselClusters: vesselData.clusters,
       };
-      fetchUSNIFleetReport().then(report => { if (report) ctx.intelligenceCache.usniFleet = report; }).catch(() => {});
+      fetchUSNIFleetReport().then(report => { if (report) intelStore.intelligenceCache.usniFleet = report; }).catch(() => {});
       ctx.map?.setMilitaryFlights(flightData.flights, flightData.clusters);
       ctx.map?.setMilitaryVessels(vesselData.vessels, vesselData.clusters);
       ingestFlights(flightData.flights);
@@ -408,7 +409,7 @@ export const intelligenceLoader = {
       const result = await fetchSecurityAdvisories();
       if (result.ok) {
         (ctx.panels['security-advisories'] as SecurityAdvisoriesPanel)?.setData(result.advisories);
-        ctx.intelligenceCache.advisories = result.advisories;
+        intelStore.intelligenceCache.advisories = result.advisories;
         ingestAdvisoriesForCII(result.advisories);
       }
     } catch (error) {

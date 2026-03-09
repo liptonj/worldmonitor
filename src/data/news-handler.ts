@@ -4,6 +4,7 @@
 
 import type { AppContext } from '@/app/app-context';
 import type { NewsItem } from '@/types';
+import { newsStore } from '@/stores/news-store';
 import type { TimeRange } from '@/components';
 import { getFeeds, getIntelSources, SITE_VARIANT } from '@/config';
 import { INTEL_HOTSPOTS, CONFLICT_ZONES } from '@/config/geo';
@@ -192,7 +193,7 @@ function filterItemsByTimeRange(items: NewsItem[], range: TimeRange): NewsItem[]
 
 /** Renders news items for a category. Exported for loadNewsCategory and applyTimeRangeFilter. */
 export function renderNewsForCategory(ctx: AppContext, category: string, items: NewsItem[]): void {
-  ctx.newsByCategory[category] = items;
+  newsStore.newsByCategory[category] = items;
   const panel = ctx.newsPanels[category];
   if (!panel) return;
   const filteredItems = filterItemsByTimeRange(items, ctx.currentTimeRange);
@@ -209,13 +210,13 @@ export function createNewsHandlers(
 ): Record<string, ChannelHandler> {
   function updateMonitorResults(): void {
     const monitorPanel = ctx.panels['monitors'] as MonitorPanel;
-    monitorPanel.renderResults(ctx.allNews);
+    monitorPanel.renderResults(newsStore.allNews);
   }
 
   function updateHeadlinesPanel(): void {
     const panel = ctx.panels['headlines'];
     if (panel && 'renderItems' in panel) {
-      (panel as HeadlinesPanel).renderItems(ctx.allNews);
+      (panel as HeadlinesPanel).renderItems(newsStore.allNews);
     }
   }
 
@@ -234,7 +235,7 @@ export function createNewsHandlers(
 
       const enabledFeeds = (feeds ?? []).filter(f => !ctx.disabledSources.has(f.name));
       if (enabledFeeds.length === 0) {
-        delete ctx.newsByCategory[category];
+        delete newsStore.newsByCategory[category];
         const panel = ctx.newsPanels[category];
         if (panel) panel.showError(t('common.allSourcesDisabled'));
         ctx.statusPanel?.updateFeed(category.charAt(0).toUpperCase() + category.slice(1), {
@@ -293,7 +294,7 @@ export function createNewsHandlers(
       const intelPanel = ctx.newsPanels['intel'];
 
       if (enabledIntelSources.length === 0) {
-        delete ctx.newsByCategory['intel'];
+        delete newsStore.newsByCategory['intel'];
         if (intelPanel) intelPanel.showError(t('common.allIntelSourcesDisabled'));
         ctx.statusPanel?.updateFeed('Intel', { status: 'ok', itemCount: 0 });
       } else {
@@ -323,7 +324,7 @@ export function createNewsHandlers(
       ctx.happyAllItems = collectedNews;
     }
 
-    ctx.allNews = collectedNews;
+    newsStore.allNews = collectedNews;
     ctx.initialLoadComplete = true;
 
     updateAndCheck([
@@ -336,16 +337,16 @@ export function createNewsHandlers(
       }
     }).catch(() => { });
 
-    ctx.map?.updateHotspotActivity(ctx.allNews);
+    ctx.map?.updateHotspotActivity(newsStore.allNews);
     updateMonitorResults();
     updateHeadlinesPanel();
 
     void (mlWorker.isAvailable
-      ? clusterNewsHybrid(ctx.allNews)
-      : analysisWorker.clusterNews(ctx.allNews)
+      ? clusterNewsHybrid(newsStore.allNews)
+      : analysisWorker.clusterNews(newsStore.allNews)
     ).then(clusters => {
       if (ctx.isDestroyed) return;
-      ctx.latestClusters = clusters;
+      newsStore.latestClusters = clusters;
 
       if (clusters.length > 0) {
         const insightsPanel = ctx.panels['insights'] as InsightsPanel | undefined;
