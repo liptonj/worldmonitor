@@ -44,7 +44,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
   markets: {
     key: 'markets',
     redisKey: 'market:dashboard:v1',
-    panels: ['markets', 'heatmap'],
+    panels: ['markets', 'heatmap', 'commodities', 'crypto'],
     domain: 'markets',
     staleAfterMs: 5 * 60_000,
     timeoutMs: 30_000,
