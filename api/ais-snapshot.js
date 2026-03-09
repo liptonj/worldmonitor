@@ -3,7 +3,7 @@ import { createRelayHandler } from './_relay.js';
 export const config = { runtime: 'edge' };
 
 export default createRelayHandler({
-  relayPath: '/ais/snapshot',
+  relayPath: '/map/ais',
   timeout: 12000,
   requireApiKey: true,
   requireRateLimit: true,
