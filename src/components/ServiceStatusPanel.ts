@@ -47,13 +47,20 @@ export class ServiceStatusPanel extends Panel {
   }
 
   applyPush(payload: unknown): void {
-    if (payload && typeof payload === 'object' && 'services' in payload) {
-      const data = payload as { services: ServiceStatus[] };
-      this.services = data.services;
-      this.error = null;
-      this.loading = false;
-      this.render();
+    if (!payload || typeof payload !== 'object') return;
+    const raw = payload as Record<string, unknown>;
+    let services: ServiceStatus[];
+    if ('services' in raw && Array.isArray(raw.services)) {
+      services = raw.services as ServiceStatus[];
+    } else if ('statuses' in raw && Array.isArray(raw.statuses)) {
+      services = raw.statuses as ServiceStatus[];
+    } else {
+      return;
     }
+    this.services = services;
+    this.error = null;
+    this.loading = false;
+    this.render();
   }
 
   private lastServicesJson = '';

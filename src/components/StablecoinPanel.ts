@@ -34,12 +34,24 @@ export class StablecoinPanel extends Panel {
   }
 
   applyPush(payload: unknown): void {
-    if (payload && typeof payload === 'object' && 'stablecoins' in payload) {
-      this.data = payload as StablecoinResult;
-      this.error = null;
-      this.loading = false;
-      this.renderPanel();
+    if (!payload || typeof payload !== 'object') return;
+    const raw = payload as Record<string, unknown>;
+    let adapted: StablecoinResult;
+    if ('stablecoins' in raw) {
+      adapted = raw as unknown as StablecoinResult;
+    } else if ('data' in raw && Array.isArray(raw.data)) {
+      adapted = {
+        timestamp: (raw.timestamp as string) ?? new Date().toISOString(),
+        stablecoins: raw.data,
+        summary: raw.summary,
+      } as unknown as StablecoinResult;
+    } else {
+      return;
     }
+    this.data = adapted;
+    this.error = null;
+    this.loading = false;
+    this.renderPanel();
   }
 
   private renderPanel(): void {

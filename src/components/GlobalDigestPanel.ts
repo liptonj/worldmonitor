@@ -68,6 +68,13 @@ export class GlobalDigestPanel extends Panel {
     return `[Intelligence Digest]\n${this.lastDigestText}`;
   }
 
+  applyAiDigest(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as GetGlobalIntelDigestResponse;
+    if (!data.digest) return;
+    this.setDigest(data);
+  }
+
   setDigest(data: GetGlobalIntelDigestResponse): void {
     if (!data?.digest) {
       this.lastDigestText = null;

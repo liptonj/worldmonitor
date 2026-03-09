@@ -33,6 +33,8 @@ export class StrategicRiskPanel extends Panel {
   private breakingAlerts: Map<string, { threatLevel: 'critical' | 'high'; timestamp: number }> = new Map();
   private boundOnBreaking: ((e: Event) => void) | null = null;
   private breakingExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private aiInstabilityText: string | null = null;
+  private aiOverviewText: string | null = null;
 
   constructor() {
     super({
@@ -307,6 +309,7 @@ export class StrategicRiskPanel extends Panel {
         ${this.renderMetrics()}
         ${this.renderTopRisks()}
         ${this.renderRecentAlerts()}
+        ${this.renderAiSections()}
 
         <div class="risk-footer">
           <span class="risk-updated">${t('components.strategicRisk.updated', { time: this.overview.timestamp.toLocaleTimeString() })}</span>
@@ -314,6 +317,17 @@ export class StrategicRiskPanel extends Panel {
         </div>
       </div>
     `;
+  }
+
+  private renderAiSections(): string {
+    const parts: string[] = [];
+    if (this.aiOverviewText) {
+      parts.push(`<details class="risk-ai-section"><summary>AI Overview</summary><div class="risk-ai-body">${escapeHtml(this.aiOverviewText)}</div></details>`);
+    }
+    if (this.aiInstabilityText) {
+      parts.push(`<details class="risk-ai-section"><summary>Instability Analysis</summary><div class="risk-ai-body">${escapeHtml(this.aiInstabilityText)}</div></details>`);
+    }
+    return parts.join('');
   }
 
   private renderSourceRow(source: DataSourceState): string {
@@ -550,6 +564,32 @@ export class StrategicRiskPanel extends Panel {
     if (ingestRiskScoresPayload(payload)) {
       void this.refresh();
     }
+  }
+
+  applyInstabilityAnalysis(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const raw = payload as Record<string, unknown>;
+    if (typeof raw.analysis === 'string') {
+      this.aiInstabilityText = raw.analysis;
+    } else if (Array.isArray(raw.regions)) {
+      this.aiInstabilityText = (raw.regions as Array<Record<string, unknown>>)
+        .map(r => `**${r.region ?? 'Unknown'}** (${r.level ?? '?'}): ${r.drivers ?? ''}`)
+        .join('\n');
+    } else {
+      return;
+    }
+    void this.refresh();
+  }
+
+  applyAiOverview(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const raw = payload as Record<string, unknown>;
+    if (typeof raw.overview === 'string') {
+      this.aiOverviewText = raw.overview;
+    } else {
+      return;
+    }
+    void this.refresh();
   }
 
   public getOverview(): StrategicRiskOverview | null {

@@ -16,6 +16,7 @@ export class StrategicPosturePanel extends Panel {
   private onLocationClick?: (lat: number, lon: number) => void;
   private lastTimestamp: string = '';
   private isStale: boolean = false;
+  private aiAnalysis: string | null = null;
 
   constructor(private getLatestNews?: () => NewsItem[]) {
     super({
@@ -261,6 +262,21 @@ export class StrategicPosturePanel extends Panel {
     }
   }
 
+  applyAiAnalysis(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const raw = payload as Record<string, unknown>;
+    if (typeof raw.analysis === 'string') {
+      this.aiAnalysis = raw.analysis;
+    } else if (Array.isArray(raw.analyses)) {
+      this.aiAnalysis = (raw.analyses as Array<Record<string, unknown>>)
+        .map(a => `**${a.actor ?? 'Unknown'}**: ${a.posture ?? ''}\n${a.capabilities ?? ''}`)
+        .join('\n\n');
+    } else {
+      return;
+    }
+    this.render();
+  }
+
   public updatePostures(data: CachedTheaterPosture): void {
     if (!data || data.postures.length === 0) {
       this.showNoData();
@@ -455,11 +471,15 @@ export class StrategicPosturePanel extends Panel {
       ? `<div class="posture-stale-warning">⚠️ ${t('components.strategicPosture.staleWarning')}</div>`
       : '';
 
+    const aiSection = this.aiAnalysis
+      ? `<details class="posture-ai-analysis"><summary>AI Analysis</summary><div class="posture-ai-body">${escapeHtml(this.aiAnalysis)}</div></details>`
+      : '';
+
     const html = `
       <div class="posture-panel">
         ${staleWarning}
         ${sorted.map((p) => this.renderTheater(p)).join('')}
-
+        ${aiSection}
         <div class="posture-footer">
           <span class="posture-updated">${this.isStale ? '⚠️ ' : ''}${t('components.strategicPosture.updated')} ${updatedTime}</span>
           <button class="posture-refresh-btn" title="${t('components.strategicPosture.refresh')}">↻</button>

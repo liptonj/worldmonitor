@@ -2065,9 +2065,61 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   // ── apply* methods: receive relay-push payloads ──
   applyNewsDigest(payload: unknown): void {
-    const data = payload as ListFeedDigestResponse;
-    if (!data?.categories || typeof data.categories !== 'object') return;
-    this.processDigestData(data);
+    if (!payload) return;
+
+    // Already categorized (ListFeedDigestResponse from bootstrap)
+    if (typeof payload === 'object' && !Array.isArray(payload)) {
+      const obj = payload as Record<string, unknown>;
+      if (obj.categories && typeof obj.categories === 'object') {
+        this.processDigestData(payload as ListFeedDigestResponse);
+        return;
+      }
+      // Envelope still present (gateway didn't unwrap): { data: [...items] }
+      if (Array.isArray(obj.data)) {
+        this.applyFlatNewsItems(obj.data as Record<string, unknown>[]);
+        return;
+      }
+    }
+
+    // Flat array of items (after unwrapEnvelope)
+    if (Array.isArray(payload)) {
+      this.applyFlatNewsItems(payload as Record<string, unknown>[]);
+    }
+  }
+
+  private applyFlatNewsItems(rawItems: Record<string, unknown>[]): void {
+    if (rawItems.length === 0) return;
+
+    const feedsMap = getFeeds();
+    const sourceToCategory = new Map<string, string>();
+    for (const [category, feeds] of Object.entries(feedsMap)) {
+      if (!Array.isArray(feeds)) continue;
+      for (const feed of feeds) {
+        sourceToCategory.set(feed.name, category);
+      }
+    }
+
+    const categories: Record<string, { items: Array<Record<string, unknown>> }> = {};
+    for (const item of rawItems) {
+      const src = item.source as string | undefined;
+      const category = (src && sourceToCategory.get(src)) || 'general';
+      if (!categories[category]) categories[category] = { items: [] };
+      // Worker items use lowercase threat levels; normalize to proto enum format
+      if (item.threat && typeof item.threat === 'object') {
+        const threat = item.threat as Record<string, unknown>;
+        const lvl = threat.level as string | undefined;
+        if (lvl && !lvl.startsWith('THREAT_LEVEL_')) {
+          threat.level = `THREAT_LEVEL_${lvl.toUpperCase()}`;
+        }
+      }
+      categories[category].items.push(item);
+    }
+
+    this.processDigestData({
+      categories,
+      feedStatuses: {},
+      generatedAt: new Date().toISOString(),
+    } as unknown as ListFeedDigestResponse);
   }
 
   applyMarkets(payload: unknown): void {
@@ -2079,7 +2131,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   applyPredictions(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const resp = payload as ListPredictionMarketsResponse;
+    const resp = (Array.isArray(payload) ? { markets: payload } : payload) as ListPredictionMarketsResponse;
     if (!Array.isArray(resp.markets)) return;
     const predictions = resp.markets.map(m => ({
       title: m.title,
@@ -2093,7 +2145,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   applyFredData(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const resp = payload as GetFredDashboardResponse | GetFredSeriesResponse;
+    const resp = (Array.isArray(payload) ? { series: payload } : payload) as GetFredDashboardResponse | GetFredSeriesResponse;
     if (!('series' in resp)) return;
     const data = fredResponseToClientSeries(resp);
     this.renderFredData(data);
@@ -2101,7 +2153,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   applyOilData(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const resp = payload as GetEnergyPricesResponse;
+    const resp = (Array.isArray(payload) ? { prices: payload } : payload) as GetEnergyPricesResponse;
     if (!Array.isArray(resp.prices)) return;
     const data = energyPricesToOilAnalytics(resp);
     this.renderOilData(data);
@@ -2109,7 +2161,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   applyBisData(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const resp = payload as GetBisPolicyRatesResponse;
+    const resp = (Array.isArray(payload) ? { rates: payload } : payload) as GetBisPolicyRatesResponse;
     if (!Array.isArray(resp.rates)) return;
     const data: BisData = {
       policyRates: resp.rates,
@@ -2141,14 +2193,21 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   applyTradePolicy(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const data = payload as GetTradeBarriersResponse;
+    let data = payload as GetTradeBarriersResponse;
+    if (Array.isArray(payload)) {
+      data = { barriers: payload } as unknown as GetTradeBarriersResponse;
+    } else if (!('barriers' in data) && 'data' in (payload as Record<string, unknown>)) {
+      const inner = (payload as Record<string, unknown>).data;
+      if (Array.isArray(inner)) data = { barriers: inner } as unknown as GetTradeBarriersResponse;
+      else if (inner && typeof inner === 'object') data = inner as GetTradeBarriersResponse;
+    }
     if (!('barriers' in data)) return;
     this.renderTradePolicy(data);
   }
 
   applySupplyChain(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const data = payload as GetChokepointStatusResponse;
+    const data = (Array.isArray(payload) ? { chokepoints: payload } : payload) as GetChokepointStatusResponse;
     if (!('chokepoints' in data)) return;
     this.renderSupplyChain(data);
   }
@@ -2161,7 +2220,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   applyClimate(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const resp = payload as import('@/generated/client/worldmonitor/climate/v1/service_client').ListClimateAnomaliesResponse;
+    const resp = (Array.isArray(payload) ? { anomalies: payload } : payload) as import('@/generated/client/worldmonitor/climate/v1/service_client').ListClimateAnomaliesResponse;
     if (!Array.isArray(resp.anomalies)) return;
     const anomalies = mapClimatePayload(resp);
     if (anomalies.length === 0) return;
@@ -2210,7 +2269,12 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
   }
 
   applyUcdpEvents(payload: unknown): void {
-    const result = mapUcdpPayload(payload);
+    let adapted = payload;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload) && !('data' in (payload as Record<string, unknown>)) && 'events' in (payload as Record<string, unknown>)) {
+      const raw = payload as Record<string, unknown>;
+      adapted = { ...raw, data: raw.events, success: true };
+    }
+    const result = mapUcdpPayload(adapted);
     if (!result || !result.success || result.data.length === 0) return;
     (this.ctx.panels['ucdp-events'] as UcdpEventsPanel)?.setEvents(result.data);
     if (this.ctx.mapLayers.ucdpEvents) this.ctx.map?.setUcdpEvents(result.data);
@@ -2233,14 +2297,24 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
   }
 
   applyCableHealth(payload: unknown): void {
-    const healthData = parseCableHealthPayload(payload);
+    let adapted = payload;
+    if (Array.isArray(payload)) {
+      const cables: Record<string, unknown> = {};
+      for (const item of payload) {
+        const entry = item as Record<string, unknown>;
+        if (entry.id) cables[entry.id as string] = entry;
+      }
+      adapted = { cables, generatedAt: Date.now() };
+    }
+    const healthData = parseCableHealthPayload(adapted);
     if (!healthData) return;
     setCableHealthCache(healthData);
     this.renderCableHealth(healthData.cables);
   }
 
   applyFlightDelays(payload: unknown): void {
-    const delays = parseFlightDelaysPayload(payload);
+    const adapted = Array.isArray(payload) ? { alerts: payload } : payload;
+    const delays = parseFlightDelaysPayload(adapted);
     if (!delays) return;
     this.renderFlightDelays(delays);
   }
@@ -2266,7 +2340,13 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
   }
   applySpending(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const data = payload as import('@/services/usa-spending').SpendingSummary;
+    let data = payload as import('@/services/usa-spending').SpendingSummary;
+    if (Array.isArray(payload)) {
+      data = { awards: payload } as import('@/services/usa-spending').SpendingSummary;
+    } else if (!('awards' in data) && 'data' in (payload as Record<string, unknown>)) {
+      const inner = (payload as Record<string, unknown>).data;
+      if (Array.isArray(inner)) data = { ...payload as object, awards: inner } as import('@/services/usa-spending').SpendingSummary;
+    }
     if (!Array.isArray(data.awards)) return;
     this.renderSpending(data);
   }
@@ -2280,9 +2360,16 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   applyTelegramIntel(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const data = payload as import('@/services/telegram-intel').TelegramFeedResponse;
-    if (!('items' in data) || !Array.isArray(data.items)) return;
-    this.renderTelegramIntel(data);
+    const raw = payload as Record<string, unknown>;
+    let adapted: import('@/services/telegram-intel').TelegramFeedResponse;
+    if ('items' in raw && Array.isArray(raw.items)) {
+      adapted = raw as unknown as import('@/services/telegram-intel').TelegramFeedResponse;
+    } else if ('messages' in raw && Array.isArray(raw.messages)) {
+      adapted = { ...raw, items: raw.messages } as unknown as import('@/services/telegram-intel').TelegramFeedResponse;
+    } else {
+      return;
+    }
+    this.renderTelegramIntel(adapted);
   }
 
   private renderOrefAlerts(data: OrefAlertsResponse): void {
@@ -2296,8 +2383,22 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   applyOref(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const data = payload as OrefAlertsResponse;
-    if (!('configured' in data) && !('alerts' in data)) return;
+    let data = payload as OrefAlertsResponse;
+    if (!('configured' in data) && !('alerts' in data)) {
+      const raw = payload as Record<string, unknown>;
+      if ('current' in raw || 'history' in raw) {
+        const current = raw.current as unknown[] | null;
+        const history = raw.history as unknown[] | null;
+        data = {
+          configured: true,
+          alerts: Array.isArray(current) ? current as OrefAlertsResponse['alerts'] : [],
+          historyCount24h: Array.isArray(history) ? history.length : 0,
+          timestamp: new Date().toISOString(),
+        };
+      } else {
+        return;
+      }
+    }
     this.renderOrefAlerts(data);
   }
 
@@ -2349,7 +2450,7 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
 
   applyTechEvents(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
-    const data = payload as import('@/generated/client/worldmonitor/research/v1/service_client').ListTechEventsResponse;
+    const data = (Array.isArray(payload) ? { events: payload, success: true } : payload) as import('@/generated/client/worldmonitor/research/v1/service_client').ListTechEventsResponse;
     if (!('events' in data) || !Array.isArray(data.events)) return;
     this.renderTechEvents(data);
   }
@@ -2365,7 +2466,8 @@ export class DataLoaderManager implements AppModule, RelayPushHandlers {
   }
 
   applyGpsInterference(payload: unknown): void {
-    const data = parseGpsJamPayload(payload);
+    const adapted = Array.isArray(payload) ? { hexes: payload } : payload;
+    const data = parseGpsJamPayload(adapted);
     if (!data) return;
     this.renderGpsInterference(data);
   }

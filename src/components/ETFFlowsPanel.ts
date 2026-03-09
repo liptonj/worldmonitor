@@ -42,12 +42,25 @@ export class ETFFlowsPanel extends Panel {
   }
 
   applyPush(payload: unknown): void {
-    if (payload && typeof payload === 'object' && 'etfs' in payload) {
-      this.data = payload as ETFFlowsResult;
-      this.error = null;
-      this.loading = false;
-      this.renderPanel();
+    if (!payload || typeof payload !== 'object') return;
+    const raw = payload as Record<string, unknown>;
+    let adapted: ETFFlowsResult;
+    if ('etfs' in raw) {
+      adapted = raw as unknown as ETFFlowsResult;
+    } else if ('data' in raw && Array.isArray(raw.data)) {
+      adapted = {
+        timestamp: (raw.timestamp as string) ?? new Date().toISOString(),
+        etfs: raw.data,
+        summary: raw.summary,
+        rateLimited: !!raw.rateLimited,
+      } as unknown as ETFFlowsResult;
+    } else {
+      return;
     }
+    this.data = adapted;
+    this.error = null;
+    this.loading = false;
+    this.renderPanel();
   }
 
   private renderPanel(): void {
