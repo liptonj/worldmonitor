@@ -167,7 +167,8 @@ async function startTelegramClient(gatewayClient) {
   const handles = channels.map((c) => c.handle);
   log.info('Starting Telegram client', { channelCount: channels.length, handles });
 
-  const session = new StringSession(sessionString);
+  const normalised = sessionString[0] === '1' ? sessionString : '1' + sessionString;
+  const session = new StringSession(normalised);
   const client = new TelegramClient(session, apiId, apiHash, {
     connectionRetries: 5,
     retryDelay: 2000,
