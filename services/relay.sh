@@ -166,6 +166,48 @@ case "$COMMAND" in
         echo "Dashboard: Navigate to Splunk Web UI → Search & Reporting"
         echo "           → Dashboards → Docker Monitoring"
         ;;
+    services)
+        echo "Fetching data services status..."
+        compose exec orchestrator node relay-ctl/index.cjs list || echo "Error: orchestrator not running or relay-ctl not available"
+        ;;
+    trigger)
+        if [[ -z "$SERVICE" ]]; then
+            echo "Usage: relay trigger <service>"
+            echo ""
+            echo "Available services:"
+            echo "  Run 'relay services' to see all configured services"
+            exit 1
+        fi
+        echo "Triggering $SERVICE data fetch..."
+        compose exec orchestrator node relay-ctl/index.cjs trigger "$SERVICE"
+        ;;
+    fetch)
+        echo "Triggering all data fetches..."
+        echo "This will force-refresh all enabled data sources"
+        echo ""
+        
+        # Get list of enabled services and trigger each
+        SERVICES=$(compose exec -T orchestrator node relay-ctl/index.cjs list 2>/dev/null | tail -n +3 | awk '{print $1}' | grep -v "^-")
+        
+        if [[ -z "$SERVICES" ]]; then
+            echo "Error: Could not fetch services list"
+            echo "Make sure orchestrator is running: relay ps"
+            exit 1
+        fi
+        
+        echo "Services to fetch:"
+        echo "$SERVICES"
+        echo ""
+        
+        for svc in $SERVICES; do
+            echo "→ Triggering $svc..."
+            compose exec -T orchestrator node relay-ctl/index.cjs trigger "$svc" || echo "  Failed to trigger $svc"
+        done
+        
+        echo ""
+        echo "✓ All fetch requests submitted"
+        echo "Run 'relay services' to check status"
+        ;;
     help|--help|-h|"")
         echo "World Monitor Relay Server"
         echo ""
@@ -183,6 +225,11 @@ case "$COMMAND" in
         echo "  shell <svc> Open shell in service container"
         echo "  splunk    Check Splunk logging status and configuration"
         echo ""
+        echo "Data Fetching:"
+        echo "  services       List all data services and their status"
+        echo "  trigger <svc>  Trigger single service to fetch data"
+        echo "  fetch          Trigger all enabled services to fetch data"
+        echo ""
         echo "Options:"
         echo "  --tunnel     Include Cloudflare tunnel service"
         echo "  --no-splunk  Disable Splunk logging (enabled by default)"
@@ -190,8 +237,9 @@ case "$COMMAND" in
         echo "Examples:"
         echo "  relay up                    Start with Splunk logging (default)"
         echo "  relay up --tunnel           Start with tunnel and Splunk"
-        echo "  relay up --no-splunk        Start without Splunk logging"
-        echo "  relay up --tunnel --no-splunk  Start with tunnel only"
+        echo "  relay services              List all data services"
+        echo "  relay trigger markets       Trigger markets data fetch"
+        echo "  relay fetch                 Fetch all data from all services"
         echo "  relay logs gateway          Follow gateway logs only"
         echo "  relay shell redis           Open shell in redis container"
         echo "  relay splunk                Check Splunk status"

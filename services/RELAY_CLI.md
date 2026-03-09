@@ -33,6 +33,10 @@ relay <command> [options]
 | `relay pull` | Pull latest Docker images |
 | `relay shell <service>` | Open shell in service container |
 | `relay splunk` | Check Splunk logging status |
+| **Data Fetching** | |
+| `relay services` | List all data services and their status |
+| `relay trigger <service>` | Trigger single service to fetch data |
+| `relay fetch` | Trigger ALL services to fetch data |
 | `relay help` | Show help message |
 
 ### Options
@@ -67,6 +71,52 @@ relay shell redis
 # Stop all services
 relay down
 ```
+
+## Data Fetching
+
+The relay system continuously fetches data from various sources (markets, news, conflicts, etc.). You can manually trigger data fetches on-demand.
+
+### List All Data Services
+
+```bash
+relay services
+```
+
+Shows:
+- Service key (markets, news, conflicts, etc.)
+- Enabled/disabled status
+- Last run status (success/failed)
+- Last run timestamp
+- Consecutive failure count
+
+### Trigger Single Service
+
+```bash
+# Trigger specific service to fetch fresh data
+relay trigger markets
+relay trigger news
+relay trigger conflicts
+```
+
+This forces an immediate data fetch for that service, regardless of its schedule.
+
+### Fetch All Data
+
+```bash
+relay fetch
+```
+
+This triggers **all enabled services** to fetch fresh data immediately. Useful for:
+- Initial data population after deployment
+- Recovery after extended downtime
+- Manual refresh when data seems stale
+- Testing data pipelines
+
+The command will:
+1. List all enabled services
+2. Trigger each service sequentially
+3. Report success/failure for each
+4. Show final status
 
 ## Splunk Logging
 
