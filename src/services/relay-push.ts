@@ -3,6 +3,7 @@
  * typed data channels, and dispatches payloads to registered handler functions.
  */
 
+import { channelSchemas } from '@/data/channel-schemas';
 import { setChannelState } from '@/services/channel-state';
 
 type ChannelHandler = (payload: unknown) => void;
@@ -32,6 +33,13 @@ function dispatch(channel: string, payload: unknown): void {
   } else {
     console.warn(`[wm:${channel}] null/undefined payload — setting channel to error`);
     setChannelState(channel, 'error', 'websocket', { error: 'No data available' });
+  }
+  const schema = channelSchemas[channel];
+  if (schema) {
+    const result = schema.safeParse(payload);
+    if (!result.success) {
+      console.warn(`[relay-push] schema mismatch (${channel}):`, result.error.issues.map(i => i.message).join('; '));
+    }
   }
   const channelHandlers = handlers.get(channel);
   if (!channelHandlers) return;
