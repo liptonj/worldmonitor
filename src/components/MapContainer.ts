@@ -249,6 +249,14 @@ export class MapContainer {
     }
   }
 
+  public setAisVessels(vessels: unknown[]): void {
+    if (this.useDeckGL) {
+      this.deckGLMap?.setAisVessels(vessels);
+    } else {
+      this.svgMap?.setAisVessels(vessels);
+    }
+  }
+
   public setCableActivity(advisories: CableAdvisory[], repairShips: RepairShip[]): void {
     if (this.useDeckGL) {
       this.deckGLMap?.setCableActivity(advisories, repairShips);

@@ -3548,6 +3548,10 @@ export class MapComponent {
     this.render();
   }
 
+  public setAisVessels(_vessels: unknown[]): void {
+    // Stub — SVG map uses disruptions/density only
+  }
+
   public setCableActivity(advisories: CableAdvisory[], repairShips: RepairShip[]): void {
     this.cableAdvisories = advisories;
     this.repairShips = repairShips;

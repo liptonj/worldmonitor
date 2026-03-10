@@ -6,6 +6,7 @@
  */
 
 import type { AppContext } from '@/app/app-context';
+import { t } from '@/services/i18n';
 import { marketsStore } from '@/stores/markets-store';
 import { dataFreshness } from '@/services/data-freshness';
 import type { GetMarketDashboardResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
@@ -89,21 +90,33 @@ export function createMarketsHandlers(
   function forwardToPanel(channel: string): ChannelHandler {
     return (payload: unknown) => {
       const panel = ctx.panels[channel] as { applyPush?: (p: unknown) => void } | undefined;
-      panel?.applyPush?.(payload);
+      if (!panel?.applyPush) {
+        console.warn(`[wm:${channel}] panel not mounted or missing applyPush`);
+        return;
+      }
+      panel.applyPush(payload);
     };
   }
 
   return {
     markets: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:markets] skipped — invalid payload type:', typeof payload); return; }
       const dashboard = payload as GetMarketDashboardResponse;
-      if (!Array.isArray(dashboard.stocks)) return;
+      if (!Array.isArray(dashboard.stocks)) {
+        console.error('[wm:markets] malformed payload — stocks is not an array');
+        (ctx.panels['markets'] as MarketPanel | undefined)?.showError(t('common.failedMarketData'));
+        return;
+      }
       renderMarketDashboard(dashboard);
     },
     predictions: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:predictions] skipped — invalid payload type:', typeof payload); return; }
       const resp = (Array.isArray(payload) ? { markets: payload } : payload) as ListPredictionMarketsResponse;
-      if (!Array.isArray(resp.markets)) return;
+      if (!Array.isArray(resp.markets)) {
+        console.error('[wm:predictions] malformed payload — markets is not an array');
+        (ctx.panels['polymarket'] as PredictionPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       const predictions = resp.markets.map(m => ({
         title: m.title,
         yesPrice: (m.yesPrice ?? 0.5) * 100,
@@ -114,9 +127,13 @@ export function createMarketsHandlers(
       renderPredictions(predictions);
     },
     'gulf-quotes': (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:gulf-quotes] skipped — invalid payload type:', typeof payload); return; }
       const data = payload as ListGulfQuotesResponse;
-      if (!Array.isArray(data.quotes)) return;
+      if (!Array.isArray(data.quotes)) {
+        console.error('[wm:gulf-quotes] malformed payload — quotes is not an array');
+        (ctx.panels['gulf-economies'] as GulfEconomiesPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       (ctx.panels['gulf-economies'] as GulfEconomiesPanel)?.setData(data);
     },
     stablecoins: forwardToPanel('stablecoins'),

@@ -159,8 +159,8 @@ describe('Frontend hydration (src/services/bootstrap.ts)', () => {
     assert.ok(src.includes('export async function fetchBootstrapData'), 'Missing fetchBootstrapData export');
   });
 
-  it('uses consume-once pattern (deletes after read)', () => {
-    assert.ok(src.includes('.delete('), 'Missing delete in getHydratedData — consume-once pattern not implemented');
+  it('uses consume-once pattern (consumedKeys)', () => {
+    assert.ok(src.includes('consumedKeys'), 'Missing consumedKeys in getHydratedData — consume-once pattern not implemented');
   });
 
   it('has a fast timeout cap to avoid regressing startup', () => {

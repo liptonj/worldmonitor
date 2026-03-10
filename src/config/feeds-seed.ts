@@ -62,6 +62,13 @@ export const SOURCE_TIERS: Record<string, number> = {
   'Fox News': 2,
   'NBC News': 2,
   'CBS News': 2,
+  'ABC News': 2,
+  'Bloomberg US': 1,
+  'USA Today': 2,
+  'The Hill': 2,
+  'Washington Post': 1,
+  'New York Times': 1,
+  'ProPublica': 2,
   'The National': 2,
   'Yonhap News': 2,
   'Chosun Ilbo': 2,
@@ -470,6 +477,13 @@ export const FULL_FEEDS: Record<string, Feed[]> = {
     { name: 'NBC News', url: rss('http://feeds.nbcnews.com/feeds/topstories') },
     { name: 'CBS News', url: rss('http://www.cbsnews.com/latest/rss/main') },
     { name: 'Reuters US', url: rss('http://feeds.reuters.com/Reuters/domesticNews') },
+    { name: 'Bloomberg US', url: rss('https://news.google.com/rss/search?q=site:bloomberg.com+US+when:1d&hl=en-US&gl=US&ceid=US:en') },
+    { name: 'ABC News', url: rss('https://abcnews.go.com/abcnews/topstories') },
+    { name: 'USA Today', url: rss('https://www.usatoday.com/rss/') },
+    { name: 'The Hill', url: rss('https://thehill.com/feed/') },
+    { name: 'Washington Post', url: rss('https://news.google.com/rss/search?q=site:washingtonpost.com+when:1d&hl=en-US&gl=US&ceid=US:en') },
+    { name: 'New York Times', url: rss('https://news.google.com/rss/search?q=site:nytimes.com+when:1d&hl=en-US&gl=US&ceid=US:en') },
+    { name: 'ProPublica', url: rss('https://feeds.propublica.org/propublica/main') },
   ],
   europe: [
     {
@@ -1150,7 +1164,7 @@ export const INTEL_SOURCES: Feed[] = [
 // Default-enabled sources per panel (Tier 1+2 priority, ≥8 per panel)
 export const DEFAULT_ENABLED_SOURCES: Record<string, string[]> = {
   politics: ['BBC World', 'Guardian World', 'AP News', 'Reuters World', 'CNN World'],
-  us: ['NPR News', 'Politico', 'Axios', 'Fox News', 'NBC News', 'CBS News', 'Reuters US'],
+  us: ['NPR News', 'Politico', 'Axios', 'Fox News', 'NBC News', 'CBS News', 'Reuters US', 'Bloomberg US', 'ABC News', 'USA Today', 'The Hill', 'Washington Post', 'New York Times', 'ProPublica'],
   europe: ['France 24', 'EuroNews', 'Le Monde', 'DW News', 'Tagesschau', 'ANSA', 'NOS Nieuws', 'SVT Nyheter'],
   middleeast: ['BBC Middle East', 'Al Jazeera', 'Al Arabiya', 'Guardian ME', 'BBC Persian', 'Iran International', 'Haaretz', 'Asharq News', 'The National'],
   africa: ['BBC Africa', 'News24', 'Africanews', 'Jeune Afrique', 'Africa News', 'Premium Times', 'Channels TV', 'Sahel Crisis'],

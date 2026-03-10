@@ -4,6 +4,7 @@
 
 import type { AppContext } from '@/app/app-context';
 import type { SocialUnrestEvent } from '@/types';
+import { t } from '@/services/i18n';
 import { intelStore } from '@/stores/intel-store';
 import { mapConflictPayload, mapUcdpPayload } from '@/services/conflict';
 import { dataFreshness } from '@/services/data-freshness';
@@ -63,30 +64,49 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
   function forwardToPanel(channel: string): ChannelHandler {
     return (payload: unknown) => {
       const panel = ctx.panels[channel] as { applyPush?: (p: unknown) => void } | undefined;
-      panel?.applyPush?.(payload);
+      if (!panel?.applyPush) {
+        console.warn(`[wm:${channel}] panel not mounted or missing applyPush`);
+        return;
+      }
+      panel.applyPush(payload);
     };
   }
 
   return {
     intelligence: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:intelligence] skipped — invalid payload type:', typeof payload); return; }
       const raw = payload as Record<string, unknown>;
       if (raw.error && raw.data === null) {
+        console.error('[wm:intelligence] upstream error — digest temporarily unavailable', raw.error);
         (ctx.panels['global-digest'] as GlobalDigestPanel | undefined)?.showError(
-          'Intelligence digest temporarily unavailable.',
+          t('common.digestTemporarilyUnavailable'),
         );
         return;
       }
       const data = payload as GetGlobalIntelDigestResponse;
-      if (!data.digest && !data.generatedAt) return;
+      if (!data.digest && !data.generatedAt) {
+        console.warn('[wm:intelligence] no digest or generatedAt in payload');
+        (ctx.panels['global-digest'] as GlobalDigestPanel | undefined)?.showUnavailable(
+          t('common.digestNotYetAvailable'),
+        );
+        return;
+      }
       renderIntelligence(data);
     },
     conflict: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:conflict] skipped — invalid payload type:', typeof payload); return; }
       const resp = payload as import('@/generated/client/worldmonitor/conflict/v1/service_client').ListAcledEventsResponse;
-      if (!Array.isArray(resp.events)) return;
+      if (!Array.isArray(resp.events)) {
+        console.error('[wm:conflict] malformed payload — events is not an array');
+        (ctx.panels['cii'] as CIIPanel | undefined)?.refresh();
+        return;
+      }
       const data = mapConflictPayload(resp);
-      if (data.count === 0) return;
+      if (data.count === 0) {
+        console.warn('[wm:conflict] 0 conflict events received');
+        (ctx.panels['cii'] as CIIPanel | undefined)?.refresh();
+        return;
+      }
       ingestConflictsForCII(data.events);
       dataFreshness.recordUpdate('acled_conflict', data.count);
       const protestEvents: SocialUnrestEvent[] = data.events.map((e) => ({
@@ -125,20 +145,38 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
         adapted = { ...raw, data: raw.events, success: true };
       }
       const result = mapUcdpPayload(adapted);
-      if (!result || !result.success || result.data.length === 0) return;
+      if (!result || !result.success) {
+        console.error('[wm:ucdp-events] payload parse failed or success=false');
+        (ctx.panels['ucdp-events'] as UcdpEventsPanel | undefined)?.setEvents([]);
+        return;
+      }
+      if (result.data.length === 0) {
+        (ctx.panels['ucdp-events'] as UcdpEventsPanel | undefined)?.setEvents([]);
+        return;
+      }
       (ctx.panels['ucdp-events'] as UcdpEventsPanel)?.setEvents(result.data);
       if (ctx.mapLayers.ucdpEvents) ctx.map?.setUcdpEvents(result.data);
       dataFreshness.recordUpdate('ucdp_events', result.count);
     },
     telegram: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:telegram] skipped — invalid payload type:', typeof payload); return; }
       const raw = payload as Record<string, unknown>;
       const messages: unknown[] = Array.isArray(raw.items)
         ? raw.items
         : Array.isArray(raw.messages)
           ? raw.messages
           : [];
-      if (messages.length === 0) return;
+      if (messages.length === 0) {
+        (ctx.panels['telegram-intel'] as TelegramIntelPanel | undefined)?.setData({
+          source: 'telegram' as const,
+          earlySignal: false,
+          enabled: true,
+          count: 0,
+          updatedAt: String(raw.timestamp ?? new Date().toISOString()),
+          items: [],
+        });
+        return;
+      }
 
       const items = messages.map((msg: unknown) => {
         const m = msg as Record<string, unknown>;
@@ -167,7 +205,7 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
       (ctx.panels['telegram-intel'] as TelegramIntelPanel)?.setData(adapted);
     },
     oref: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:oref] skipped — invalid payload type:', typeof payload); return; }
       let data = payload as OrefAlertsResponse;
       if (!('configured' in data) && !('alerts' in data)) {
         const raw = payload as Record<string, unknown>;
@@ -181,28 +219,48 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
             timestamp: new Date().toISOString(),
           };
         } else {
+          console.warn('[wm:oref] unrecognized payload shape — rendering as unconfigured');
+          renderOrefAlerts({ configured: false, alerts: [], historyCount24h: 0, timestamp: new Date().toISOString() });
           return;
         }
       }
       renderOrefAlerts(data);
     },
     'iran-events': (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:iran-events] skipped — invalid payload type:', typeof payload); return; }
       const resp = payload as { events?: import('@/generated/client/worldmonitor/conflict/v1/service_client').IranEvent[] };
-      if (!Array.isArray(resp.events)) return;
+      if (!Array.isArray(resp.events)) {
+        console.warn('[wm:iran-events] malformed payload — events is not an array');
+        renderIranEvents([]);
+        return;
+      }
       renderIranEvents(resp.events);
     },
     'strategic-posture': forwardToPanel('strategic-posture'),
     'strategic-risk': forwardToPanel('strategic-risk'),
     gdelt: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
-      const gdeltPanel = ctx.panels['gdelt-intel'] as { refresh?: () => void } | undefined;
-      gdeltPanel?.refresh?.();
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:gdelt] skipped — invalid payload type:', typeof payload); return; }
+      const gdeltPanel = ctx.panels['gdelt-intel'] as {
+        refresh?: () => void;
+        applyRelayData?: (data: unknown) => void;
+      } | undefined;
+      if (gdeltPanel?.applyRelayData) {
+        gdeltPanel.applyRelayData(payload);
+      } else if (gdeltPanel?.refresh) {
+        console.warn('[wm:gdelt] panel missing applyRelayData — falling back to refresh()');
+        gdeltPanel.refresh();
+      } else {
+        console.warn('[wm:gdelt] panel not mounted');
+      }
     },
     pizzint: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:pizzint] skipped — invalid payload type:', typeof payload); return; }
       const resp = payload as import('@/generated/client/worldmonitor/intelligence/v1/service_client').GetPizzintStatusResponse;
-      if (!resp.pizzint && !(Array.isArray(resp.tensionPairs) && resp.tensionPairs.length > 0)) return;
+      if (!resp.pizzint && !(Array.isArray(resp.tensionPairs) && resp.tensionPairs.length > 0)) {
+        console.warn('[wm:pizzint] no pizzint status or tension pairs — hiding indicator');
+        ctx.pizzintIndicator?.hide();
+        return;
+      }
       const { status, tensions } = parsePizzintResponse(resp);
       renderPizzInt(status, tensions);
     },

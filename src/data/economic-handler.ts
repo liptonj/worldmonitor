@@ -4,6 +4,7 @@
 
 import type { AppContext } from '@/app/app-context';
 import { fredResponseToClientSeries, energyPricesToOilAnalytics } from '@/services';
+import { t } from '@/services/i18n';
 import { dataFreshness } from '@/services/data-freshness';
 import { protoToGivingSummary } from '@/services/giving';
 import type { GetBisPolicyRatesResponse, GetFredDashboardResponse, GetFredSeriesResponse, GetEnergyPricesResponse } from '@/generated/client/worldmonitor/economic/v1/service_client';
@@ -135,23 +136,35 @@ export function createEconomicHandlers(ctx: AppContext): Record<string, ChannelH
 
   return {
     fred: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:fred] skipped — invalid payload type:', typeof payload); return; }
       const resp = (Array.isArray(payload) ? { series: payload } : payload) as GetFredDashboardResponse | GetFredSeriesResponse;
-      if (!('series' in resp)) return;
+      if (!('series' in resp)) {
+        console.error('[wm:fred] malformed payload — missing series field');
+        (ctx.panels['economic'] as EconomicPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       const data = fredResponseToClientSeries(resp);
       renderFredData(data);
     },
     oil: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:oil] skipped — invalid payload type:', typeof payload); return; }
       const resp = (Array.isArray(payload) ? { prices: payload } : payload) as GetEnergyPricesResponse;
-      if (!Array.isArray(resp.prices)) return;
+      if (!Array.isArray(resp.prices)) {
+        console.error('[wm:oil] malformed payload — prices is not an array');
+        (ctx.panels['economic'] as EconomicPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       const data = energyPricesToOilAnalytics(resp);
       renderOilData(data);
     },
     bis: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:bis] skipped — invalid payload type:', typeof payload); return; }
       const resp = (Array.isArray(payload) ? { rates: payload } : payload) as GetBisPolicyRatesResponse;
-      if (!Array.isArray(resp.rates)) return;
+      if (!Array.isArray(resp.rates)) {
+        console.error('[wm:bis] malformed payload — rates is not an array');
+        (ctx.panels['economic'] as EconomicPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       const data: BisData = {
         policyRates: resp.rates,
         exchangeRates: [],
@@ -161,7 +174,7 @@ export function createEconomicHandlers(ctx: AppContext): Record<string, ChannelH
       renderBisData(data);
     },
     trade: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:trade] skipped — invalid payload type:', typeof payload); return; }
       let data = payload as GetTradeBarriersResponse;
       if (Array.isArray(payload)) {
         data = { barriers: payload } as unknown as GetTradeBarriersResponse;
@@ -170,17 +183,25 @@ export function createEconomicHandlers(ctx: AppContext): Record<string, ChannelH
         if (Array.isArray(inner)) data = { barriers: inner } as unknown as GetTradeBarriersResponse;
         else if (inner && typeof inner === 'object') data = inner as GetTradeBarriersResponse;
       }
-      if (!('barriers' in data)) return;
+      if (!('barriers' in data)) {
+        console.error('[wm:trade] malformed payload — missing barriers field');
+        (ctx.panels['trade-policy'] as TradePolicyPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       renderTradePolicy(data);
     },
     'supply-chain': (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:supply-chain] skipped — invalid payload type:', typeof payload); return; }
       const data = (Array.isArray(payload) ? { chokepoints: payload } : payload) as GetChokepointStatusResponse;
-      if (!('chokepoints' in data)) return;
+      if (!('chokepoints' in data)) {
+        console.error('[wm:supply-chain] malformed payload — missing chokepoints field');
+        (ctx.panels['supply-chain'] as SupplyChainPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       renderSupplyChain(data);
     },
     spending: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:spending] skipped — invalid payload type:', typeof payload); return; }
       let data = payload as import('@/services/usa-spending').SpendingSummary;
       if (Array.isArray(payload)) {
         data = { awards: payload } as import('@/services/usa-spending').SpendingSummary;
@@ -188,13 +209,21 @@ export function createEconomicHandlers(ctx: AppContext): Record<string, ChannelH
         const inner = (payload as Record<string, unknown>).data;
         if (Array.isArray(inner)) data = { ...payload as object, awards: inner } as import('@/services/usa-spending').SpendingSummary;
       }
-      if (!Array.isArray(data.awards)) return;
+      if (!Array.isArray(data.awards)) {
+        console.error('[wm:spending] malformed payload — awards is not an array');
+        (ctx.panels['economic'] as EconomicPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       renderSpending(data);
     },
     giving: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:giving] skipped — invalid payload type:', typeof payload); return; }
       const data = protoToGivingSummary(payload as GetGivingSummaryResponse);
-      if (!data || !Array.isArray(data.platforms)) return;
+      if (!data || !Array.isArray(data.platforms)) {
+        console.error('[wm:giving] malformed payload — platforms is not an array');
+        (ctx.panels['giving'] as GivingPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       renderGiving(data);
     },
   };

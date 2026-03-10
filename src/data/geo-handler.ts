@@ -100,13 +100,17 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
 
   return {
     natural: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:natural] skipped — invalid payload type:', typeof payload); return; }
       const data = payload as ListFireDetectionsResponse;
-      if (!Array.isArray(data.fireDetections)) return;
+      if (!Array.isArray(data.fireDetections)) {
+        console.error('[wm:natural] malformed payload — fireDetections is not an array');
+        renderNatural({ fireDetections: [] } as ListFireDetectionsResponse);
+        return;
+      }
       renderNatural(data);
     },
     eonet: (payload: unknown) => {
-      if (!payload || !Array.isArray(payload)) return;
+      if (!payload || !Array.isArray(payload)) { console.warn('[wm:eonet] skipped — payload is not an array:', typeof payload); return; }
       const events = payload as import('@/types').NaturalEvent[];
       const valid = events.filter((e): e is import('@/types').NaturalEvent =>
         e && typeof e === 'object' && typeof e.lat === 'number' && typeof e.lon === 'number' && typeof e.id === 'string');
@@ -114,7 +118,7 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
       mergeAndRenderNaturalEvents(ctx);
     },
     gdacs: (payload: unknown) => {
-      if (!payload || !Array.isArray(payload)) return;
+      if (!payload || !Array.isArray(payload)) { console.warn('[wm:gdacs] skipped — payload is not an array:', typeof payload); return; }
       const raw = payload as unknown[];
       const GDACS_TO_CATEGORY: Record<string, import('@/types').NaturalEventCategory> = {
         EQ: 'earthquakes', FL: 'floods', TC: 'severeStorms', VO: 'volcanoes', WF: 'wildfires', DR: 'drought',
@@ -144,7 +148,7 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
       mergeAndRenderNaturalEvents(ctx);
     },
     weather: (payload: unknown) => {
-      if (!Array.isArray(payload)) return;
+      if (!Array.isArray(payload)) { console.warn('[wm:weather] skipped — payload is not an array:', typeof payload); return; }
       const alerts = payload.map((a: unknown) => {
         const item = a as Record<string, unknown>;
         return {
@@ -163,11 +167,19 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
       renderWeatherAlerts(alerts);
     },
     climate: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:climate] skipped — invalid payload type:', typeof payload); return; }
       const resp = (Array.isArray(payload) ? { anomalies: payload } : payload) as import('@/generated/client/worldmonitor/climate/v1/service_client').ListClimateAnomaliesResponse;
-      if (!Array.isArray(resp.anomalies)) return;
+      if (!Array.isArray(resp.anomalies)) {
+        console.warn('[wm:climate] malformed payload — anomalies is not an array');
+        (ctx.panels['climate'] as ClimateAnomalyPanel)?.setAnomalies([]);
+        return;
+      }
       const anomalies = mapClimatePayload(resp);
-      if (anomalies.length === 0) return;
+      if (anomalies.length === 0) {
+        console.warn('[wm:climate] 0 climate anomalies received');
+        (ctx.panels['climate'] as ClimateAnomalyPanel)?.setAnomalies([]);
+        return;
+      }
       (ctx.panels['climate'] as ClimateAnomalyPanel)?.setAnomalies(anomalies);
       ingestClimateForCII(anomalies);
       if (ctx.mapLayers.climate) ctx.map?.setClimateAnomalies(anomalies);
@@ -176,7 +188,11 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
     'gps-interference': (payload: unknown) => {
       const adapted = Array.isArray(payload) ? { hexes: payload } : payload;
       const data = parseGpsJamPayload(adapted);
-      if (!data) return;
+      if (!data) {
+        console.error('[wm:gps-interference] failed to parse GPS jam payload');
+        ctx.statusPanel?.updateFeed('GPS Jam', { status: 'error', itemCount: 0 });
+        return;
+      }
       renderGpsInterference(data);
     },
   };

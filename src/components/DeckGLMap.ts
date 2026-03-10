@@ -3928,6 +3928,10 @@ export class DeckGLMap {
     this.render();
   }
 
+  public setAisVessels(_vessels: unknown[]): void {
+    // Stub — AIS layer uses disruptions/density only
+  }
+
   public setCableActivity(advisories: CableAdvisory[], repairShips: RepairShip[]): void {
     this.cableAdvisories = advisories.filter(Boolean);
     this.repairShips = repairShips.filter(Boolean);

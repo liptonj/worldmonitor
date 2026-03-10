@@ -5,7 +5,7 @@ import { h, replaceChildren, safeHtml } from '../utils/dom-utils';
 import { trackPanelResized } from '@/services/analytics';
 import { getAiFlowSettings } from '@/services/ai-flow-settings';
 import type { ChannelStatus } from '@/services/channel-state';
-import { subscribeChannelState } from '@/services/channel-state';
+import { getChannelState, subscribeChannelState } from '@/services/channel-state';
 
 export interface PanelOptions {
   id: string;
@@ -162,7 +162,9 @@ function setSpanClass(element: HTMLElement, span: number): void {
 }
 
 export class Panel {
-  /** Channel keys this panel depends on (e.g. 'markets', 'fred'). Override in subclasses. Used by Task 5.2 for auto-subscription. */
+  static readonly LOADING_TIMEOUT_MS = 30000;
+
+  /** Channel keys this panel depends on (e.g. 'markets', 'fred'). Override in subclasses to enable automatic channel-state subscription. */
   readonly channelKeys: string[] = [];
 
   protected element: HTMLElement;
@@ -201,6 +203,7 @@ export class Panel {
   private contentDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private channelUnsubscribes: (() => void)[] = [];
   private destroyed = false;
+  private _loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: PanelOptions) {
     this.panelId = options.id;
@@ -300,6 +303,13 @@ export class Panel {
     queueMicrotask(() => this.subscribeToChannelState());
   }
 
+  private clearLoadingTimeout(): void {
+    if (this._loadingTimeoutId !== null) {
+      clearTimeout(this._loadingTimeoutId);
+      this._loadingTimeoutId = null;
+    }
+  }
+
   private subscribeToChannelState(): void {
     if (this.destroyed || this.channelKeys.length === 0) return;
     for (const channel of this.channelKeys) {
@@ -308,10 +318,26 @@ export class Panel {
       });
       this.channelUnsubscribes.push(unsub);
     }
+    this._loadingTimeoutId = setTimeout(() => {
+      this._loadingTimeoutId = null;
+      if (this.destroyed) return;
+      const allLoadingOrIdle = this.channelKeys.every((key) => {
+        const s = getChannelState(key);
+        return s.state === 'loading' || s.state === 'idle';
+      });
+      if (allLoadingOrIdle) {
+        console.warn(`[wm:panel:${this.panelId}] loading timeout (${Panel.LOADING_TIMEOUT_MS}ms) — channels still idle/loading:`, this.channelKeys);
+        this.showUnavailable(t('common.dataTimeout'));
+        this.setDataBadge('unavailable', t('common.dataTimeout'));
+      }
+    }, Panel.LOADING_TIMEOUT_MS);
   }
 
   private handleChannelStatus(channel: string, status: ChannelStatus): void {
     if (this.destroyed) return;
+    if (status.state !== 'loading' && status.state !== 'idle') {
+      this.clearLoadingTimeout();
+    }
     switch (status.state) {
       case 'ready':
         this.onChannelReady(channel, { status });
@@ -865,6 +891,7 @@ export class Panel {
 
   public destroy(): void {
     this.destroyed = true;
+    this.clearLoadingTimeout();
     for (const unsub of this.channelUnsubscribes) {
       unsub();
     }

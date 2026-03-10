@@ -5,10 +5,8 @@ import {
   type HumanitarianCountrySummary as ProtoHumanSummary,
   type ListAcledEventsResponse,
   type ListUcdpEventsResponse,
-  type GetHumanitarianSummaryResponse,
   type ListAllHumanitarianSummariesResponse,
   type IranEvent,
-  type ListIranEventsResponse,
 } from '@/generated/client/worldmonitor/conflict/v1/service_client';
 import type { UcdpGeoEvent, UcdpEventType } from '@/types';
 import { createCircuitBreaker } from '@/utils';
@@ -17,17 +15,12 @@ import { getHydratedData } from '@/services/bootstrap';
 // ---- Client + Circuit Breakers (3 separate breakers for 3 RPCs) ----
 
 const client = new ConflictServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-const acledBreaker = createCircuitBreaker<ListAcledEventsResponse>({ name: 'ACLED Conflicts', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
 const ucdpBreaker = createCircuitBreaker<ListUcdpEventsResponse>({ name: 'UCDP Events', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
-const hapiBreaker = createCircuitBreaker<GetHumanitarianSummaryResponse>({ name: 'HDX HAPI', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
 const hapiAllBreaker = createCircuitBreaker<ListAllHumanitarianSummariesResponse>({
   name: 'HDX HAPI All',
   cacheTtlMs: 10 * 60 * 1000,
   persistCache: true,
 });
-const iranBreaker = createCircuitBreaker<ListIranEventsResponse>({ name: 'Iran Events', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
-
-const emptyIranFallback: ListIranEventsResponse = { events: [], scrapedAt: '0' };
 
 export type { IranEvent };
 
@@ -138,11 +131,6 @@ function toUcdpGeoEvent(proto: ProtoUcdpEvent): UcdpGeoEvent {
 
 // ---- Adapter 3: Proto HumanitarianCountrySummary -> legacy HapiConflictSummary ----
 
-const HAPI_COUNTRY_CODES = [
-  'US', 'RU', 'CN', 'UA', 'IR', 'IL', 'TW', 'KP', 'SA', 'TR',
-  'PL', 'DE', 'FR', 'GB', 'IN', 'PK', 'SY', 'YE', 'MM', 'VE',
-];
-
 function toHapiSummary(proto: ProtoHumanSummary): HapiConflictSummary {
   // Proto fields now accurately represent HAPI conflict event data (MEDIUM-1 fix)
   return {
@@ -237,38 +225,10 @@ interface AcledEvent {
 
 // ---- Empty fallbacks ----
 
-const emptyAcledFallback: ListAcledEventsResponse = { events: [], pagination: undefined };
 const emptyUcdpFallback: ListUcdpEventsResponse = { events: [], pagination: undefined };
-const emptyHapiFallback: GetHumanitarianSummaryResponse = { summary: undefined };
 const emptyHapiAllFallback: ListAllHumanitarianSummariesResponse = { summaries: [] };
 
 // ---- Exported Functions ----
-
-/** @deprecated Use fetchRelayPanel('conflict') / applyConflict */
-export async function fetchConflictEvents(): Promise<ConflictData> {
-  const resp = await acledBreaker.execute(async () => {
-    return client.listAcledEvents({ country: '', start: 0, end: 0, pageSize: 0, cursor: '' });
-  }, emptyAcledFallback);
-
-  const events = resp.events.map(toConflictEvent);
-
-  const byCountry = new Map<string, ConflictEvent[]>();
-  let totalFatalities = 0;
-
-  for (const event of events) {
-    totalFatalities += event.fatalities;
-    const existing = byCountry.get(event.country) || [];
-    existing.push(event);
-    byCountry.set(event.country, existing);
-  }
-
-  return {
-    events,
-    byCountry,
-    totalFatalities,
-    count: events.length,
-  };
-}
 
 export async function fetchUcdpClassifications(): Promise<Map<string, UcdpConflictStatus>> {
   const resp = await ucdpBreaker.execute(async () => {
@@ -279,29 +239,6 @@ export async function fetchUcdpClassifications(): Promise<Map<string, UcdpConfli
   if (resp.events.length === 0) ucdpBreaker.clearCache();
 
   return deriveUcdpClassifications(resp.events);
-}
-
-export async function fetchHapiSummary(): Promise<Map<string, HapiConflictSummary>> {
-  const results = await Promise.allSettled(
-    HAPI_COUNTRY_CODES.map(async (iso2) => {
-      const resp = await hapiBreaker.execute(async () => {
-        return client.getHumanitarianSummary({ countryCode: iso2 });
-      }, emptyHapiFallback);
-      return { iso2, resp };
-    }),
-  );
-
-  const byCode = new Map<string, HapiConflictSummary>();
-
-  for (const result of results) {
-    if (result.status === 'fulfilled' && result.value.resp.summary) {
-      const { iso2, resp } = result.value;
-      const summary = toHapiSummary(resp.summary!);
-      byCode.set(iso2, summary);
-    }
-  }
-
-  return byCode;
 }
 
 export async function fetchAllHapiSummaries(): Promise<Map<string, HapiConflictSummary>> {
@@ -397,17 +334,6 @@ export function groupByType(events: UcdpGeoEvent[]): Record<string, UcdpGeoEvent
     'non-state': events.filter(e => e.type_of_violence === 'non-state'),
     'one-sided': events.filter(e => e.type_of_violence === 'one-sided'),
   };
-}
-
-/** @deprecated Use fetchRelayPanel('iran-events') / applyIranEvents */
-export async function fetchIranEvents(): Promise<IranEvent[]> {
-  const resp = await iranBreaker.execute(async () => {
-    // Bypass stale CDN cache from pre-Redis deployment (remove once CDN is clean)
-    const r = await globalThis.fetch('/api/conflict/v1/list-iran-events?_v=8');
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json() as Promise<ListIranEventsResponse>;
-  }, emptyIranFallback);
-  return resp.events;
 }
 
 /** Map relay-pushed conflict payload (ListAcledEventsResponse) to ConflictData. */

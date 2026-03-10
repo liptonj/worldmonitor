@@ -416,7 +416,13 @@ export function createNewsHandlers(
   }
 
   function applyNewsDigest(payload: unknown): void {
-    if (!payload) return;
+    if (!payload) {
+      console.warn('[wm:news] null/undefined payload — no news available');
+      for (const panel of Object.values(ctx.newsPanels)) {
+        if (panel) panel.showError(t('common.noNewsAvailable'));
+      }
+      return;
+    }
 
     if (typeof payload === 'object' && !Array.isArray(payload)) {
       const obj = payload as Record<string, unknown>;

@@ -7,16 +7,20 @@ import type { AppContext } from '@/app/app-context';
 export function createAiHandlers(ctx: AppContext): Record<string, (payload: unknown) => void> {
   return {
     'ai:intel-digest': (payload: unknown) => {
+      if (!payload) { console.warn('[wm:ai:intel-digest] null/undefined payload'); return; }
       const digestPanel = ctx.panels['global-digest'] as { applyAiDigest?: (p: unknown) => void } | undefined;
-      digestPanel?.applyAiDigest?.(payload);
+      if (!digestPanel?.applyAiDigest) {
+        console.warn('[wm:ai:intel-digest] panel not mounted or missing applyAiDigest');
+        return;
+      }
+      digestPanel.applyAiDigest(payload);
     },
     'ai:panel-summary': (payload: unknown) => {
-      // Check for error codes from server (provider_missing, prompt_missing, timeout, etc.)
+      if (!payload) { console.warn('[wm:ai:panel-summary] null/undefined payload'); return; }
       const response = payload as { errorCode?: string; summary?: string } | undefined;
       if (response?.errorCode) {
-        console.error(`[AI Panel Summary] errorCode=${response.errorCode}`);
-        // Error handling via i18n keys: errorProviderMissing, errorPromptMissing, errorTimeout, errorRetry
-        let errorKey = 'errorRetry'; // default generic error
+        console.error(`[wm:ai:panel-summary] errorCode=${response.errorCode}`);
+        let errorKey = 'errorRetry';
         if (response.errorCode === 'provider_missing') errorKey = 'errorProviderMissing';
         else if (response.errorCode === 'prompt_missing') errorKey = 'errorPromptMissing';
         else if (response.errorCode === 'timeout') errorKey = 'errorTimeout';
@@ -30,29 +34,47 @@ export function createAiHandlers(ctx: AppContext): Record<string, (payload: unkn
       document.dispatchEvent(new CustomEvent('wm:panel-summary-updated', { detail: payload }));
     },
     'ai:article-summaries': (payload: unknown) => {
+      if (!payload) { console.warn('[wm:ai:article-summaries] null/undefined payload'); return; }
       (ctx as unknown as { articleSummaries?: unknown }).articleSummaries = payload;
       (window as unknown as { __wmArticleSummaries?: unknown }).__wmArticleSummaries = payload;
       document.dispatchEvent(new CustomEvent('wm:article-summaries-updated', { detail: payload }));
     },
     'ai:classifications': (payload: unknown) => {
+      if (!payload) { console.warn('[wm:ai:classifications] null/undefined payload'); return; }
       (ctx as unknown as { classifications?: unknown }).classifications = payload;
       (window as unknown as { __wmRelayClassifications?: unknown }).__wmRelayClassifications = payload;
       document.dispatchEvent(new CustomEvent('wm:classifications-updated', { detail: payload }));
     },
     'ai:country-briefs': (payload: unknown) => {
+      if (!payload) { console.warn('[wm:ai:country-briefs] null/undefined payload'); return; }
       (ctx as unknown as { countryBriefs?: unknown }).countryBriefs = payload;
     },
     'ai:posture-analysis': (payload: unknown) => {
+      if (!payload) { console.warn('[wm:ai:posture-analysis] null/undefined payload'); return; }
       const posturePanel = ctx.panels['strategic-posture'] as { applyAiAnalysis?: (p: unknown) => void } | undefined;
-      posturePanel?.applyAiAnalysis?.(payload);
+      if (!posturePanel?.applyAiAnalysis) {
+        console.warn('[wm:ai:posture-analysis] panel not mounted or missing applyAiAnalysis');
+        return;
+      }
+      posturePanel.applyAiAnalysis(payload);
     },
     'ai:instability-analysis': (payload: unknown) => {
+      if (!payload) { console.warn('[wm:ai:instability-analysis] null/undefined payload'); return; }
       const riskPanel = ctx.panels['strategic-risk'] as { applyInstabilityAnalysis?: (p: unknown) => void } | undefined;
-      riskPanel?.applyInstabilityAnalysis?.(payload);
+      if (!riskPanel?.applyInstabilityAnalysis) {
+        console.warn('[wm:ai:instability-analysis] panel not mounted or missing applyInstabilityAnalysis');
+        return;
+      }
+      riskPanel.applyInstabilityAnalysis(payload);
     },
     'ai:risk-overview': (payload: unknown) => {
+      if (!payload) { console.warn('[wm:ai:risk-overview] null/undefined payload'); return; }
       const riskPanel = ctx.panels['strategic-risk'] as { applyAiOverview?: (p: unknown) => void } | undefined;
-      riskPanel?.applyAiOverview?.(payload);
+      if (!riskPanel?.applyAiOverview) {
+        console.warn('[wm:ai:risk-overview] panel not mounted or missing applyAiOverview');
+        return;
+      }
+      riskPanel.applyAiOverview(payload);
     },
   };
 }

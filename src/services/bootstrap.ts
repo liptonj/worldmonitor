@@ -10,10 +10,12 @@ const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 export { RELAY_CHANNELS };
 
 const hydrationCache = new Map<string, unknown>();
+const consumedKeys = new Set<string>();
 
 export function getHydratedData(key: string): unknown | undefined {
+  if (consumedKeys.has(key)) return undefined;
   const val = hydrationCache.get(key);
-  if (val !== undefined) hydrationCache.delete(key);
+  if (val !== undefined) consumedKeys.add(key);
   return val;
 }
 
