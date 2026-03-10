@@ -1,5 +1,6 @@
 import type { GetGlobalIntelDigestResponse } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { Panel } from './Panel';
+import { getBufferedAiPayload } from '@/data/ai-handler';
 import { IntelligenceServiceClient } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { fetchRelayPanel } from '@/services/relay-http';
 import { h, replaceChildren } from '@/utils/dom-utils';
@@ -63,6 +64,8 @@ export class GlobalDigestPanel extends Panel {
       document.head.appendChild(style);
     }
 
+    const bufferedDigest = getBufferedAiPayload('ai:intel-digest');
+    if (bufferedDigest) this.applyAiDigest(bufferedDigest);
   }
 
   getSummaryData(): string | null {

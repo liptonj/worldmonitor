@@ -1,5 +1,6 @@
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
+import { getBufferedAiPayload } from '@/data/ai-handler';
 import { t } from '@/services/i18n';
 import { getCSSColor } from '@/utils';
 import {
@@ -75,6 +76,11 @@ export class StrategicRiskPanel extends Panel {
         this.refresh();
       };
       document.addEventListener('wm:breaking-news', this.boundOnBreaking);
+
+      const bufferedInstability = getBufferedAiPayload('ai:instability-analysis');
+      if (bufferedInstability) this.applyInstabilityAnalysis(bufferedInstability);
+      const bufferedOverview = getBufferedAiPayload('ai:risk-overview');
+      if (bufferedOverview) this.applyAiOverview(bufferedOverview);
 
       await this.refresh();
     } catch (error) {

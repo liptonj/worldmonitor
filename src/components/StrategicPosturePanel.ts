@@ -1,5 +1,6 @@
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
+import { getBufferedAiPayload } from '@/data/ai-handler';
 import { adaptPosturePayload, fetchCachedTheaterPosture, type CachedTheaterPosture } from '@/services/cached-theater-posture';
 import { fetchMilitaryVessels } from '@/services/military-vessels';
 import { recalcPostureWithVessels, type TheaterPostureSummary } from '@/services/military-surge';
@@ -29,6 +30,9 @@ export class StrategicPosturePanel extends Panel {
       infoTooltip: t('components.strategicPosture.infoTooltip'),
     });
     this.init();
+
+    const bufferedPosture = getBufferedAiPayload('ai:posture-analysis');
+    if (bufferedPosture) this.applyAiAnalysis(bufferedPosture);
   }
 
   private init(): void {

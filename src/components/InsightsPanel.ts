@@ -60,6 +60,12 @@ export class InsightsPanel extends Panel {
     };
     document.addEventListener('wm:panel-summary-updated', handler);
     this.panelSummaryUnsubscribe = () => document.removeEventListener('wm:panel-summary-updated', handler);
+
+    // Check for buffered data that arrived before mount
+    const existing = (window as unknown as { __wmLatestPanelSummary?: unknown }).__wmLatestPanelSummary;
+    if (existing) {
+      this.applyAiPanelSummary(existing);
+    }
   }
 
   override showLoading(message?: string): void {
