@@ -19,4 +19,5 @@ export const channelSchemas: Record<string, z.ZodSchema> = {
   'ai:posture-analysis': z.object({}).passthrough(),
   gdelt: z.object({}).passthrough(),
   cyber: z.union([z.array(z.unknown()), z.object({ threats: z.array(z.unknown()) }).passthrough()]),
+  'security-advisories': z.union([z.array(z.unknown()), z.object({ items: z.array(z.unknown()) }).passthrough()]),
 };

@@ -39,6 +39,7 @@ const CHANNEL_REGISTRY = {
   'ucdp-events': require('./ucdp-events.cjs'),
   'gulf-quotes': require('./gulf-quotes.cjs'),
   'tech-events': require('./tech-events.cjs'),
+  'security-advisories': require('./security-advisories.cjs'),
   'spending': require('./spending.cjs'),
   'config:news-sources': require('./config-news-sources.cjs'),
   'config:feature-flags': require('./config-feature-flags.cjs'),
