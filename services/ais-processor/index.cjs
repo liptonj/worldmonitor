@@ -32,6 +32,8 @@ const MAX_DENSITY_ZONES = 200;
 const vesselHistory = new Map();
 const chokepointBuckets = new Map();
 const densityGrid = new Map();
+const vesselGridCell = new Map(); // Track which grid cell each vessel is in
+const vesselChokepoints = new Map(); // Track which chokepoints each vessel is in
 
 // In-memory vessel state: Map<mmsi, { mmsi, lat, lon, heading, speed, timestamp, shipName, ... }>
 const vessels = new Map();
@@ -41,6 +43,8 @@ function _resetVessels() {
   vesselHistory.clear();
   chokepointBuckets.clear();
   densityGrid.clear();
+  vesselGridCell.clear();
+  vesselChokepoints.clear();
 }
 
 function processAisMessage(message) {
@@ -71,20 +75,38 @@ function processAisMessage(message) {
     vesselHistory.set(mmsiStr, history);
 
     if (Number.isFinite(updated.lat) && Number.isFinite(updated.lon)) {
+      // Track chokepoints - remove from old, add to new
+      const currentChokepoints = new Set();
       for (const cp of CHOKEPOINTS) {
         const dist = Math.sqrt((updated.lat - cp.lat) ** 2 + (updated.lon - cp.lon) ** 2);
         if (dist <= cp.radius) {
+          currentChokepoints.add(cp.name);
           if (!chokepointBuckets.has(cp.name)) chokepointBuckets.set(cp.name, new Set());
           chokepointBuckets.get(cp.name).add(mmsiStr);
         }
       }
+      // Remove from chokepoints vessel has left
+      const prevChokepoints = vesselChokepoints.get(mmsiStr) || new Set();
+      for (const cpName of prevChokepoints) {
+        if (!currentChokepoints.has(cpName)) {
+          chokepointBuckets.get(cpName)?.delete(mmsiStr);
+        }
+      }
+      vesselChokepoints.set(mmsiStr, currentChokepoints);
+
+      // Track density grid - remove from old cell, add to new
       const gLat = Math.floor(updated.lat / DENSITY_GRID_SIZE);
       const gLon = Math.floor(updated.lon / DENSITY_GRID_SIZE);
       const gridKey = `${gLat}_${gLon}`;
+      const prevGridKey = vesselGridCell.get(mmsiStr);
+      if (prevGridKey && prevGridKey !== gridKey) {
+        densityGrid.get(prevGridKey)?.vessels.delete(mmsiStr);
+      }
       if (!densityGrid.has(gridKey)) {
         densityGrid.set(gridKey, { lat: gLat * DENSITY_GRID_SIZE + DENSITY_GRID_SIZE / 2, lon: gLon * DENSITY_GRID_SIZE + DENSITY_GRID_SIZE / 2, vessels: new Set(), prevCount: 0 });
       }
       densityGrid.get(gridKey).vessels.add(mmsiStr);
+      vesselGridCell.set(mmsiStr, gridKey);
     }
 
     return updated;

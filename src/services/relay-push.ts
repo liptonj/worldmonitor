@@ -35,7 +35,7 @@ function dispatch(channel: string, payload: unknown): void {
     setChannelState(channel, 'error', 'websocket', { error: 'No data available' });
   }
   const schema = channelSchemas[channel];
-  if (schema) {
+  if (schema && payload !== undefined && payload !== null) {
     const result = schema.safeParse(payload);
     if (!result.success) {
       console.warn(`[relay-push] schema mismatch (${channel}):`, result.error.issues.map(i => i.message).join('; '));
