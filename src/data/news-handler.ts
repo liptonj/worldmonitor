@@ -378,22 +378,23 @@ export function createNewsHandlers(
     if (rawItems.length === 0) return;
 
     const feedsMap = getFeeds();
-    const sourceToCategory = new Map<string, string>();
+    const sourceToCategories = new Map<string, Set<string>>();
     for (const [category, feeds] of Object.entries(feedsMap)) {
       if (!Array.isArray(feeds)) continue;
       for (const feed of feeds) {
-        sourceToCategory.set(feed.name, category);
+        if (!sourceToCategories.has(feed.name)) sourceToCategories.set(feed.name, new Set());
+        sourceToCategories.get(feed.name)!.add(category);
       }
     }
     for (const feed of getIntelSources()) {
-      sourceToCategory.set(feed.name, 'intel');
+      if (!sourceToCategories.has(feed.name)) sourceToCategories.set(feed.name, new Set());
+      sourceToCategories.get(feed.name)!.add('intel');
     }
 
     const categories: Record<string, { items: Array<Record<string, unknown>> }> = {};
     for (const item of rawItems) {
       const src = item.source as string | undefined;
-      const category = (src && sourceToCategory.get(src)) || 'general';
-      if (!categories[category]) categories[category] = { items: [] };
+      const cats = (src && sourceToCategories.get(src)) || new Set(['general']);
       if (item.threat && typeof item.threat === 'object') {
         const threat = item.threat as Record<string, unknown>;
         const lvl = threat.level as string | undefined;
@@ -401,7 +402,10 @@ export function createNewsHandlers(
           threat.level = `THREAT_LEVEL_${lvl.toUpperCase()}`;
         }
       }
-      categories[category].items.push(item);
+      for (const cat of cats) {
+        if (!categories[cat]) categories[cat] = { items: [] };
+        categories[cat].items.push(item);
+      }
     }
 
     processDigestData({

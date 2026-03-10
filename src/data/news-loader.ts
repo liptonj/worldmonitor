@@ -17,6 +17,7 @@ import { ingestTemporalAnomaliesForCII } from '@/services/country-instability';
 import { analysisWorker } from '@/services';
 import { t } from '@/services/i18n';
 import { tryFetchDigest, flashMapForNews, renderNewsForCategory } from './news-handler';
+import { consumePendingRawNewsData } from '@/services/news-digest';
 import { classifyNewsItem } from '@/services/positive-classifier';
 import { filterBySentiment } from '@/services/sentiment-gate';
 import { fetchAllPositiveTopicIntelligence } from '@/services/gdelt-intel';
@@ -160,6 +161,15 @@ export const newsLoader = {
     const digest = await digestPromise;
     if (digest) {
       bridge.getHandler('news:full')?.(digest);
+      return;
+    }
+
+    // Relay may have sent a flat array instead of a structured digest.
+    // fetchNewsDigest stashed it; route through applyNewsDigest which handles
+    // flat arrays, envelopes, and structured digests uniformly.
+    const rawNewsData = consumePendingRawNewsData();
+    if (rawNewsData != null) {
+      bridge.getHandler('news:full')?.(rawNewsData);
       return;
     }
 
