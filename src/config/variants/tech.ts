@@ -12,15 +12,14 @@ export * from '../startup-ecosystems';
 export * from '../ai-regulations';
 
 // Tech-focused feeds (subset of full feeds config)
+export { SOURCE_TIERS, SOURCE_TYPES } from '../feeds-seed';
 export {
-  SOURCE_TIERS,
   getSourceTier,
-  SOURCE_TYPES,
   getSourceType,
   getSourcePropagandaRisk,
   type SourceRiskProfile,
   type SourceType,
-} from '../feeds';
+} from '@/services/feed-client';
 
 // Tech-specific FEEDS configuration
 import type { Feed } from '@/types';

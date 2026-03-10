@@ -29,6 +29,9 @@ export function subscribe(channel: string, handler: ChannelHandler): () => void 
 function dispatch(channel: string, payload: unknown): void {
   if (payload !== undefined && payload !== null) {
     setChannelState(channel, 'ready', 'websocket', { lastDataAt: Date.now() });
+  } else {
+    console.warn(`[wm:${channel}] null/undefined payload — setting channel to error`);
+    setChannelState(channel, 'error', 'websocket', { error: 'No data available' });
   }
   const channelHandlers = handlers.get(channel);
   if (!channelHandlers) return;

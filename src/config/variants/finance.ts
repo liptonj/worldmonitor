@@ -9,15 +9,14 @@ export * from './base';
 export * from '../finance-geo';
 
 // Re-export feeds infrastructure
+export { SOURCE_TIERS, SOURCE_TYPES } from '../feeds-seed';
 export {
-  SOURCE_TIERS,
   getSourceTier,
-  SOURCE_TYPES,
   getSourceType,
   getSourcePropagandaRisk,
   type SourceRiskProfile,
   type SourceType,
-} from '../feeds';
+} from '@/services/feed-client';
 
 // Finance-specific FEEDS configuration
 import type { Feed } from '@/types';

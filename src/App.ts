@@ -24,7 +24,7 @@ import { initI18n } from '@/services/i18n';
 import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, loadNewsSources } from '@/services/feed-client';
 import { loadFeatureFlags } from '@/services/feature-flag-client';
 import { CHANNEL_REGISTRY } from '@/config/channel-registry';
-import { fetchBootstrapData, RELAY_CHANNELS } from '@/services/bootstrap';
+import { fetchBootstrapData } from '@/services/bootstrap';
 import { DesktopUpdater } from '@/app/desktop-updater';
 import { CountryIntelManager } from '@/app/country-intel';
 import { SearchManager } from '@/app/search-manager';
@@ -479,7 +479,7 @@ export class App {
 
     // Drain all remaining bootstrap data through domain handlers.
     // News and ai:panel-summary are already consumed above; getHydratedData
-    // is delete-on-read so those entries won't be re-processed.
+    // uses consumed-key logic so those entries won't be re-processed.
     void this.dataLoader.loadAllData();
 
     performance.mark('wm:bootstrap-done');
@@ -596,20 +596,32 @@ export class App {
 
   private setupRelayPush(): void {
     const variant = SITE_VARIANT || 'full';
-
-    // Exclude variant-specific news channels; add only the active variant's news.
-    // Exclude pizzint for non-full variants (full variant needs it for PizzINT indicator).
     const newsChannels = ['news:full', 'news:tech', 'news:finance', 'news:happy'];
-    const channels = [
-      ...RELAY_CHANNELS.filter(
-        (ch) => !newsChannels.includes(ch) && (variant === 'full' || ch !== 'pizzint')
-      ),
-      `news:${variant}`,
-    ];
 
+    // Compute channels needed by active panels + their dependencies
+    const neededChannels = new Set<string>();
+    const enabledPanelIds = new Set(Object.keys(this.state.panels));
+
+    for (const [channel, def] of Object.entries(CHANNEL_REGISTRY)) {
+      // Skip variant-specific news channels (add only the active variant below)
+      if (newsChannels.includes(channel)) continue;
+      // Skip pizzint for non-full variants
+      if (channel === 'pizzint' && variant !== 'full') continue;
+      // Include if any of this channel's panels are enabled, or if it has map layers, or if it's a config/AI channel
+      const hasActivePanel = def.panels.some((p) => enabledPanelIds.has(p));
+      const isMapLayer = (def.mapLayers?.length ?? 0) > 0;
+      const isConfig = def.domain === 'config' || def.domain === 'ai';
+      if (hasActivePanel || isMapLayer || isConfig) {
+        neededChannels.add(channel);
+      }
+    }
+    // Always add the active news variant
+    neededChannels.add(`news:${variant}`);
+
+    const channels = Array.from(neededChannels);
     initRelayPush(channels);
 
-    for (const [channel] of Object.entries(CHANNEL_REGISTRY)) {
+    for (const channel of channels) {
       const handler = this.getPushHandler(channel);
       if (handler) subscribeRelayPush(channel, handler);
     }

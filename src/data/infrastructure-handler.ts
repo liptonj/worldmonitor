@@ -4,6 +4,7 @@
  */
 
 import type { AppContext } from '@/app/app-context';
+import { t } from '@/services/i18n';
 import { intelStore } from '@/stores/intel-store';
 import { SITE_VARIANT } from '@/config';
 import { adaptCyberThreatsResponse } from '@/services';
@@ -83,7 +84,11 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
   function forwardToPanel(channel: string): (payload: unknown) => void {
     return (payload: unknown) => {
       const panel = ctx.panels[channel] as { applyPush?: (p: unknown) => void } | undefined;
-      panel?.applyPush?.(payload);
+      if (!panel?.applyPush) {
+        console.warn(`[wm:${channel}] panel not mounted or missing applyPush`);
+        return;
+      }
+      panel.applyPush(payload);
     };
   }
 
@@ -99,14 +104,23 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
         adapted = { cables, generatedAt: Date.now() };
       }
       const healthData = parseCableHealthPayload(adapted);
-      if (!healthData) return;
+      if (!healthData) {
+        console.error('[wm:cables] failed to parse cable health payload');
+        ctx.statusPanel?.updateFeed('CableHealth', { status: 'error', itemCount: 0 });
+        return;
+      }
       setCableHealthCache(healthData);
       renderCableHealth(healthData.cables);
     },
     cyber: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:cyber] skipped — invalid payload type:', typeof payload); return; }
       const resp = payload as ListCyberThreatsResponse;
-      if (!Array.isArray(resp.threats)) return;
+      if (!Array.isArray(resp.threats)) {
+        console.error('[wm:cyber] malformed payload — threats is not an array');
+        renderCyberThreats([]);
+        ctx.statusPanel?.updateApi('Cyber Threats API', { status: 'error' });
+        return;
+      }
       // Heuristic: relay may push raw proto (needs adaptCyberThreatsResponse) or pre-adapted
       // client shape. Pre-adapted items have string 'indicator'. If format changes, update here.
       const first = resp.threats[0] as unknown;
@@ -117,13 +131,38 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
     flights: (payload: unknown) => {
       const adapted = Array.isArray(payload) ? { alerts: payload } : payload;
       const delays = parseFlightDelaysPayload(adapted);
-      if (!delays) return;
+      if (!delays) {
+        console.error('[wm:flights] failed to parse flight delays payload');
+        ctx.statusPanel?.updateFeed('Flights', { status: 'error', itemCount: 0 });
+        ctx.statusPanel?.updateApi('FAA', { status: 'error' });
+        return;
+      }
       renderFlightDelays(delays);
     },
     ais: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
-      const snap = payload as { disruptions?: import('@/types').AisDisruptionEvent[]; density?: import('@/types').AisDensityZone[] };
-      if (!Array.isArray(snap.disruptions) || !Array.isArray(snap.density)) return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:ais] skipped — invalid payload type:', typeof payload); return; }
+      const snap = payload as { disruptions?: import('@/types').AisDisruptionEvent[]; density?: import('@/types').AisDensityZone[]; vessels?: unknown[] };
+      if (!Array.isArray(snap.disruptions) && !Array.isArray(snap.density)) {
+        if (Array.isArray(snap.vessels)) {
+          console.warn('[wm:ais] received vessels only — no disruptions or density data');
+          ctx.map?.setAisVessels(snap.vessels);
+        } else {
+          console.error('[wm:ais] malformed payload — no disruptions, density, or vessels arrays');
+        }
+        return;
+      }
+      if (!Array.isArray(snap.disruptions) || !Array.isArray(snap.density)) {
+        console.warn('[wm:ais] partial AIS data — missing disruptions or density');
+        if (Array.isArray(snap.disruptions)) {
+          ctx.map?.setAisData(snap.disruptions, []);
+          ctx.map?.setLayerReady('ais', snap.disruptions.length > 0);
+        } else if (Array.isArray(snap.density)) {
+          ctx.map?.setAisData([], snap.density);
+          ctx.map?.setLayerReady('ais', snap.density.length > 0);
+        }
+        (ctx.panels['cii'] as CIIPanel)?.refresh();
+        return;
+      }
       const aisStatus = getAisStatus();
       ctx.map?.setAisData(snap.disruptions, snap.density);
       signalAggregator.ingestAisDisruptions(snap.disruptions);
@@ -156,9 +195,13 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
     },
     'service-status': forwardToPanel('service-status'),
     'tech-events': (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:tech-events] skipped — invalid payload type:', typeof payload); return; }
       const data = (Array.isArray(payload) ? { events: payload, success: true } : payload) as import('@/generated/client/worldmonitor/research/v1/service_client').ListTechEventsResponse;
-      if (!('events' in data) || !Array.isArray(data.events)) return;
+      if (!('events' in data) || !Array.isArray(data.events)) {
+        console.error('[wm:tech-events] malformed payload — events is not an array');
+        (ctx.panels['events'] as TechEventsPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
       renderTechEvents(data);
     },
   };

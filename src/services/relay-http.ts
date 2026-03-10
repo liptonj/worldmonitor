@@ -38,16 +38,3 @@ export async function fetchRelayPanel<T = unknown>(channel: string): Promise<T |
   }
 }
 
-/** Fetch map layer data from relay /map/{layer}. Returns parsed JSON or null. */
-export async function fetchRelayMap<T = unknown>(layer: string): Promise<T | null> {
-  try {
-    const resp = await fetch(`${RELAY_HTTP_BASE}/map/${layer}`, {
-      signal: AbortSignal.timeout(10_000),
-      headers: getRelayFetchHeaders(),
-    });
-    if (!resp.ok || resp.status === 204) return null;
-    return (await resp.json()) as T;
-  } catch {
-    return null;
-  }
-}

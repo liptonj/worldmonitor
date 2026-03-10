@@ -509,7 +509,7 @@ test.describe('desktop runtime routing guardrails', () => {
     expect(result.svgWrapperCount).toBe(1);
   });
 
-  test('fetchHapiSummary maps proto countryCode to iso2 field', async ({ page }) => {
+  test('fetchAllHapiSummaries maps proto countryCode to iso2 field', async ({ page }) => {
     await page.goto('/tests/runtime-harness.html');
 
     const result = await page.evaluate(async () => {
@@ -525,25 +525,25 @@ test.describe('desktop runtime routing guardrails', () => {
           headers: { 'content-type': 'application/json' },
         });
 
-      const seenCountryCodes = new Set<string>();
+      let listAllCalled = false;
 
-      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      window.fetch = (async (input: RequestInfo | URL) => {
         const parsed = new URL(toUrl(input));
-        if (parsed.pathname === '/api/conflict/v1/get-humanitarian-summary') {
-          const body = init?.body ? JSON.parse(String(init.body)) : {};
-          const countryCode = String(body.countryCode || '').toUpperCase();
-          seenCountryCodes.add(countryCode);
+        if (parsed.pathname === '/api/conflict/v1/list-all-humanitarian-summaries') {
+          listAllCalled = true;
           return responseJson({
-            summary: {
-              countryCode,
-              countryName: countryCode,
-              conflictEventsTotal: 1,
-              conflictPoliticalViolenceEvents: 1,
-              conflictFatalities: 1,
-              referencePeriod: '2026-02',
-              conflictDemonstrations: 0,
-              updatedAt: Date.now(),
-            },
+            summaries: [
+              {
+                countryCode: 'US',
+                countryName: 'US',
+                conflictEventsTotal: 1,
+                conflictPoliticalViolenceEvents: 1,
+                conflictFatalities: 1,
+                referencePeriod: '2026-02',
+                conflictDemonstrations: 0,
+                updatedAt: Date.now(),
+              },
+            ],
           });
         }
         return responseJson({});
@@ -551,10 +551,10 @@ test.describe('desktop runtime routing guardrails', () => {
 
       try {
         const conflict = await import('/src/services/conflict/index.ts');
-        const summaries = await conflict.fetchHapiSummary();
+        const summaries = await conflict.fetchAllHapiSummaries();
         const us = summaries.get('US') as Record<string, unknown> | undefined;
         return {
-          fetchedCount: seenCountryCodes.size,
+          listAllCalled,
           usIso2: us?.iso2 ?? null,
           hasIso3Field: !!us && Object.prototype.hasOwnProperty.call(us, 'iso3'),
         };
@@ -563,7 +563,7 @@ test.describe('desktop runtime routing guardrails', () => {
       }
     });
 
-    expect(result.fetchedCount).toBeGreaterThan(0);
+    expect(result.listAllCalled).toBe(true);
     expect(result.usIso2).toBe('US');
     expect(result.hasIso3Field).toBe(false);
   });

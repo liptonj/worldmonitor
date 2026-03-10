@@ -55,18 +55,22 @@ describe('channel-state integration (Task 3.2)', () => {
       assert.ok(typeof s.lastDataAt === 'number');
     });
 
-    it('does not set ready when payload is null', () => {
+    it('sets channel to error when payload is null', () => {
       setChannelState('fred', 'loading', 'bootstrap');
       dispatchForTesting('fred', null);
       const s = getChannelState('fred');
-      assert.equal(s.state, 'loading', 'null payload should not transition to ready');
+      assert.equal(s.state, 'error');
+      assert.equal(s.error, 'No data available');
+      assert.equal(s.source, 'websocket');
     });
 
-    it('does not set ready when payload is undefined', () => {
+    it('sets channel to error when payload is undefined', () => {
       setChannelState('oil', 'loading', 'bootstrap');
       dispatchForTesting('oil', undefined);
       const s = getChannelState('oil');
-      assert.equal(s.state, 'loading', 'undefined payload should not transition to ready');
+      assert.equal(s.state, 'error');
+      assert.equal(s.error, 'No data available');
+      assert.equal(s.source, 'websocket');
     });
   });
 

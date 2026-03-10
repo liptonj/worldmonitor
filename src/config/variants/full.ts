@@ -6,7 +6,8 @@ import type { VariantConfig } from './base';
 export * from './base';
 
 // Geopolitical-specific exports
-export * from '../feeds';
+export * from '@/services/feed-client';
+export { SOURCE_TIERS, SOURCE_TYPES } from '../feeds-seed';
 export * from '../geo';
 export * from '../irradiators';
 export * from '../pipelines';

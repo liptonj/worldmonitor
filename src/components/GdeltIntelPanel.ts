@@ -12,12 +12,15 @@ import {
   type TopicIntelligence,
 } from '@/services/gdelt-intel';
 
+type RelayTopicCache = { articles: GdeltArticle[]; query: string; fetchedAt: string };
+
 export class GdeltIntelPanel extends Panel {
   override readonly channelKeys = ['gdelt'];
 
   private activeTopic: IntelTopic = getIntelTopics()[0]!;
   private topicData = new Map<string, TopicIntelligence>();
   private tabsEl: HTMLElement | null = null;
+  private _relayCache: Record<string, RelayTopicCache> | null = null;
 
   constructor() {
     super({
@@ -66,7 +69,36 @@ export class GdeltIntelPanel extends Panel {
     }
   }
 
+  public applyRelayData(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') {
+      this.refresh();
+      return;
+    }
+    const raw = payload as { data?: Record<string, RelayTopicCache> };
+    if (!raw.data || typeof raw.data !== 'object') {
+      this.refresh();
+      return;
+    }
+    this._relayCache = raw.data;
+    const topicData = this._relayCache[this.activeTopic.id];
+    if (topicData && Array.isArray(topicData.articles)) {
+      this.renderArticles(topicData.articles);
+      this.setCount(topicData.articles.length);
+    } else {
+      this.refresh();
+    }
+  }
+
   private async loadActiveTopic(): Promise<void> {
+    if (this._relayCache) {
+      const cached = this._relayCache[this.activeTopic.id];
+      if (cached && Array.isArray(cached.articles)) {
+        this.renderArticles(cached.articles);
+        this.setCount(cached.articles.length);
+        return;
+      }
+    }
+
     this.showLoading();
 
     for (let attempt = 0; attempt < 3; attempt++) {
