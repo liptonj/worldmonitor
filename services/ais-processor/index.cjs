@@ -70,7 +70,7 @@ function processAisMessage(message) {
     if (history.length > 10) history.shift();
     vesselHistory.set(mmsiStr, history);
 
-    if (typeof updated.lat === 'number' && typeof updated.lon === 'number') {
+    if (Number.isFinite(updated.lat) && Number.isFinite(updated.lon)) {
       for (const cp of CHOKEPOINTS) {
         const dist = Math.sqrt((updated.lat - cp.lat) ** 2 + (updated.lon - cp.lon) ** 2);
         if (dist <= cp.radius) {
