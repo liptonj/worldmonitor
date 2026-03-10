@@ -338,6 +338,15 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     mapLayers: ['techEvents'],
     applyMethod: 'applyTechEvents',
   },
+  'security-advisories': {
+    key: 'security-advisories',
+    redisKey: 'relay:security-advisories:v1',
+    panels: ['security-advisories'],
+    domain: 'infrastructure',
+    staleAfterMs: 60 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+  },
   'strategic-posture': {
     key: 'strategic-posture',
     redisKey: 'theater-posture:sebuf:v1',

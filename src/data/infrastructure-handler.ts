@@ -256,6 +256,23 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
       ctx.statusPanel?.updateApi('OpenSky', { status: 'ok' });
     },
     'service-status': forwardToPanel('service-status'),
+    'security-advisories': (payload: unknown) => {
+      if (!payload) return;
+      const items = Array.isArray(payload)
+        ? payload
+        : (payload as Record<string, unknown>).items;
+      if (!Array.isArray(items)) {
+        console.warn('[wm:security-advisories] no items array in payload');
+        return;
+      }
+      // Normalize pubDate from string to Date for panel compatibility
+      const normalized = items.map((item: unknown) => {
+        const i = item as Record<string, unknown>;
+        const pubDate = i.pubDate instanceof Date ? i.pubDate : new Date(String(i.pubDate ?? ''));
+        return { ...i, pubDate };
+      });
+      (ctx.panels['security-advisories'] as { setData?: (d: unknown[]) => void } | undefined)?.setData?.(normalized);
+    },
     'tech-events': (payload: unknown) => {
       if (!payload || typeof payload !== 'object') { console.warn('[wm:tech-events] skipped — invalid payload type:', typeof payload); return; }
       const data = (Array.isArray(payload) ? { events: payload, success: true } : payload) as import('@/generated/client/worldmonitor/research/v1/service_client').ListTechEventsResponse;

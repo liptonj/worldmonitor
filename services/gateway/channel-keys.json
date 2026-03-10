@@ -28,6 +28,7 @@
     "spending": "relay:spending:v1",
     "gulf-quotes": "relay:gulf-quotes:v1",
     "tech-events": "relay:tech-events:v1",
+    "security-advisories": "relay:security-advisories:v1",
     "strategic-posture": "theater-posture:sebuf:v1",
     "strategic-risk": "risk:scores:sebuf:v1",
     "stablecoins": "relay:stablecoins:v1",
@@ -66,5 +67,5 @@
     "techEvents": "relay:tech-events:v1",
     "iranAttacks": "conflict:iran-events:v1"
   },
-  "_generated": "2026-03-10T18:31:13.730Z"
+  "_generated": "2026-03-10T22:30:54.737Z"
 }
