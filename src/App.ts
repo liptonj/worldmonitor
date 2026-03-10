@@ -36,7 +36,6 @@ import { initDisplayPrefs } from '@/utils/display-prefs';
 import { newsStore } from '@/stores/news-store';
 import { initRelayPush, subscribe as subscribeRelayPush, destroyRelayPush } from '@/services/relay-push';
 import { startStaleDetection, stopStaleDetection } from '@/services/stale-detection';
-import { getChannelState, setChannelState } from '@/services/channel-state';
 
 const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
 
@@ -56,7 +55,6 @@ export class App {
 
   private modules: { destroy(): void }[] = [];
   private unsubAiFlow: (() => void) | null = null;
-  private criticalFallbackTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor(containerId: string) {
     const el = document.getElementById(containerId);
@@ -465,11 +463,6 @@ export class App {
     void preloadCountryGeometry().catch(() => {});
 
     await fetchBootstrapData(SITE_VARIANT || 'full');
-    // Load ai:panel-summary from bootstrap/HTTP so AI Insights panel can render immediately
-    void this.dataLoader.loadChannelWithFallback('ai:panel-summary', (data) => {
-      setChannelState('ai:panel-summary', 'ready', 'http-fallback', { lastDataAt: Date.now() });
-      this.dataLoader.getHandler('ai:panel-summary')?.(data);
-    }).catch((err) => console.warn('[wm:fallback] HTTP load failed for', 'ai:panel-summary', err));
     // Load news immediately after bootstrap to consume cached data
     void this.dataLoader.loadNews();
     // loadNews() is called immediately after bootstrap to consume cached news.
@@ -503,22 +496,6 @@ export class App {
 
     this.setupRelayPush();
 
-    // Fallback: if critical panels still have no data after 15s, attempt HTTP load
-    this.criticalFallbackTimeoutId = setTimeout(() => {
-      if (this.state.isDestroyed) return;
-      const criticalChannels = ['markets', 'conflict', 'climate', 'fred', 'oil', 'bis', 'telegram', 'intelligence'];
-      for (const ch of criticalChannels) {
-        const state = getChannelState(ch);
-        if (state.state === 'loading' || state.state === 'idle') {
-          console.warn(`[wm:fallback] ${ch} still loading after 15s, attempting HTTP fallback`);
-          void this.dataLoader.loadChannelWithFallback(ch, (data) => {
-            setChannelState(ch, 'ready', 'http-fallback', { lastDataAt: Date.now() });
-            this.dataLoader.getHandler(ch)?.(data);
-          }).catch((err) => console.warn('[wm:fallback] HTTP load failed for', ch, err));
-        }
-      }
-    }, 15_000);
-
     startStaleDetection();
     this.eventHandlers.setupSnapshotSaving();
     cleanOldSnapshots().catch((e) => console.warn('[Storage] Snapshot cleanup failed:', e));
@@ -535,7 +512,6 @@ export class App {
 
   public destroy(): void {
     this.state.isDestroyed = true;
-    if (this.criticalFallbackTimeoutId) clearTimeout(this.criticalFallbackTimeoutId);
     stopStaleDetection();
     destroyRelayPush();
 
