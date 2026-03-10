@@ -66,9 +66,30 @@ export interface GivingFetchResult {
 // ─── Proto -> display mapping ───
 
 /** Convert proto GetGivingSummaryResponse to display GivingSummary. Used by relay applyGiving. */
-export function protoToGivingSummary(proto: ProtoResponse): GivingSummary | null {
-  if (!proto?.summary) return null;
-  return toDisplaySummary(proto);
+export function protoToGivingSummary(proto: unknown): GivingSummary | null {
+  if (!proto || typeof proto !== 'object' || Array.isArray(proto)) return null;
+  const obj = proto as Record<string, unknown>;
+
+  // Proto format: { summary: { platforms, categories, ... } }
+  if (obj.summary && typeof obj.summary === 'object' && !Array.isArray(obj.summary)) {
+    return toDisplaySummary(proto as ProtoResponse);
+  }
+
+  // Raw/unwrapped format: { platforms, categories, generatedAt, ... } (already at summary level)
+  if (Array.isArray(obj.platforms)) {
+    return {
+      generatedAt: String(obj.generatedAt ?? new Date().toISOString()),
+      activityIndex: Number(obj.activityIndex ?? 0),
+      trend: (obj.trend as 'rising' | 'stable' | 'falling') || 'stable',
+      estimatedDailyFlowUsd: Number(obj.estimatedDailyFlowUsd ?? 0),
+      platforms: (obj.platforms as ProtoPlatform[]).map(toDisplayPlatform),
+      categories: Array.isArray(obj.categories) ? (obj.categories as ProtoCategory[]).map(toDisplayCategory) : [],
+      crypto: toDisplayCrypto(obj.crypto as ProtoCrypto | undefined),
+      institutional: toDisplayInstitutional(obj.institutional as ProtoInstitutional | undefined),
+    };
+  }
+
+  return null;
 }
 
 function toDisplaySummary(proto: ProtoResponse): GivingSummary {

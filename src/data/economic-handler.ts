@@ -10,7 +10,6 @@ import { protoToGivingSummary } from '@/services/giving';
 import type { GetBisPolicyRatesResponse, GetFredDashboardResponse, GetFredSeriesResponse, GetEnergyPricesResponse } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import type { GetTradeBarriersResponse, GetTradeDashboardResponse } from '@/generated/client/worldmonitor/trade/v1/service_client';
 import type { GetChokepointStatusResponse, GetSupplyChainDashboardResponse } from '@/generated/client/worldmonitor/supply_chain/v1/service_client';
-import type { GetGivingSummaryResponse } from '@/generated/client/worldmonitor/giving/v1/service_client';
 import type { EconomicPanel } from '@/components/EconomicPanel';
 import type { TradePolicyPanel } from '@/components/TradePolicyPanel';
 import type { SupplyChainPanel } from '@/components/SupplyChainPanel';
@@ -218,9 +217,15 @@ export function createEconomicHandlers(ctx: AppContext): Record<string, ChannelH
     },
     giving: (payload: unknown) => {
       if (!payload || typeof payload !== 'object') { console.warn('[wm:giving] skipped — invalid payload type:', typeof payload); return; }
-      const data = protoToGivingSummary(payload as GetGivingSummaryResponse);
+      if (Array.isArray(payload)) {
+        console.warn('[wm:giving] received array — stale Redis data?');
+        (ctx.panels['giving'] as GivingPanel | undefined)?.showError(t('common.failedToLoad'));
+        return;
+      }
+      const data = protoToGivingSummary(payload);
       if (!data || !Array.isArray(data.platforms)) {
-        console.error('[wm:giving] malformed payload — platforms is not an array');
+        const keys = (payload && typeof payload === 'object') ? Object.keys(payload as Record<string, unknown>) : [];
+        console.error('[wm:giving] malformed payload — platforms is not an array', { keys, hasSummary: keys.includes('summary') });
         (ctx.panels['giving'] as GivingPanel | undefined)?.showError(t('common.failedToLoad'));
         return;
       }
