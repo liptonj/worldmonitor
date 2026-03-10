@@ -74,12 +74,23 @@ export class GdeltIntelPanel extends Panel {
       this.refresh();
       return;
     }
-    const raw = payload as { data?: Record<string, RelayTopicCache> };
-    if (!raw.data || typeof raw.data !== 'object') {
+    const raw = payload as Record<string, unknown>;
+    // unwrapEnvelope may return the topic map directly (no .data wrapper)
+    // or wrapped as { data: topicMap }
+    const candidate = (raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data))
+      ? raw.data as Record<string, RelayTopicCache>
+      : raw as unknown as Record<string, RelayTopicCache>;
+
+    const hasTopicKeys = Object.keys(candidate).some(k => {
+      const v = candidate[k];
+      return v && typeof v === 'object' && 'articles' in v;
+    });
+    if (!hasTopicKeys) {
+      console.warn('[wm:gdelt] relay payload has no topic keys, falling back', { keys: Object.keys(candidate).slice(0, 5) });
       this.refresh();
       return;
     }
-    this._relayCache = raw.data;
+    this._relayCache = candidate;
     const topicData = this._relayCache[this.activeTopic.id];
     if (topicData && Array.isArray(topicData.articles)) {
       this.renderArticles(topicData.articles);
