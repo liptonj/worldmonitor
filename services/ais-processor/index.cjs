@@ -15,11 +15,32 @@ const REDIS_KEY = 'relay:ais-snapshot:v1';
 const SNAPSHOT_TTL = 120; // 2 minutes
 const SNAPSHOT_INTERVAL_MS = 10000; // write snapshot every 10s
 
+const CHOKEPOINTS = [
+  { name: 'Strait of Hormuz', lat: 26.56, lon: 56.25, radius: 0.5, region: 'IR' },
+  { name: 'Suez Canal', lat: 30.46, lon: 32.35, radius: 0.3, region: 'EG' },
+  { name: 'Strait of Malacca', lat: 2.5, lon: 101.5, radius: 1.0, region: 'MY' },
+  { name: 'Bab el-Mandeb', lat: 12.58, lon: 43.33, radius: 0.3, region: 'YE' },
+  { name: 'Panama Canal', lat: 9.08, lon: -79.68, radius: 0.3, region: 'PA' },
+  { name: 'Taiwan Strait', lat: 24.5, lon: 119.5, radius: 1.0, region: 'TW' },
+  { name: 'South China Sea', lat: 14.5, lon: 114.0, radius: 3.0, region: 'CN' },
+  { name: 'Black Sea Straits', lat: 41.0, lon: 29.0, radius: 0.5, region: 'TR' },
+];
+
+const GAP_THRESHOLD_MS = 60 * 60 * 1000;
+const DENSITY_GRID_SIZE = 2;
+const MAX_DENSITY_ZONES = 200;
+const vesselHistory = new Map();
+const chokepointBuckets = new Map();
+const densityGrid = new Map();
+
 // In-memory vessel state: Map<mmsi, { mmsi, lat, lon, heading, speed, timestamp, shipName, ... }>
 const vessels = new Map();
 
 function _resetVessels() {
   vessels.clear();
+  vesselHistory.clear();
+  chokepointBuckets.clear();
+  densityGrid.clear();
 }
 
 function processAisMessage(message) {
@@ -42,11 +63,94 @@ function processAisMessage(message) {
       ship_name: msg.MetaData?.ShipName ?? existing.ship_name,
     };
     vessels.set(String(mmsi), updated);
+
+    const mmsiStr = String(mmsi);
+    const history = vesselHistory.get(mmsiStr) || [];
+    history.push(Date.now());
+    if (history.length > 10) history.shift();
+    vesselHistory.set(mmsiStr, history);
+
+    if (typeof updated.lat === 'number' && typeof updated.lon === 'number') {
+      for (const cp of CHOKEPOINTS) {
+        const dist = Math.sqrt((updated.lat - cp.lat) ** 2 + (updated.lon - cp.lon) ** 2);
+        if (dist <= cp.radius) {
+          if (!chokepointBuckets.has(cp.name)) chokepointBuckets.set(cp.name, new Set());
+          chokepointBuckets.get(cp.name).add(mmsiStr);
+        }
+      }
+      const gLat = Math.floor(updated.lat / DENSITY_GRID_SIZE);
+      const gLon = Math.floor(updated.lon / DENSITY_GRID_SIZE);
+      const gridKey = `${gLat}_${gLon}`;
+      if (!densityGrid.has(gridKey)) {
+        densityGrid.set(gridKey, { lat: gLat * DENSITY_GRID_SIZE + DENSITY_GRID_SIZE / 2, lon: gLon * DENSITY_GRID_SIZE + DENSITY_GRID_SIZE / 2, vessels: new Set(), prevCount: 0 });
+      }
+      densityGrid.get(gridKey).vessels.add(mmsiStr);
+    }
+
     return updated;
   } catch (err) {
     log.debug('Failed to parse AIS message', { error: err.message });
     return null;
   }
+}
+
+function detectDisruptions() {
+  const disruptions = [];
+  for (const cp of CHOKEPOINTS) {
+    const bucket = chokepointBuckets.get(cp.name);
+    const vesselCount = bucket ? bucket.size : 0;
+    if (vesselCount < 5) continue;
+    const normalTraffic = Math.max(cp.radius * 10, 1);
+    const changePct = Math.round(((vesselCount - normalTraffic) / normalTraffic) * 100);
+    let severity = 'low';
+    if (vesselCount > normalTraffic * 1.5) severity = 'high';
+    else if (vesselCount > normalTraffic) severity = 'elevated';
+    disruptions.push({
+      id: `cp-${cp.name.toLowerCase().replace(/\s+/g, '-')}`,
+      name: cp.name, type: 'chokepoint_congestion',
+      lat: cp.lat, lon: cp.lon, severity, changePct, windowHours: 1,
+      vesselCount, region: cp.region,
+      description: `${vesselCount} vessels in ${cp.name} (${changePct > 0 ? '+' : ''}${changePct}% vs normal)`,
+    });
+  }
+  let darkShipCount = 0;
+  const now = Date.now();
+  for (const [, history] of vesselHistory) {
+    if (history.length < 2) continue;
+    const gap = history[history.length - 1] - history[history.length - 2];
+    if (gap > GAP_THRESHOLD_MS && (now - history[history.length - 1]) < 10 * 60 * 1000) {
+      darkShipCount++;
+    }
+  }
+  if (darkShipCount >= 1) {
+    let severity = 'low';
+    if (darkShipCount >= 10) severity = 'high';
+    else if (darkShipCount >= 5) severity = 'elevated';
+    disruptions.push({
+      id: 'gap-spike-global', name: 'AIS Gap Spike', type: 'gap_spike',
+      lat: 0, lon: 0, severity, changePct: 0, windowHours: 1,
+      darkShips: darkShipCount, region: 'global',
+      description: `${darkShipCount} vessels reappeared after extended AIS silence`,
+    });
+  }
+  return disruptions;
+}
+
+function calculateDensityZones() {
+  const zones = [];
+  for (const [, cell] of densityGrid) {
+    if (cell.vessels.size < 2) continue;
+    const intensity = Math.min(1.0, 0.2 + Math.log10(cell.vessels.size) * 0.3);
+    const deltaPct = cell.prevCount > 0 ? Math.round(((cell.vessels.size - cell.prevCount) / cell.prevCount) * 100) : 0;
+    zones.push({
+      id: `dz-${cell.lat.toFixed(0)}-${cell.lon.toFixed(0)}`,
+      name: `Zone ${cell.lat.toFixed(0)}\u00B0, ${cell.lon.toFixed(0)}\u00B0`,
+      lat: cell.lat, lon: cell.lon, intensity, deltaPct,
+      shipsPerDay: cell.vessels.size * 48,
+    });
+  }
+  zones.sort((a, b) => b.intensity - a.intensity);
+  return zones.slice(0, MAX_DENSITY_ZONES);
 }
 
 function getSnapshot() {
@@ -56,8 +160,12 @@ function getSnapshot() {
       .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
       .slice(0, MAX_VESSELS);
   }
+  const disruptions = detectDisruptions();
+  const density = calculateDensityZones();
   return {
     vessels: vesselArray,
+    disruptions,
+    density,
     count: vesselArray.length,
     totalTracked: vessels.size,
     timestamp: new Date().toISOString(),
