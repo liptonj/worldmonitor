@@ -49,7 +49,7 @@ export function createEconomicHandlers(ctx: AppContext): Record<string, ChannelH
 
   function renderTradePolicy(data: GetTradeDashboardResponse | GetTradeBarriersResponse): void {
     const tradePanel = ctx.panels['trade-policy'] as TradePolicyPanel | undefined;
-    if (!tradePanel) return;
+    if (!tradePanel) { ctx.statusPanel?.updateApi('WTO', { status: 'ok' }); return; }
 
     if ('restrictions' in data || 'tariffs' in data || 'flows' in data) {
       const dashboard = data as GetTradeDashboardResponse;
@@ -85,7 +85,7 @@ export function createEconomicHandlers(ctx: AppContext): Record<string, ChannelH
 
   function renderSupplyChain(data: GetSupplyChainDashboardResponse | GetChokepointStatusResponse): void {
     const scPanel = ctx.panels['supply-chain'] as SupplyChainPanel | undefined;
-    if (!scPanel) return;
+    if (!scPanel) { ctx.statusPanel?.updateApi('SupplyChain', { status: 'ok' }); return; }
 
     if ('shipping' in data || 'minerals' in data) {
       const dashboard = data as GetSupplyChainDashboardResponse;
