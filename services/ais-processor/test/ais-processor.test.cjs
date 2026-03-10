@@ -76,3 +76,46 @@ describe('getSnapshot', () => {
     assert.strictEqual(typeof snapshot.timestamp, 'string');
   });
 });
+
+describe('getSnapshot with disruptions and density', () => {
+  beforeEach(() => {
+    _resetVessels();
+  });
+
+  it('snapshot includes disruptions and density arrays', () => {
+    // Add vessels near Strait of Hormuz (26.56, 56.25)
+    for (let i = 0; i < 10; i++) {
+      processAisMessage(JSON.stringify({
+        MetaData: { MMSI: 300000 + i, latitude: 26.5 + i * 0.01, longitude: 56.2 + i * 0.01, time_utc: new Date().toISOString(), ShipName: `Tanker ${i}` },
+      }));
+    }
+    const snapshot = getSnapshot();
+    assert.ok(Array.isArray(snapshot.disruptions), 'snapshot should have disruptions array');
+    assert.ok(Array.isArray(snapshot.density), 'snapshot should have density array');
+  });
+
+  it('detects chokepoint congestion when >= 5 vessels in a chokepoint', () => {
+    for (let i = 0; i < 6; i++) {
+      processAisMessage(JSON.stringify({
+        MetaData: { MMSI: 400000 + i, latitude: 26.56 + i * 0.01, longitude: 56.25 + i * 0.01, time_utc: new Date().toISOString() },
+      }));
+    }
+    const snapshot = getSnapshot();
+    const hormuz = snapshot.disruptions.find(d => d.name === 'Strait of Hormuz');
+    assert.ok(hormuz, 'should detect Strait of Hormuz congestion');
+    assert.strictEqual(hormuz.type, 'chokepoint_congestion');
+    assert.ok(hormuz.vesselCount >= 5);
+  });
+
+  it('calculates density zones for cells with >= 2 vessels', () => {
+    processAisMessage(JSON.stringify({
+      MetaData: { MMSI: 500001, latitude: 10.5, longitude: 20.5 },
+    }));
+    processAisMessage(JSON.stringify({
+      MetaData: { MMSI: 500002, latitude: 10.6, longitude: 20.6 },
+    }));
+    const snapshot = getSnapshot();
+    assert.ok(snapshot.density.length >= 1, 'should have at least one density zone');
+    assert.ok(snapshot.density[0].intensity > 0);
+  });
+});
