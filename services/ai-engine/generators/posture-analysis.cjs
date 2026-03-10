@@ -2,12 +2,11 @@
 
 // AI generator: Military/strategic posture analysis
 // Fetches strategic-posture, conflict, military data from Redis, calls LLM to analyze postures.
-// Frontend: StrategicPosturePanel.applyAiAnalysis(payload) — expects { analyses: [...] } or worker format.
-// Relay broadcasts full { timestamp, source, data, status }; data.analyses is the array.
+// Supports incremental: skips LLM when inputs unchanged.
 
 const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
 
-const REDIS_KEYS = ['relay:strategic-posture:v1', 'relay:conflict:v1', 'relay:opensky:v1'];
+const REDIS_KEYS = ['theater-posture:sebuf:v1', 'relay:conflict:v1', 'relay:ais-snapshot:v1'];
 
 module.exports = async function generatePostureAnalysis({ supabase, redis, log, http }) {
   if (!supabase || !redis || !http) {
@@ -17,15 +16,36 @@ module.exports = async function generatePostureAnalysis({ supabase, redis, log, 
   log.debug('generatePostureAnalysis executing');
 
   try {
-    const [postureData, conflictData, openskyData] = await Promise.all(
-      REDIS_KEYS.map((k) => redis.get(k))
-    );
+    const previousKeys = REDIS_KEYS.map((k) => `${k}:previous`);
+    const [previousOutput, ...currentResults] = await Promise.all([
+      redis.get('ai:posture-analysis:v1'),
+      ...REDIS_KEYS.map((k) => redis.get(k)),
+      ...previousKeys.map((k) => redis.get(k)),
+    ]);
+    const currentData = currentResults.slice(0, REDIS_KEYS.length);
+    const previousData = currentResults.slice(REDIS_KEYS.length);
+
+    const contextStr = JSON.stringify(currentData);
+    const previousContextStr = JSON.stringify(previousData);
+    const inputsUnchanged = contextStr === previousContextStr;
+    const previousAnalyses =
+      previousOutput?.source === 'ai:posture-analysis' && previousOutput?.status === 'success'
+        ? (previousOutput?.data?.analyses ?? previousOutput?.analyses ?? [])
+        : [];
+    const hasPreviousAnalyses = Array.isArray(previousAnalyses) && previousAnalyses.length > 0;
+
+    if (inputsUnchanged && hasPreviousAnalyses) {
+      log.info('Posture analysis inputs unchanged, keeping previous output');
+      return previousOutput;
+    }
+
+    const [postureData, conflictData, openskyData] = currentData;
 
     const theaters = postureData?.theaters ?? postureData?.postures ?? postureData?.data ?? [];
     const theaterArr = Array.isArray(theaters) ? theaters.slice(0, 15) : [];
-    const conflictItems = conflictData?.data ?? conflictData?.events ?? [];
+    const conflictItems = conflictData?.data?.events ?? conflictData?.data ?? conflictData?.events ?? [];
     const conflictArr = Array.isArray(conflictItems) ? conflictItems.slice(0, 20) : [];
-    const flights = openskyData?.flights ?? openskyData?.data ?? [];
+    const flights = openskyData?.vessels ?? openskyData?.flights ?? openskyData?.data ?? [];
     const flightArr = Array.isArray(flights) ? flights.slice(0, 30) : [];
 
     const context = {
@@ -47,7 +67,9 @@ module.exports = async function generatePostureAnalysis({ supabase, redis, log, 
     const systemPrompt =
       'You are a military intelligence analyst. Analyze military and strategic postures from the data. Identify key actors, their capabilities, intentions, and force deployments. Output valid JSON: { "analyses": [{ "actor", "posture", "capabilities", "intentions", "locations" }] }.';
 
-    const userPrompt = `Analyze military postures:\n\n${JSON.stringify(context, null, 2)}`;
+    const userPrompt = hasPreviousAnalyses
+      ? `Here is the previous posture analysis:\n${JSON.stringify(previousAnalyses, null, 2)}\n\nHere is the updated data. Update the analysis to reflect any changes:\n${JSON.stringify(context, null, 2)}`
+      : `Analyze military postures:\n\n${JSON.stringify(context, null, 2)}`;
 
     const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
       temperature: 0.4,

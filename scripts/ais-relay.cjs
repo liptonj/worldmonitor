@@ -566,14 +566,14 @@ async function generateIntelDigest() {
     return;
   }
 
-  const newsData = await redisGet('relay:news:full:v1');
+  const newsData = await redisGet('news:digest:v1:full:en');
   const headlines = [];
   if (newsData?.items && Array.isArray(newsData.items)) {
     for (const item of newsData.items.slice(0, 30)) {
       if (item.title) headlines.push(item.title);
     }
   }
-  for (const key of ['relay:intelligence:v1']) {
+  for (const key of ['ai:digest:global:v1']) {
     const data = await redisGet(key);
     if (data?.headlines && Array.isArray(data.headlines)) {
       for (const h of data.headlines.slice(0, 10)) {
@@ -695,7 +695,7 @@ async function generatePanelSummary() {
   const contextSections = [];
 
   // News: full headlines + descriptions + sources
-  const newsData = await redisGet('relay:news:full:v1');
+  const newsData = await redisGet('news:digest:v1:full:en');
   const newsContext = extractNewsContext(newsData);
   if (newsContext) contextSections.push(`## NEWS & HEADLINES\n${newsContext}`);
 
@@ -705,17 +705,17 @@ async function generatePanelSummary() {
   if (telegramContext) contextSections.push(`## TELEGRAM INTELLIGENCE (OSINT)\n${telegramContext}`);
 
   // Markets: indices, commodities, crypto
-  const marketData = await redisGet('relay:markets:v1');
+  const marketData = await redisGet('market:dashboard:v1');
   const marketContext = extractMarketContext(marketData);
   if (marketContext) contextSections.push(`## MARKET DATA\n${marketContext}`);
 
   // Structured data panels — summarize as key metrics
   const dataKeys = [
-    { key: 'relay:strategic-risk:v1', label: 'STRATEGIC RISK SCORES' },
-    { key: 'relay:strategic-posture:v1', label: 'MILITARY THEATER POSTURE' },
-    { key: 'relay:intelligence:v1', label: 'INTELLIGENCE DIGEST' },
+    { key: 'risk:scores:sebuf:v1', label: 'STRATEGIC RISK SCORES' },
+    { key: 'theater-posture:sebuf:v1', label: 'MILITARY THEATER POSTURE' },
+    { key: 'ai:digest:global:v1', label: 'INTELLIGENCE DIGEST' },
     { key: 'relay:cyber:v1', label: 'CYBER THREATS' },
-    { key: 'relay:supply-chain:v1', label: 'SUPPLY CHAIN STATUS' },
+    { key: 'supply_chain:chokepoints:v1', label: 'SUPPLY CHAIN STATUS' },
     { key: 'relay:predictions:v1', label: 'PREDICTION MARKETS' },
     { key: 'relay:trade:v1', label: 'TRADE POLICY' },
     { key: 'relay:weather:v1', label: 'WEATHER ALERTS' },
@@ -826,7 +826,7 @@ const AI_ARTICLE_TTL = 86400; // 24 hours
 const AI_MAX_CONCURRENT = 3;  // max parallel Ollama calls
 
 async function summarizeAndClassifyHeadlines() {
-  const newsData = await redisGet('relay:news:full:v1');
+  const newsData = await redisGet('news:digest:v1:full:en');
   if (!newsData?.items || !Array.isArray(newsData.items) || newsData.items.length === 0) {
     console.warn('[ai-cron] no news items for article summarization — skipping');
     return;
@@ -996,7 +996,7 @@ async function generateCountryBriefs() {
   }
 
   // Gather all headlines
-  const newsData = await redisGet('relay:news:full:v1');
+  const newsData = await redisGet('news:digest:v1:full:en');
   const headlines = [];
   if (newsData?.items && Array.isArray(newsData.items)) {
     for (const item of newsData.items.slice(0, 50)) {
@@ -1059,7 +1059,7 @@ async function generatePostureAnalysis() {
   const prompt = await loadLlmPrompt('strategic_posture_analysis');
   if (!prompt) return;
 
-  const postureData = await redisGet('relay:strategic-posture:v1');
+  const postureData = await redisGet('theater-posture:sebuf:v1');
   if (!postureData?.theaters || postureData.theaters.length === 0) return;
 
   const elevated = postureData.theaters.filter(t =>
@@ -1093,7 +1093,7 @@ async function generateInstabilityAnalysis() {
   const prompt = await loadLlmPrompt('country_instability_analysis');
   if (!prompt) return;
 
-  const riskData = await redisGet('relay:strategic-risk:v1');
+  const riskData = await redisGet('risk:scores:sebuf:v1');
   if (!riskData?.ciiScores || riskData.ciiScores.length === 0) return;
 
   const topScores = riskData.ciiScores
@@ -1135,9 +1135,9 @@ async function generateRiskOverview() {
   const prompt = await loadLlmPrompt('strategic_risk_overview');
   if (!prompt) return;
 
-  const riskData = await redisGet('relay:strategic-risk:v1');
-  const postureData = await redisGet('relay:strategic-posture:v1');
-  const newsData = await redisGet('relay:news:full:v1');
+  const riskData = await redisGet('risk:scores:sebuf:v1');
+  const postureData = await redisGet('theater-posture:sebuf:v1');
+  const newsData = await redisGet('news:digest:v1:full:en');
 
   if (!riskData?.strategicRisks || riskData.strategicRisks.length === 0) return;
 
@@ -4932,7 +4932,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        const newsData = await redisGet('relay:news:full:v1');
+        const newsData = await redisGet('news:digest:v1:full:en');
         const headlines = (newsData?.items || []).slice(0, 15)
           .map(i => i.title).filter(Boolean)
           .map((h, idx) => `${idx + 1}. ${h}`).join('\n');

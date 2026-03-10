@@ -55,6 +55,36 @@ describe('runWorker', () => {
     assert.deepStrictEqual(broadcasted[0].payload, { items: [1, 2, 3] });
   });
 
+  it('stores previous snapshot before overwrite when current data exists', async () => {
+    const prevData = { items: [0, 0] };
+    const redisWithGet = {
+      _store: mockRedis._store,
+      async get(key) {
+        return this._store.get(key) ?? null;
+      },
+      async setex(key, ttl, value) {
+        this._store.set(key, value);
+      },
+    };
+    redisWithGet._store.set('rk1', prevData);
+
+    const channelFn = async () => ({ items: [1, 2, 3] });
+    const result = await runWorker(
+      {
+        service_key: 'svc1',
+        redis_key: 'rk1',
+        ttl_seconds: 60,
+        trigger_id: 't1',
+        fetch_type: 'custom',
+      },
+      { channelFn, redis: redisWithGet, grpcBroadcast: () => {}, log }
+    );
+
+    assert.strictEqual(result.status, 'ok');
+    assert.deepStrictEqual(redisWithGet._store.get('rk1'), { items: [1, 2, 3] });
+    assert.deepStrictEqual(redisWithGet._store.get('rk1:previous'), prevData);
+  });
+
   it('error path when channelFn throws', async () => {
     const channelFn = async () => {
       throw new Error('fetch failed');

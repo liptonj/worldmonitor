@@ -6,6 +6,7 @@
 // lookupRelayClassification in threat-classifier.ts).
 
 const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
 const MAX_EVENTS = 20;
 
@@ -29,14 +30,15 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
   try {
     const [telegramData, newsData, cyberData] = await Promise.all([
       redis.get('relay:telegram:v1'),
-      redis.get('relay:news:full:v1'),
+      redis.get('news:digest:v1:full:en'),
       redis.get('relay:cyber:v1'),
     ]);
 
     const events = [];
 
-    if (telegramData?.data?.messages && Array.isArray(telegramData.data.messages)) {
-      for (const m of telegramData.data.messages) {
+    const messages = telegramData?.messages ?? telegramData?.data?.messages ?? [];
+    if (Array.isArray(messages)) {
+      for (const m of messages) {
         const text = m.text ?? m.content ?? '';
         if (text) {
           events.push({ id: m.id ?? `tg_${events.length}`, text, title: text, source: 'telegram' });
@@ -44,8 +46,7 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
       }
     }
 
-    const newsItems = newsData?.items ?? newsData?.data ?? [];
-    const newsArr = Array.isArray(newsItems) ? newsItems.slice(0, 10) : [];
+    const newsArr = parseNewsFromRedis(newsData).slice(0, 10);
     for (let i = 0; i < newsArr.length; i++) {
       const a = newsArr[i];
       const title = a.title ?? '';
@@ -56,7 +57,7 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
       }
     }
 
-    const cyberItems = cyberData?.data ?? cyberData?.items ?? [];
+    const cyberItems = cyberData?.data?.threats ?? cyberData?.threats ?? cyberData?.data ?? cyberData?.items ?? [];
     const cyberArr = Array.isArray(cyberItems) ? cyberItems.slice(0, 10) : [];
     for (let i = 0; i < cyberArr.length; i++) {
       const c = cyberArr[i];

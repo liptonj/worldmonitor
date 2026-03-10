@@ -1,11 +1,15 @@
 #!/bin/bash
 # Diagnostic script to check World Monitor worker and data status
+set -e
+
+BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SERVICES_DIR="$BASE_DIR/services"
 
 echo "=== World Monitor Diagnostics ==="
 echo ""
 
 echo "1. Checking Docker service status..."
-cd ~/worldmon/services
+cd "$SERVICES_DIR"
 docker-compose ps
 
 echo ""
@@ -26,10 +30,9 @@ echo "5. Checking gateway logs (last 30 lines)..."
 docker-compose logs --tail=30 gateway
 
 echo ""
-echo "6. To manually trigger AI workers, run these commands:"
-echo "docker-compose exec orchestrator curl -X POST http://orchestrator:3000/trigger/ai:panel-summary"
-echo "docker-compose exec orchestrator curl -X POST http://orchestrator:3000/trigger/ai:intel-digest"
-echo "docker-compose exec orchestrator curl -X POST http://orchestrator:3000/trigger/ai:classifications"
+echo "6. Manual worker triggers:"
+echo "   NOTE: The orchestrator uses the Supabase trigger_requests table instead of HTTP endpoints."
+echo "   Insert a row into wm_admin.trigger_requests (channel_key, status='pending') to trigger a worker."
 
 echo ""
 echo "=== End of Diagnostics ==="

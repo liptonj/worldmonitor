@@ -3,12 +3,14 @@
 // Processes AIS vessel tracking data from aisstream.io WebSocket API
 // Maintains in-memory vessel state, writes snapshots to Redis, broadcasts via gRPC
 
+const WebSocket = require('ws');
 const config = require('@worldmonitor/shared/config.cjs');
 const { createLogger } = require('@worldmonitor/shared/logger.cjs');
 const { setex: redisSetex } = require('@worldmonitor/shared/redis.cjs');
-const { createGatewayClient, broadcast } = require('@worldmonitor/shared/grpc-client.cjs');
+const { createGatewayClient, safeBroadcast } = require('@worldmonitor/shared/grpc-client.cjs');
 
 const log = createLogger('ais-processor');
+const MAX_VESSELS = 20000;
 const REDIS_KEY = 'relay:ais-snapshot:v1';
 const SNAPSHOT_TTL = 120; // 2 minutes
 const SNAPSHOT_INTERVAL_MS = 10000; // write snapshot every 10s
@@ -48,9 +50,16 @@ function processAisMessage(message) {
 }
 
 function getSnapshot() {
+  let vesselArray = Array.from(vessels.values());
+  if (vesselArray.length > MAX_VESSELS) {
+    vesselArray = vesselArray
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+      .slice(0, MAX_VESSELS);
+  }
   return {
-    vessels: Array.from(vessels.values()),
-    count: vessels.size,
+    vessels: vesselArray,
+    count: vesselArray.length,
+    totalTracked: vessels.size,
     timestamp: new Date().toISOString(),
   };
 }
@@ -66,12 +75,18 @@ async function writeSnapshot(gatewayClient) {
 
   if (gatewayClient && snapshot.count > 0) {
     try {
-      await broadcast(gatewayClient, {
+      const result = await safeBroadcast(gatewayClient, {
         channel: 'ais',
         payload: Buffer.from(JSON.stringify(snapshot)),
         timestampMs: Date.now(),
         triggerId: 'ais-processor',
       });
+      if (result.skipped) {
+        log.warn('AIS broadcast skipped — payload too large', {
+          vessels: snapshot.count,
+          bytes: result.bytes,
+        });
+      }
     } catch (err) {
       log.warn('Failed to broadcast AIS snapshot', { error: err.message });
     }
@@ -79,7 +94,6 @@ async function writeSnapshot(gatewayClient) {
 }
 
 function connectAisStream(gatewayClient) {
-  const WebSocket = require('ws');
   const apiKey = process.env.AISSTREAM_API_KEY;
 
   if (!apiKey) {

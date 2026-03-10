@@ -13,9 +13,14 @@ const gatewayPackage = protoLoader.loadSync(path.join(PROTO_DIR, 'gateway.proto'
 const WorkerService = grpc.loadPackageDefinition(workerPackage).relay.v1.WorkerService;
 const GatewayService = grpc.loadPackageDefinition(gatewayPackage).relay.v1.GatewayService;
 
+const MAX_BROADCAST_BYTES = 3 * 1024 * 1024;
+
 function createGatewayClient(host, port) {
   const addr = `${host}:${port}`;
-  return new GatewayService(addr, grpc.credentials.createInsecure());
+  return new GatewayService(addr, grpc.credentials.createInsecure(), {
+    'grpc.max_receive_message_length': 16 * 1024 * 1024,
+    'grpc.max_send_message_length': 16 * 1024 * 1024,
+  });
 }
 
 function createWorkerClient(host, port) {
@@ -38,6 +43,16 @@ function broadcast(client, { channel, payload, timestampMs, triggerId }) {
   });
 }
 
+function safeBroadcast(client, { channel, payload, timestampMs, triggerId, maxBytes }) {
+  const limit = typeof maxBytes === 'number' && maxBytes > 0 ? maxBytes : MAX_BROADCAST_BYTES;
+  const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(payload));
+  if (buf.length > limit) {
+    const msg = `Payload exceeds max broadcast size (${buf.length} > ${limit})`;
+    return Promise.resolve({ clients_notified: 0, skipped: true, reason: msg, bytes: buf.length });
+  }
+  return broadcast(client, { channel, payload: buf, timestampMs, triggerId });
+}
+
 function execute(client, { serviceKey, redisKey, ttlSeconds, settingsJson, triggerId, fetchType }) {
   return new Promise((resolve, reject) => {
     const req = {
@@ -55,4 +70,4 @@ function execute(client, { serviceKey, redisKey, ttlSeconds, settingsJson, trigg
   });
 }
 
-module.exports = { createGatewayClient, createWorkerClient, broadcast, execute };
+module.exports = { createGatewayClient, createWorkerClient, broadcast, execute, safeBroadcast };

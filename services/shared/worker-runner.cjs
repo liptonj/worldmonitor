@@ -47,10 +47,26 @@ async function runWorker(triggerRequest, { channelFn, redis, grpcBroadcast, log 
     }
 
     const ttl = typeof ttl_seconds === 'number' && ttl_seconds > 0 ? ttl_seconds : 300;
+
+    // Store previous snapshot for AI incremental processing
+    const previousKey = `${redis_key}:previous`;
+    try {
+      const currentData = await redis.get(redis_key);
+      if (currentData !== null && currentData !== undefined) {
+        const prevTtl = Math.max(ttl * 2, 600);
+        await redis.setex(previousKey, prevTtl, currentData);
+      }
+    } catch (_) {
+      // Non-critical: if previous snapshot fails, AI will do full rebuild
+    }
+
     await redis.setex(redis_key, ttl, result);
 
     if (typeof grpcBroadcast === 'function') {
-      await grpcBroadcast(service_key, result, trigger_id);
+      const bcResult = await grpcBroadcast(service_key, result, trigger_id);
+      if (bcResult?.skipped) {
+        log.warn('Broadcast skipped — payload too large', { trigger_id, service_key, reason: bcResult.reason, bytes: bcResult.bytes });
+      }
     }
 
     const duration_ms = Date.now() - start;

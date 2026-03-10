@@ -594,6 +594,7 @@ export const CHANNEL_TO_LAYER: Record<string, keyof MapLayers> = {
   'cables':           'cables',
   'flights':          'flights',
   'ais':              'ais',
+  'opensky':          'military',
   'spending':         'economic',
   'oref':             'conflicts',
   'ucdp-events':      'ucdpEvents',

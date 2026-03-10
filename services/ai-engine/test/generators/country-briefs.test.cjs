@@ -24,7 +24,7 @@ test('generateCountryBriefs throws when supabase, redis, or http missing', async
 test('generateCountryBriefs returns briefs keyed by country code', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [{ name: 'test', api_url: 'https://api.example.com/v1', default_model: 'gpt-4', api_key_secret_name: 'KEY' }],
           error: null,
@@ -37,10 +37,10 @@ test('generateCountryBriefs returns briefs keyed by country code', async () => {
 
   const mockRedis = {
     get: async (key) => {
-      if (key === 'relay:news:full:v1') {
+      if (key === 'news:digest:v1:full:en') {
         return { items: [{ title: 'Ukraine conflict', description: 'Ongoing developments', source: 'Reuters' }] };
       }
-      if (key === 'relay:strategic-risk:v1') return { ciiScores: [] };
+      if (key === 'risk:scores:sebuf:v1') return { ciiScores: [] };
       if (key === 'relay:conflict:v1') {
         return { data: [{ country: 'Ukraine', event_type: 'Armed conflict', actor1: 'UA' }] };
       }
@@ -101,12 +101,12 @@ test('generateCountryBriefs returns empty when no input data', async () => {
 test('generateCountryBriefs handles LLM API error', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') return { data: [{ api_url: 'https://x.com', default_model: 'gpt', api_key_secret_name: 'K' }], error: null };
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') return { data: [{ api_url: 'https://x.com', default_model: 'gpt', api_key_secret_name: 'K' }], error: null };
       if (name === 'get_vault_secret_value') return { data: 'key', error: null };
       return { data: null, error: new Error('Unknown') };
     },
   };
-  const mockRedis = { get: async () => ({ items: [{ title: 'Test' }] }) };
+  const mockRedis = { get: async (key) => (key && key.endsWith(':previous') ? null : { items: [{ title: 'Test' }] }) };
   const mockLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const mockHttp = { fetchJson: async () => ({ error: { message: 'Rate limit' } }) };
 
@@ -125,12 +125,12 @@ test('generateCountryBriefs handles LLM API error', async () => {
 test('generateCountryBriefs handles malformed LLM JSON', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') return { data: [{ api_url: 'https://x.com', default_model: 'gpt', api_key_secret_name: 'K' }], error: null };
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') return { data: [{ api_url: 'https://x.com', default_model: 'gpt', api_key_secret_name: 'K' }], error: null };
       if (name === 'get_vault_secret_value') return { data: 'key', error: null };
       return { data: null, error: new Error('Unknown') };
     },
   };
-  const mockRedis = { get: async () => ({ items: [{ title: 'Test' }] }) };
+  const mockRedis = { get: async (key) => (key && key.endsWith(':previous') ? null : { items: [{ title: 'Test' }] }) };
   const mockLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const mockHttp = { fetchJson: async () => ({ choices: [{ message: { content: 'not json' } }] }) };
 

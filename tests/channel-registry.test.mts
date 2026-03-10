@@ -44,6 +44,7 @@ const EXPECTED_CHANNELS = [
   'telegram',
   'oref',
   'ais',
+  'opensky',
   'gdelt',
   'intelligence',
   'trade',
@@ -77,11 +78,11 @@ const EXPECTED_CHANNELS = [
 ];
 
 describe('Channel Registry', () => {
-  it('has exactly 49 channels', () => {
+  it('has exactly 50 channels', () => {
     assert.equal(
       Object.keys(CHANNEL_REGISTRY).length,
-      49,
-      'CHANNEL_REGISTRY must have 49 channels'
+      50,
+      'CHANNEL_REGISTRY must have 50 channels'
     );
   });
 

@@ -38,7 +38,7 @@ describe('worker Execute routing', () => {
     const mockCall = {
       request: {
         service_key: 'markets',
-        redis_key: 'relay:markets:v1',
+        redis_key: 'market:dashboard:v1',
         ttl_seconds: 300,
         settings_json: '{}',
         trigger_id: 't-123',
@@ -52,7 +52,7 @@ describe('worker Execute routing', () => {
       assert.strictEqual(res.service_key, 'markets');
       assert.strictEqual(res.trigger_id, 't-123');
       assert.strictEqual(captured.triggerRequest.service_key, 'markets');
-      assert.strictEqual(captured.triggerRequest.redis_key, 'relay:markets:v1');
+      assert.strictEqual(captured.triggerRequest.redis_key, 'market:dashboard:v1');
       assert.strictEqual(captured.triggerRequest.ttl_seconds, 300);
       assert.strictEqual(captured.triggerRequest.trigger_id, 't-123');
       assert.strictEqual(captured.triggerRequest.fetch_type, 'custom');

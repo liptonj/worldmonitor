@@ -6,7 +6,7 @@ const protoLoader = require('@grpc/proto-loader');
 const { runWorker } = require('@worldmonitor/shared/worker-runner.cjs');
 const { getChannel } = require('@worldmonitor/shared/channels/index.cjs');
 const redis = require('@worldmonitor/shared/redis.cjs');
-const { createGatewayClient, broadcast } = require('@worldmonitor/shared/grpc-client.cjs');
+const { createGatewayClient, safeBroadcast } = require('@worldmonitor/shared/grpc-client.cjs');
 const { createLogger } = require('@worldmonitor/shared/logger.cjs');
 
 const log = createLogger('worker');
@@ -24,9 +24,9 @@ function createGrpcBroadcast(host, port) {
   return async function grpcBroadcast(channel, data, triggerId) {
     try {
       const client = createGatewayClient(host, port);
-      await broadcast(client, {
+      return await safeBroadcast(client, {
         channel,
-        payload: Buffer.from(JSON.stringify(data)),
+        payload: data,
         timestampMs: Date.now(),
         triggerId: triggerId || '',
       });

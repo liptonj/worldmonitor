@@ -7,7 +7,7 @@ const generateIntelDigest = require('../../generators/intel-digest.cjs');
 test('generateIntelDigest returns structured summary', async () => {
   const mockSupabase = {
     rpc: async (name, args) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [
             {
@@ -70,14 +70,14 @@ test('generateIntelDigest returns structured summary', async () => {
   assert.ok(result.data.digest, 'digest field required by frontend');
   assert.ok(result.data.digest.includes('Test intel digest summary'));
   assert.strictEqual(result.data.model, 'gpt-4');
-  assert.strictEqual(result.data.provider, 'openai');
+  assert.strictEqual(result.data.provider, 'test');
   assert.ok(result.data.generatedAt);
 });
 
 test('generateIntelDigest handles LLM API error payload', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [
             {
@@ -118,7 +118,7 @@ test('generateIntelDigest handles LLM API error payload', async () => {
 test('generateIntelDigest handles LLM empty response', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [
             {

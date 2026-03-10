@@ -2,12 +2,12 @@
 
 // AI generator: Country intelligence briefs
 // Fetches news, strategic-risk, conflict from Redis, calls LLM to generate briefs per country.
-// Frontend format: country-intel.ts expects Record<countryCode, { brief?: string }> for relayBriefs[code].brief.
-// Relay broadcasts full { timestamp, source, data, status }; frontend may use payload.data for lookups.
+// Supports incremental: skips LLM when inputs unchanged.
 
 const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
-const REDIS_KEYS = ['relay:news:full:v1', 'relay:strategic-risk:v1', 'relay:conflict:v1'];
+const REDIS_KEYS = ['news:digest:v1:full:en', 'risk:scores:sebuf:v1', 'relay:conflict:v1'];
 
 module.exports = async function generateCountryBriefs({ supabase, redis, log, http }) {
   if (!supabase || !redis || !http) {
@@ -17,14 +17,34 @@ module.exports = async function generateCountryBriefs({ supabase, redis, log, ht
   log.debug('generateCountryBriefs executing');
 
   try {
-    const [newsData, riskData, conflictData] = await Promise.all(
-      REDIS_KEYS.map((k) => redis.get(k))
-    );
+    const previousKeys = REDIS_KEYS.map((k) => `${k}:previous`);
+    const [previousOutput, ...currentResults] = await Promise.all([
+      redis.get('ai:country-briefs:v1'),
+      ...REDIS_KEYS.map((k) => redis.get(k)),
+      ...previousKeys.map((k) => redis.get(k)),
+    ]);
+    const currentData = currentResults.slice(0, REDIS_KEYS.length);
+    const previousData = currentResults.slice(REDIS_KEYS.length);
 
-    const newsItems = newsData?.items ?? newsData?.data ?? [];
-    const newsArr = Array.isArray(newsItems) ? newsItems.slice(0, 15) : [];
+    const contextStr = JSON.stringify(currentData);
+    const previousContextStr = JSON.stringify(previousData);
+    const inputsUnchanged = contextStr === previousContextStr;
+    const previousBriefs =
+      previousOutput?.source === 'ai:country-briefs' && previousOutput?.status === 'success'
+        ? (previousOutput?.data ?? previousOutput)
+        : null;
+    const hasPreviousBriefs = previousBriefs && typeof previousBriefs === 'object' && Object.keys(previousBriefs).length > 0;
+
+    if (inputsUnchanged && hasPreviousBriefs) {
+      log.info('Country briefs inputs unchanged, keeping previous output');
+      return previousOutput;
+    }
+
+    const [newsData, riskData, conflictData] = currentData;
+
+    const newsArr = parseNewsFromRedis(newsData).slice(0, 15);
     const riskItems = riskData?.ciiScores ?? riskData?.data ?? [];
-    const conflictItems = conflictData?.data ?? conflictData?.events ?? [];
+    const conflictItems = conflictData?.data?.events ?? conflictData?.data ?? conflictData?.events ?? [];
     const conflictArr = Array.isArray(conflictItems) ? conflictItems.slice(0, 20) : [];
 
     const context = {
@@ -46,7 +66,10 @@ module.exports = async function generateCountryBriefs({ supabase, redis, log, ht
     const systemPrompt =
       'You are an intelligence analyst. Generate intelligence briefs for each country with significant activity in the data. For each country include: country name, ISO 3166-1 alpha-2 code (e.g. US, RU, CN), brief summary (2-4 sentences), key developments, risk level (low/medium/high/critical). Output valid JSON: { "briefs": [{ "country", "code", "summary", "developments", "riskLevel" }] }. Use standard ISO 2-letter country codes.';
 
-    const userPrompt = `Generate country briefs from this data:\n\n${JSON.stringify(context, null, 2)}`;
+    const previousBriefsStr = hasPreviousBriefs ? JSON.stringify(previousBriefs, null, 2) : '';
+    const userPrompt = hasPreviousBriefs
+      ? `Here are the previous country briefs:\n${previousBriefsStr}\n\nHere is the updated data. Update the briefs to reflect any changes:\n${JSON.stringify(context, null, 2)}`
+      : `Generate country briefs from this data:\n\n${JSON.stringify(context, null, 2)}`;
 
     const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
       temperature: 0.5,

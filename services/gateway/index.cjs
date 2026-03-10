@@ -3,6 +3,8 @@
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const dns = require('dns').promises;
+const net = require('net');
 const { WebSocketServer } = require('ws');
 const protoLoader = require('@grpc/proto-loader');
 const grpc = require('@grpc/grpc-js');
@@ -42,6 +44,60 @@ const CORS_VALUE = '*';
 const GDELT_DOC_API = 'https://api.gdeltproject.org/api/v2/doc/doc';
 const GDELT_TIMEOUT_MS = 12_000;
 const GDELT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+const RSS_TIMEOUT_MS = 10_000;
+const RSS_USER_AGENT = 'WorldMonitor/1.0';
+
+const BLOCKED_RSS_HOSTNAMES = new Set(['localhost', 'localhost.localdomain', 'metadata.google.internal']);
+
+function isPrivateOrUnsafeIpAddress(address) {
+  if (!address || typeof address !== 'string') return true;
+  if (address === '::1') return true;
+  if (address.toLowerCase().startsWith('fe80:')) return true;
+  if (address.toLowerCase().startsWith('fc') || address.toLowerCase().startsWith('fd')) return true;
+  if (address.toLowerCase().startsWith('::ffff:')) {
+    return isPrivateOrUnsafeIpAddress(address.slice(7));
+  }
+
+  const version = net.isIP(address);
+  if (version === 4) {
+    const parts = address.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
+    if (parts[0] === 10 || parts[0] === 127 || parts[0] === 0) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    return false;
+  }
+
+  if (version === 6) return false;
+  return true;
+}
+
+async function isBlockedRssTarget(parsedUrl) {
+  const hostname = String(parsedUrl.hostname || '').toLowerCase();
+  if (!hostname) return true;
+  if (BLOCKED_RSS_HOSTNAMES.has(hostname)) return true;
+
+  // Block direct IP targets to private/local ranges and metadata endpoint.
+  if (net.isIP(hostname)) {
+    if (hostname === '169.254.169.254') return true;
+    return isPrivateOrUnsafeIpAddress(hostname);
+  }
+
+  // Resolve hostnames and block if any resolved address is unsafe.
+  try {
+    const addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+    if (!Array.isArray(addresses) || addresses.length === 0) return true;
+    for (const entry of addresses) {
+      if (entry?.address === '169.254.169.254' || isPrivateOrUnsafeIpAddress(entry?.address || '')) {
+        return true;
+      }
+    }
+    return false;
+  } catch (_) {
+    return true;
+  }
+}
 
 // Envelope fields added by workers that should be stripped before sending to frontend.
 // Keep any payload fields (stocks, commodities, events, etc.)
@@ -224,6 +280,34 @@ function main() {
     }
   }
 
+  async function pushCurrentData(ws, channels) {
+    if (!Array.isArray(channels) || channels.length === 0) return;
+    const validChannels = channels.filter(ch => typeof ch === 'string' && PHASE4_CHANNEL_KEYS[ch]);
+    if (validChannels.length === 0) return;
+
+    const settled = await Promise.allSettled(
+      validChannels.map(ch => get(PHASE4_CHANNEL_KEYS[ch]))
+    );
+
+    for (let i = 0; i < validChannels.length; i++) {
+      const ch = validChannels[i];
+      const result = settled[i];
+      if (result.status !== 'fulfilled' || result.value === null || result.value === undefined) continue;
+
+      const unwrapped = unwrapEnvelope(result.value);
+      if (unwrapped === null || unwrapped === undefined) continue;
+
+      const ts = Math.floor(Date.now() / 1000);
+      try {
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: 'wm-push', channel: ch, data: unwrapped, ts }));
+        }
+      } catch (err) {
+        log.debug('pushCurrentData send error', { channel: ch, error: err.message });
+      }
+    }
+  }
+
   function unsubscribe(ws, channels) {
     const set = clientToChannels.get(ws);
     if (!set) return;
@@ -400,6 +484,58 @@ function main() {
       }
     }
 
+    if (pathname === '/rss') {
+      const rssUrl = url.searchParams.get('url');
+      if (!rssUrl) {
+        res.writeHead(400, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'url parameter required' }));
+        return;
+      }
+      let parsedRssUrl;
+      try {
+        parsedRssUrl = new URL(rssUrl);
+        if (parsedRssUrl.protocol !== 'http:' && parsedRssUrl.protocol !== 'https:') {
+          res.writeHead(400, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Only http/https URLs allowed' }));
+          return;
+        }
+      } catch {
+        res.writeHead(400, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid URL' }));
+        return;
+      }
+      try {
+        if (await isBlockedRssTarget(parsedRssUrl)) {
+          res.writeHead(403, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Target URL not allowed' }));
+          return;
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), RSS_TIMEOUT_MS);
+        const rssResp = await fetch(parsedRssUrl.toString(), {
+          headers: { 'User-Agent': RSS_USER_AGENT, Accept: 'application/rss+xml, application/xml, text/xml' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!rssResp.ok) {
+          res.writeHead(502, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `RSS fetch failed: ${rssResp.status}` }));
+          return;
+        }
+        const body = await rssResp.text();
+        const contentType = rssResp.headers.get('content-type') || 'application/xml';
+        res.writeHead(200, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': contentType });
+        res.end(body);
+        return;
+      } catch (err) {
+        log.error('RSS proxy error', { url: rssUrl, error: err.message });
+        res.writeHead(502, { [CORS_HEADER]: CORS_VALUE, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'RSS proxy failed' }));
+        return;
+      }
+    }
+
     try {
       const result = routeHttpRequest(pathname, redis);
       const resolved = await Promise.resolve(result);
@@ -425,6 +561,9 @@ function main() {
       if (!msg || typeof msg !== 'object') return;
       if (msg.type === 'wm-subscribe' && Array.isArray(msg.channels)) {
         subscribe(ws, msg.channels);
+        pushCurrentData(ws, msg.channels).catch(err => {
+          log.warn('pushCurrentData failed', { error: err.message });
+        });
       } else if (msg.type === 'wm-unsubscribe') {
         unsubscribe(ws, msg.channels);
       }
@@ -438,7 +577,10 @@ function main() {
   const packageDef = grpc.loadPackageDefinition(protoLoader.loadSync(protoPath, loaderOpts));
   const GatewayService = packageDef.relay.v1.GatewayService.service;
 
-  const grpcServer = new grpc.Server();
+  const grpcServer = new grpc.Server({
+    'grpc.max_receive_message_length': 16 * 1024 * 1024,
+    'grpc.max_send_message_length': 16 * 1024 * 1024,
+  });
   grpcServer.addService(GatewayService, {
     Broadcast(call, callback) {
       const { channel, payload } = call.request;

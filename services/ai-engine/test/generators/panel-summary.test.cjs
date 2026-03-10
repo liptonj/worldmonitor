@@ -7,7 +7,7 @@ const generatePanelSummary = require('../../generators/panel-summary.cjs');
 test('generatePanelSummary returns structured summary', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [
             {
@@ -29,13 +29,14 @@ test('generatePanelSummary returns structured summary', async () => {
 
   const mockRedis = {
     get: async (key) => {
-      if (key === 'relay:news:full:v1') {
+      if (key && key.endsWith(':previous')) return null;
+      if (key === 'news:digest:v1:full:en') {
         return { data: [{ title: 'Test News', description: 'Test' }] };
       }
       if (key === 'relay:telegram:v1') {
         return { items: [{ channel: 'OSINT', text: 'Test message' }] };
       }
-      if (key === 'relay:markets:v1') {
+      if (key === 'market:dashboard:v1') {
         return { indices: [{ symbol: 'SPX', price: 5000 }] };
       }
       return null;
@@ -85,7 +86,7 @@ test('generatePanelSummary returns structured summary', async () => {
 test('generatePanelSummary handles LLM API error', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [
             {

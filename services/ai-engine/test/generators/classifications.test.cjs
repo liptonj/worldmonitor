@@ -7,7 +7,7 @@ const generateClassifications = require('../../generators/classifications.cjs');
 test('generateClassifications returns event classifications', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [
             {
@@ -88,7 +88,7 @@ test('generateClassifications returns event classifications', async () => {
 test('generateClassifications handles empty input', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [{ api_url: 'http://test', default_model: 'gpt-4', api_key_secret_name: 'KEY' }],
           error: null,
@@ -130,7 +130,7 @@ test('generateClassifications handles missing deps', async () => {
 test('generateClassifications handles malformed LLM JSON', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [{ api_url: 'http://test', default_model: 'gpt-4', api_key_secret_name: 'KEY' }],
           error: null,
@@ -165,7 +165,7 @@ test('generateClassifications handles malformed LLM JSON', async () => {
 test('generateClassifications handles LLM API error', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [{ api_url: 'http://test', default_model: 'gpt-4', api_key_secret_name: 'KEY' }],
           error: null,

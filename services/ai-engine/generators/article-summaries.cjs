@@ -1,12 +1,13 @@
 'use strict';
 
 // AI generator: Article summarization
-// Fetches articles from relay:news:full:v1, calls LLM to generate summaries and key points per article.
+// Fetches articles from news:digest:v1:full:en, calls LLM to generate summaries and key points per article.
 // Returns hash-map keyed by FNV-1a hash of title (matches frontend lookupRelaySummary expectations).
 
 const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
-const REDIS_NEWS_KEY = 'relay:news:full:v1';
+const REDIS_NEWS_KEY = 'news:digest:v1:full:en';
 
 // FNV-1a — matches fnv1aHash() in src/services/summarization.ts and simpleHash() in ais-relay.cjs
 function fnv1aHash(str) {
@@ -28,8 +29,7 @@ module.exports = async function generateArticleSummaries({ supabase, redis, log,
 
   try {
     const newsData = await redis.get(REDIS_NEWS_KEY);
-    const items = newsData?.items ?? newsData?.data ?? [];
-    const articles = Array.isArray(items) ? items : [];
+    const articles = parseNewsFromRedis(newsData);
 
     if (articles.length === 0) {
       log.warn('No articles found for summarization');

@@ -2,17 +2,17 @@
 
 // AI generator: Comprehensive risk overview across all domains
 // Aggregates news, conflict, cyber, strategic-risk, strategic-posture from Redis.
-// Frontend: StrategicRiskPanel.applyAiOverview(payload) — expects overview, topRisks, interconnections.
-// Relay broadcasts full { timestamp, source, data, status }.
+// Supports incremental: skips LLM when inputs unchanged.
 
 const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
 const REDIS_KEYS = [
-  'relay:news:full:v1',
+  'news:digest:v1:full:en',
   'relay:conflict:v1',
   'relay:cyber:v1',
-  'relay:strategic-risk:v1',
-  'relay:strategic-posture:v1',
+  'risk:scores:sebuf:v1',
+  'theater-posture:sebuf:v1',
 ];
 
 module.exports = async function generateRiskOverview({ supabase, redis, log, http }) {
@@ -23,15 +23,34 @@ module.exports = async function generateRiskOverview({ supabase, redis, log, htt
   log.debug('generateRiskOverview executing');
 
   try {
-    const results = await Promise.all(REDIS_KEYS.map((k) => redis.get(k)));
+    const previousKeys = REDIS_KEYS.map((k) => `${k}:previous`);
+    const [previousOutput, ...currentResults] = await Promise.all([
+      redis.get('ai:risk-overview:v1'),
+      ...REDIS_KEYS.map((k) => redis.get(k)),
+      ...previousKeys.map((k) => redis.get(k)),
+    ]);
+    const currentData = currentResults.slice(0, REDIS_KEYS.length);
+    const previousData = currentResults.slice(REDIS_KEYS.length);
 
-    const [newsData, conflictData, cyberData, riskData, postureData] = results;
+    const contextStr = JSON.stringify(currentData);
+    const previousContextStr = JSON.stringify(previousData);
+    const inputsUnchanged = contextStr === previousContextStr;
+    const previousOverview =
+      previousOutput?.source === 'ai:risk-overview' && previousOutput?.status === 'success'
+        ? (previousOutput?.data?.overview ?? previousOutput?.overview ?? null)
+        : null;
 
-    const newsItems = newsData?.items ?? newsData?.data ?? [];
-    const newsArr = Array.isArray(newsItems) ? newsItems.slice(0, 15) : [];
-    const conflictItems = conflictData?.data ?? conflictData?.events ?? [];
+    if (inputsUnchanged && previousOverview) {
+      log.info('Risk overview inputs unchanged, keeping previous output');
+      return previousOutput;
+    }
+
+    const [newsData, conflictData, cyberData, riskData, postureData] = currentData;
+
+    const newsArr = parseNewsFromRedis(newsData).slice(0, 15);
+    const conflictItems = conflictData?.data?.events ?? conflictData?.data ?? conflictData?.events ?? [];
     const conflictArr = Array.isArray(conflictItems) ? conflictItems.slice(0, 20) : [];
-    const cyberItems = cyberData?.data ?? cyberData?.threats ?? [];
+    const cyberItems = cyberData?.data?.threats ?? cyberData?.threats ?? cyberData?.data ?? [];
     const cyberArr = Array.isArray(cyberItems) ? cyberItems.slice(0, 10) : [];
     const riskItems = riskData?.ciiScores ?? riskData?.strategicRisks ?? riskData?.data ?? [];
     const riskArr = Array.isArray(riskItems) ? riskItems.slice(0, 15) : [];
@@ -65,7 +84,9 @@ module.exports = async function generateRiskOverview({ supabase, redis, log, htt
     const systemPrompt =
       'You are a strategic risk analyst. Synthesize a comprehensive risk overview across all domains (cyber, military, political, economic, environmental). Identify top risks, interconnections between domains, and emerging threats. Output valid JSON: { "overview": string, "topRisks": [{ "domain", "risk", "severity", "trend" }], "interconnections": string[] }. Severity: low/medium/high/critical. Trend: stable/increasing/decreasing.';
 
-    const userPrompt = `Synthesize risk overview from:\n\n${JSON.stringify(context, null, 2)}`;
+    const userPrompt = previousOverview
+      ? `Here is the previous risk overview:\n${previousOverview}\n\nHere is the updated data. Update the overview to reflect any changes:\n${JSON.stringify(context, null, 2)}`
+      : `Synthesize risk overview from:\n\n${JSON.stringify(context, null, 2)}`;
 
     const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
       temperature: 0.5,

@@ -24,7 +24,7 @@ test('generateArticleSummaries throws when supabase, redis, or http missing', as
 test('generateArticleSummaries returns summaries', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [
             {
@@ -46,7 +46,7 @@ test('generateArticleSummaries returns summaries', async () => {
 
   const mockRedis = {
     get: async (key) => {
-      if (key === 'relay:news:full:v1') {
+      if (key === 'news:digest:v1:full:en') {
         return {
           items: [
             { title: 'Test Article 1', url: 'https://example.com/1', description: 'Full text of article 1...' },
@@ -138,7 +138,7 @@ test('generateArticleSummaries returns empty summaries when no articles', async 
 test('generateArticleSummaries handles LLM API error', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [
             {
@@ -183,7 +183,7 @@ test('generateArticleSummaries handles LLM API error', async () => {
 test('generateArticleSummaries handles malformed LLM JSON', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [
             {

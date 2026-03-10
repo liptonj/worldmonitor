@@ -24,7 +24,7 @@ test('generatePostureAnalysis throws when supabase, redis, or http missing', asy
 test('generatePostureAnalysis returns analyses', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') {
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
         return {
           data: [{ name: 'test', api_url: 'https://api.example.com/v1', default_model: 'gpt-4', api_key_secret_name: 'KEY' }],
           error: null,
@@ -37,11 +37,12 @@ test('generatePostureAnalysis returns analyses', async () => {
 
   const mockRedis = {
     get: async (key) => {
-      if (key === 'relay:strategic-posture:v1') {
+      if (key && key.endsWith(':previous')) return null;
+      if (key === 'theater-posture:sebuf:v1') {
         return { theaters: [{ name: 'Eastern Europe', postureLevel: 'elevated', totalAircraft: 12, totalVessels: 5 }] };
       }
       if (key === 'relay:conflict:v1') return { data: [{ country: 'Ukraine', event_type: 'Armed conflict' }] };
-      if (key === 'relay:opensky:v1') return { flights: [{ origin_country: 'RU', callsign: 'RFF' }] };
+      if (key === 'relay:ais-snapshot:v1') return { flights: [{ origin_country: 'RU', callsign: 'RFF' }] };
       return null;
     },
   };
@@ -97,12 +98,12 @@ test('generatePostureAnalysis returns empty analyses when no input', async () =>
 test('generatePostureAnalysis handles LLM API error', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') return { data: [{ api_url: 'https://x.com', default_model: 'gpt', api_key_secret_name: 'K' }], error: null };
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') return { data: [{ api_url: 'https://x.com', default_model: 'gpt', api_key_secret_name: 'K' }], error: null };
       if (name === 'get_vault_secret_value') return { data: 'key', error: null };
       return { data: null, error: new Error('Unknown') };
     },
   };
-  const mockRedis = { get: async () => ({ theaters: [{ name: 'Test' }] }) };
+  const mockRedis = { get: async (key) => (key && key.endsWith(':previous') ? null : { theaters: [{ name: 'Test' }] }) };
   const mockLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const mockHttp = { fetchJson: async () => ({ error: { message: 'API down' } }) };
 
@@ -121,12 +122,12 @@ test('generatePostureAnalysis handles LLM API error', async () => {
 test('generatePostureAnalysis handles malformed LLM JSON', async () => {
   const mockSupabase = {
     rpc: async (name) => {
-      if (name === 'get_active_llm_provider') return { data: [{ api_url: 'https://x.com', default_model: 'gpt', api_key_secret_name: 'K' }], error: null };
+      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') return { data: [{ api_url: 'https://x.com', default_model: 'gpt', api_key_secret_name: 'K' }], error: null };
       if (name === 'get_vault_secret_value') return { data: 'key', error: null };
       return { data: null, error: new Error('Unknown') };
     },
   };
-  const mockRedis = { get: async () => ({ theaters: [{ name: 'Test' }] }) };
+  const mockRedis = { get: async (key) => (key && key.endsWith(':previous') ? null : { theaters: [{ name: 'Test' }] }) };
   const mockLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const mockHttp = { fetchJson: async () => ({ choices: [{ message: { content: 'not json' } }] }) };
 

@@ -14,7 +14,7 @@
 
 import type { MapLayers } from '@/types';
 
-/** Domain for grouping apply* handlers. news/military reserved for future channels (e.g. news:full, opensky). */
+/** Domain for grouping apply* handlers. news reserved for future channels (e.g. news:full). */
 export type DataDomain =
   | 'news'
   | 'markets'
@@ -243,6 +243,17 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     required: false,
     mapLayers: ['ais'],
     applyMethod: 'applyAisSignals',
+  },
+  opensky: {
+    key: 'opensky',
+    redisKey: 'relay:opensky:v1',
+    panels: ['map'],
+    domain: 'infrastructure',
+    staleAfterMs: 5 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+    mapLayers: ['flights'],
+    applyMethod: 'applyOpenSky',
   },
   gdelt: {
     key: 'gdelt',

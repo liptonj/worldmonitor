@@ -2,8 +2,10 @@
 
 // AI generator: Global intelligence digest
 // Aggregates news, conflict, cyber data from Redis, calls LLM, returns structured analysis
+// Supports incremental: reads previous output and news snapshot, skips LLM when unchanged.
 
 const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
 const MAX_CONTEXT_CHARS = 8_000;
 
@@ -18,6 +20,11 @@ function summariseItems(items, limit) {
   });
 }
 
+function itemTitle(item) {
+  if (typeof item === 'string') return item.slice(0, 200);
+  return item?.title || item?.headline || item?.summary || item?.text || '';
+}
+
 module.exports = async function generateIntelDigest({ supabase, redis, log, http }) {
   log.debug('generateIntelDigest executing');
 
@@ -26,20 +33,56 @@ module.exports = async function generateIntelDigest({ supabase, redis, log, http
       throw new Error('supabase and http are required');
     }
 
-    const [newsData, conflictData, cyberData] = await Promise.all([
+    const [newsData, previousNewsData, previousDigestRaw, conflictData, cyberData] = await Promise.all([
       redis.get('news:digest:v1:full:en'),
+      redis.get('news:digest:v1:full:en:previous'),
+      redis.get('ai:digest:global:v1'),
       redis.get('relay:conflict:v1'),
       redis.get('relay:cyber:v1'),
     ]);
 
-    const rawNews = newsData?.data ?? newsData?.items ?? [];
-    const rawConflict = conflictData?.data ?? conflictData?.items ?? [];
-    const rawCyber = cyberData?.data?.threats ?? cyberData?.data ?? cyberData?.items ?? [];
+    const rawNews = parseNewsFromRedis(newsData);
+    let previousSummary = null;
+    const previousTitles = new Set();
+    if (previousDigestRaw) {
+      try {
+        const parsed = typeof previousDigestRaw === 'string' ? JSON.parse(previousDigestRaw) : previousDigestRaw;
+        const data = parsed?.data ?? parsed;
+        previousSummary = data?.digest || data?.summary || parsed?.digest || parsed?.summary || null;
+      } catch (_) {}
+    }
+    if (previousNewsData) {
+      try {
+        const prevItems = parseNewsFromRedis(previousNewsData);
+        for (const i of prevItems) {
+          const t = itemTitle(i);
+          if (t) previousTitles.add(t);
+        }
+      } catch (_) {}
+    }
+
+    const newItems = rawNews.filter((i) => {
+      const t = itemTitle(i);
+      return t && !previousTitles.has(t);
+    });
+
+    if (newItems.length === 0 && previousSummary) {
+      const prev = typeof previousDigestRaw === 'string' ? JSON.parse(previousDigestRaw) : previousDigestRaw;
+      if (prev?.source === 'ai:intel-digest' && prev?.status === 'success') {
+        log.info('No new items since last digest, keeping previous output');
+        return prev;
+      }
+    }
+
+    const conflictItems = conflictData?.data?.events ?? conflictData?.data ?? conflictData?.events ?? [];
+    const conflictArr = Array.isArray(conflictItems) ? conflictItems.slice(0, 20) : [];
+    const rawCyber = cyberData?.data?.threats ?? cyberData?.threats ?? cyberData?.data ?? cyberData?.items ?? [];
+    const rawCyberArr = Array.isArray(rawCyber) ? rawCyber : [];
 
     const context = {
       news: summariseItems(rawNews, 25),
-      conflict: summariseItems(rawConflict, 15),
-      cyber: summariseItems(rawCyber, 10),
+      conflict: summariseItems(conflictArr, 15),
+      cyber: summariseItems(rawCyberArr, 10),
     };
 
     let contextStr = JSON.stringify(context);
@@ -56,7 +99,9 @@ module.exports = async function generateIntelDigest({ supabase, redis, log, http
     const systemPrompt =
       'You are an intelligence analyst. Synthesize the following data sources into a concise global intelligence digest. Focus on significant developments, emerging patterns, and potential risks. Output valid JSON with fields: summary (string), highlights (array of strings), regions (array of strings).';
 
-    const userPrompt = `Analyze this data and create an intelligence digest:\n\n${contextStr}`;
+    const userPrompt = previousSummary
+      ? `Here is the previous intelligence digest:\n${previousSummary}\n\nHere are ${newItems.length} new developments since then. Update the digest to incorporate them:\n${JSON.stringify(summariseItems(newItems, 25))}`
+      : `Analyze this data and create an intelligence digest:\n\n${contextStr}`;
 
     const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http);
     log.info('intel-digest LLM succeeded', { provider: result.provider_name, model: result.model_name });

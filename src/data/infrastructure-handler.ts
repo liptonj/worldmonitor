@@ -1,9 +1,10 @@
 /**
- * Infrastructure domain handler — cables, cyber, flights, ais, service-status, tech-events.
+ * Infrastructure domain handler — cables, cyber, flights, ais, opensky, service-status, tech-events.
  * tech-events: CHANNEL_REGISTRY domain 'infrastructure'; kept for loadTechEvents/relay push.
  */
 
 import type { AppContext } from '@/app/app-context';
+import type { MilitaryFlight, MilitaryFlightCluster } from '@/types';
 import { intelStore } from '@/stores/intel-store';
 import { SITE_VARIANT } from '@/config';
 import { adaptCyberThreatsResponse } from '@/services';
@@ -87,6 +88,39 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
     };
   }
 
+  function mapOpenSkyStatesToFlights(states: unknown[]): MilitaryFlight[] {
+    const now = new Date();
+    const flights: MilitaryFlight[] = [];
+    for (const state of states) {
+      if (!state || typeof state !== 'object') continue;
+      const s = state as Record<string, unknown>;
+      const lat = typeof s.latitude === 'number' ? s.latitude : null;
+      const lon = typeof s.longitude === 'number' ? s.longitude : null;
+      if (lat === null || lon === null) continue;
+      const icao24 = typeof s.icao24 === 'string' ? s.icao24.toLowerCase() : '';
+      const callsign = typeof s.callsign === 'string' ? s.callsign.trim() : '';
+      const velocity = typeof s.velocity === 'number' ? s.velocity : 0;
+      const altitude = typeof s.baroAltitude === 'number' ? s.baroAltitude : 0;
+      flights.push({
+        id: `opensky-${icao24 || 'unknown'}`,
+        callsign: callsign || `UNKN-${(icao24 || '0000').slice(0, 4).toUpperCase()}`,
+        hexCode: (icao24 || 'unknown').toUpperCase(),
+        aircraftType: 'unknown',
+        operator: 'other',
+        operatorCountry: typeof s.originCountry === 'string' ? s.originCountry : '',
+        lat,
+        lon,
+        altitude: altitude ? Math.round(altitude * 3.28084) : 0,
+        heading: 0,
+        speed: velocity ? Math.round(velocity * 1.94384) : 0,
+        onGround: Boolean(s.onGround),
+        lastSeen: now,
+        confidence: 'low',
+      });
+    }
+    return flights;
+  }
+
   return {
     cables: (payload: unknown) => {
       let adapted = payload;
@@ -153,6 +187,34 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
       if (hasData) {
         dataFreshness.recordUpdate('ais', shippingCount);
       }
+    },
+    opensky: (payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return;
+      const p = payload as Record<string, unknown>;
+      const data = (p.data as Record<string, unknown>) ?? p;
+      let flights: MilitaryFlight[] = Array.isArray(p.flights) ? (p.flights as MilitaryFlight[]) : Array.isArray(data.flights) ? (data.flights as MilitaryFlight[]) : [];
+      if (flights.length === 0 && Array.isArray(data.states)) {
+        flights = mapOpenSkyStatesToFlights(data.states);
+      }
+      const clusters: MilitaryFlightCluster[] = Array.isArray(p.clusters) ? (p.clusters as MilitaryFlightCluster[]) : Array.isArray(data.clusters) ? (data.clusters as MilitaryFlightCluster[]) : [];
+
+      const existing = intelStore.intelligenceCache.military;
+      const vessels = existing?.vessels ?? [];
+      const vesselClusters = existing?.vesselClusters ?? [];
+
+      intelStore.intelligenceCache.military = {
+        flights,
+        flightClusters: clusters,
+        vessels,
+        vesselClusters,
+      };
+
+      ctx.map?.setMilitaryFlights(flights, clusters);
+      ctx.map?.setLayerReady('military', flights.length > 0 || vessels.length > 0);
+      dataFreshness.recordUpdate('opensky', flights.length);
+      const militaryCount = flights.length + vessels.length;
+      ctx.statusPanel?.updateFeed('Military', { status: militaryCount > 0 ? 'ok' : 'warning', itemCount: militaryCount });
+      ctx.statusPanel?.updateApi('OpenSky', { status: 'ok' });
     },
     'service-status': forwardToPanel('service-status'),
     'tech-events': (payload: unknown) => {

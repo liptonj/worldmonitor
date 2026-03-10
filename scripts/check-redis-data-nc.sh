@@ -1,10 +1,15 @@
 #!/bin/bash
 # Check what data is currently in Redis using raw Redis protocol
 # Works without redis-cli by using netcat (nc)
+set -e
 #
 # Usage:
 #   ./check-redis-data-nc.sh 10.230.255.80      # Remote redis (IP:6379)
 #   ./check-redis-data-nc.sh 10.230.255.80:6380 # Remote redis (custom port)
+
+BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SERVICES_DIR="$BASE_DIR/services"
+REMOTE_SERVICES_DIR="${REMOTE_SERVICES_DIR:-$SERVICES_DIR}"
 
 if [ -z "$1" ]; then
     echo "Usage: $0 <host[:port]>"
@@ -111,6 +116,10 @@ check_key "relay:config:feature-flags" "Feature Flags"
 echo ""
 echo "--- Total Keys in Redis ---"
 dbsize=$(echo -e "DBSIZE\r\n" | nc -w 1 "$HOST" "$PORT" 2>/dev/null | grep -o ':[0-9]*' | cut -d: -f2)
+dbsize="${dbsize:-0}"
+if ! [[ "$dbsize" =~ ^[0-9]+$ ]]; then
+    dbsize=0
+fi
 echo "Total keys: $dbsize"
 
 echo ""
@@ -120,12 +129,12 @@ if [ "$dbsize" -lt "5" ]; then
     echo ""
     echo "Next steps:"
     echo "  1. SSH to server: ssh ubuntu@$HOST"
-    echo "  2. Check orchestrator: cd /home/ubuntu/worldmon/services && docker-compose logs orchestrator | tail -20"
+    echo "  2. Check orchestrator: cd $REMOTE_SERVICES_DIR && docker-compose logs orchestrator | tail -20"
     echo "  3. Restart orchestrator: docker-compose restart orchestrator"
 else
     echo "✓ Redis contains data. Bootstrap should work."
     echo ""
     echo "If panels still not loading, check:"
     echo "  1. Frontend bootstrap request: Browser DevTools → Network → /bootstrap"
-    echo "  2. Gateway logs: ssh ubuntu@$HOST 'cd /home/ubuntu/worldmon/services && docker-compose logs gateway | tail -20'"
+    echo "  2. Gateway logs: ssh ubuntu@$HOST 'cd $REMOTE_SERVICES_DIR && docker-compose logs gateway | tail -20'"
 fi

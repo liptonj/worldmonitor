@@ -19,6 +19,7 @@
     "telegram": "relay:telegram:v1",
     "oref": "relay:oref:v1",
     "ais": "relay:ais-snapshot:v1",
+    "opensky": "relay:opensky:v1",
     "gdelt": "relay:gdelt:v1",
     "intelligence": "ai:digest:global:v1",
     "trade": "relay:trade:v1",
@@ -65,5 +66,5 @@
     "techEvents": "relay:tech-events:v1",
     "iranAttacks": "conflict:iran-events:v1"
   },
-  "_generated": "2026-03-09T21:48:07.224Z"
+  "_generated": "2026-03-10T16:01:50.333Z"
 }
