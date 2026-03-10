@@ -4,13 +4,20 @@
 
 import type { AppContext } from '@/app/app-context';
 
+const aiPayloadBuffer = new Map<string, unknown>();
+
+export function getBufferedAiPayload(channel: string): unknown | undefined {
+  return aiPayloadBuffer.get(channel);
+}
+
 export function createAiHandlers(ctx: AppContext): Record<string, (payload: unknown) => void> {
   return {
     'ai:intel-digest': (payload: unknown) => {
       if (!payload) { console.warn('[wm:ai:intel-digest] null/undefined payload'); return; }
+      aiPayloadBuffer.set('ai:intel-digest', payload);
       const digestPanel = ctx.panels['global-digest'] as { applyAiDigest?: (p: unknown) => void } | undefined;
       if (!digestPanel?.applyAiDigest) {
-        console.warn('[wm:ai:intel-digest] panel not mounted or missing applyAiDigest');
+        console.debug('[wm:ai:intel-digest] panel not yet mounted — payload buffered');
         return;
       }
       digestPanel.applyAiDigest(payload);
@@ -51,27 +58,30 @@ export function createAiHandlers(ctx: AppContext): Record<string, (payload: unkn
     },
     'ai:posture-analysis': (payload: unknown) => {
       if (!payload) { console.warn('[wm:ai:posture-analysis] null/undefined payload'); return; }
+      aiPayloadBuffer.set('ai:posture-analysis', payload);
       const posturePanel = ctx.panels['strategic-posture'] as { applyAiAnalysis?: (p: unknown) => void } | undefined;
       if (!posturePanel?.applyAiAnalysis) {
-        console.warn('[wm:ai:posture-analysis] panel not mounted or missing applyAiAnalysis');
+        console.debug('[wm:ai:posture-analysis] panel not yet mounted — payload buffered');
         return;
       }
       posturePanel.applyAiAnalysis(payload);
     },
     'ai:instability-analysis': (payload: unknown) => {
       if (!payload) { console.warn('[wm:ai:instability-analysis] null/undefined payload'); return; }
+      aiPayloadBuffer.set('ai:instability-analysis', payload);
       const riskPanel = ctx.panels['strategic-risk'] as { applyInstabilityAnalysis?: (p: unknown) => void } | undefined;
       if (!riskPanel?.applyInstabilityAnalysis) {
-        console.warn('[wm:ai:instability-analysis] panel not mounted or missing applyInstabilityAnalysis');
+        console.debug('[wm:ai:instability-analysis] panel not yet mounted — payload buffered');
         return;
       }
       riskPanel.applyInstabilityAnalysis(payload);
     },
     'ai:risk-overview': (payload: unknown) => {
       if (!payload) { console.warn('[wm:ai:risk-overview] null/undefined payload'); return; }
+      aiPayloadBuffer.set('ai:risk-overview', payload);
       const riskPanel = ctx.panels['strategic-risk'] as { applyAiOverview?: (p: unknown) => void } | undefined;
       if (!riskPanel?.applyAiOverview) {
-        console.warn('[wm:ai:risk-overview] panel not mounted or missing applyAiOverview');
+        console.debug('[wm:ai:risk-overview] panel not yet mounted — payload buffered');
         return;
       }
       riskPanel.applyAiOverview(payload);
