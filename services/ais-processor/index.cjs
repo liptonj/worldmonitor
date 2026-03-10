@@ -161,14 +161,17 @@ function detectDisruptions() {
 function calculateDensityZones() {
   const zones = [];
   for (const [, cell] of densityGrid) {
-    if (cell.vessels.size < 2) continue;
-    const intensity = Math.min(1.0, 0.2 + Math.log10(cell.vessels.size) * 0.3);
-    const deltaPct = cell.prevCount > 0 ? Math.round(((cell.vessels.size - cell.prevCount) / cell.prevCount) * 100) : 0;
+    const vesselCount = cell.vessels.size;
+    const deltaPct = cell.prevCount > 0 ? Math.round(((vesselCount - cell.prevCount) / cell.prevCount) * 100) : 0;
+    // Persist previous count so next snapshot can compute a real delta.
+    cell.prevCount = vesselCount;
+    if (vesselCount < 2) continue;
+    const intensity = Math.min(1.0, 0.2 + Math.log10(vesselCount) * 0.3);
     zones.push({
       id: `dz-${cell.lat.toFixed(0)}-${cell.lon.toFixed(0)}`,
       name: `Zone ${cell.lat.toFixed(0)}\u00B0, ${cell.lon.toFixed(0)}\u00B0`,
       lat: cell.lat, lon: cell.lon, intensity, deltaPct,
-      shipsPerDay: cell.vessels.size * 48,
+      shipsPerDay: vesselCount * 48,
     });
   }
   zones.sort((a, b) => b.intensity - a.intensity);

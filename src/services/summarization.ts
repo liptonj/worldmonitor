@@ -22,6 +22,8 @@ import { NewsServiceClient, type SummarizeArticleResponse } from '@/generated/cl
 import { createCircuitBreaker } from '@/utils';
 import { buildSummaryCacheKey } from '@/utils/summary-cache-key';
 
+const CLIENT_ML_ENABLED = import.meta.env.VITE_ENABLE_CLIENT_ML === '1';
+
 // FNV-1a — matches simpleHash() in ais-relay.cjs
 function fnv1aHash(str: string): string {
   let hash = 0x811c9dc5;
@@ -196,7 +198,13 @@ export async function generateSummary(
   }
 
   lastAttemptedProvider = 'none';
-  const result = await generateSummaryInternal(headlines, onProgress, geoContext, lang, options);
+  const effectiveOptions: SummarizeOptions = {
+    ...(options ?? {}),
+    // Force server-side providers unless explicitly enabled.
+    skipBrowserFallback: CLIENT_ML_ENABLED ? options?.skipBrowserFallback : true,
+  };
+
+  const result = await generateSummaryInternal(headlines, onProgress, geoContext, lang, effectiveOptions);
 
   // Track at generateSummary return only (not inside tryApiProvider) to avoid
   // double-counting beta comparison traffic. Only the winning provider is recorded.

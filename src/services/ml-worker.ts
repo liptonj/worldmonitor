@@ -7,6 +7,8 @@ import { detectMLCapabilities, type MLCapabilities } from './ml-capabilities';
 import { getMLThresholds } from '@/services/feature-flag-client';
 import type { ModelConfig } from '@/config/ml-config';
 
+const CLIENT_ML_ENABLED = import.meta.env.VITE_ENABLE_CLIENT_ML === '1';
+
 /** Safe default model configs for unloadOptionalModels. Runtime config can come from feature flags later. */
 const DEFAULT_MODEL_CONFIGS: ModelConfig[] = [
   { id: 'embeddings', name: 'all-MiniLM-L6-v2', hfModel: 'Xenova/all-MiniLM-L6-v2', size: 23_000_000, priority: 1, required: true, task: 'feature-extraction' },
@@ -81,6 +83,11 @@ class MLWorkerManager {
    */
   async init(): Promise<boolean> {
     if (this.isReady) return true;
+
+    if (!CLIENT_ML_ENABLED) {
+      // Enforce server-side inference by default; browser ML must be opt-in.
+      return false;
+    }
 
     // Detect capabilities
     this.capabilities = await detectMLCapabilities();

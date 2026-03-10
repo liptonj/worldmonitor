@@ -28,24 +28,33 @@ export function subscribe(channel: string, handler: ChannelHandler): () => void 
 }
 
 function dispatch(channel: string, payload: unknown): void {
-  if (payload !== undefined && payload !== null) {
-    setChannelState(channel, 'ready', 'websocket', { lastDataAt: Date.now() });
-  } else {
+  if (payload === undefined || payload === null) {
     console.warn(`[wm:${channel}] null/undefined payload — setting channel to error`);
     setChannelState(channel, 'error', 'websocket', { error: 'No data available' });
+    return;
   }
+
   const schema = channelSchemas[channel];
-  if (schema && payload !== undefined && payload !== null) {
+  let resolvedPayload: unknown = payload;
+  if (schema) {
     const result = schema.safeParse(payload);
     if (!result.success) {
-      console.warn(`[relay-push] schema mismatch (${channel}):`, result.error.issues.map(i => i.message).join('; '));
+      console.warn(
+        `[relay-push] schema mismatch (${channel}):`,
+        result.error.issues.map((i) => i.message).join('; '),
+      );
+      setChannelState(channel, 'error', 'websocket', { error: 'Invalid payload shape' });
+      return;
     }
+    resolvedPayload = result.data;
   }
+
+  setChannelState(channel, 'ready', 'websocket', { lastDataAt: Date.now() });
   const channelHandlers = handlers.get(channel);
   if (!channelHandlers) return;
   for (const h of channelHandlers) {
     try {
-      h(payload);
+      h(resolvedPayload);
     } catch (err) {
       console.error(`[relay-push] handler error (${channel}):`, err);
     }

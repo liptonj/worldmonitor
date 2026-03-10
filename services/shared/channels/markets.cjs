@@ -167,7 +167,8 @@ module.exports = async function fetchMarkets({ config, redis, log, http }) {
       ...stockSymbols.filter(isYahooOnlySymbol),
       ...(!apiKey ? finnhubSymbols : []),
     ];
-    const yahooSectorFallback = !apiKey ? sectorSymbols : [];
+    // Always fetch Yahoo sector quotes so we can fall back when Finnhub misses symbols.
+    const yahooSectorFallback = sectorSymbols;
 
     const [
       finnhubResults,

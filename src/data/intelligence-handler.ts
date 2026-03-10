@@ -159,13 +159,49 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
       dataFreshness.recordUpdate('ucdp_events', result.count);
     },
     telegram: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') { console.warn('[wm:telegram] skipped — invalid payload type:', typeof payload); return; }
-      // ingest-telegram may send { data: { messages: [...] } } which unwrapEnvelope turns to { messages: [...] }
-      // or raw { messages: [...], count, timestamp } without envelope
-      const raw = (typeof payload === 'object' && payload !== null && 'data' in (payload as Record<string, unknown>) && (payload as Record<string, unknown>).data !== null && typeof (payload as Record<string, unknown>).data === 'object')
+      if (!payload) { console.warn('[wm:telegram] skipped — empty payload'); return; }
+      // Accept legacy array payloads and object payloads (root or nested in data).
+      if (Array.isArray(payload)) {
+        const rawNow = new Date().toISOString();
+        const items = payload.map((msg: unknown) => {
+          const m = msg as Record<string, unknown>;
+          return {
+            id: String(m.id ?? ''),
+            source: 'telegram' as const,
+            channel: String(m.channel ?? ''),
+            channelTitle: String(m.label ?? m.channelTitle ?? m.channel ?? ''),
+            url: String(m.url ?? ''),
+            ts: m.ts ? String(m.ts) : typeof m.date === 'number' ? new Date(m.date).toISOString() : rawNow,
+            text: String(m.text ?? ''),
+            topic: String(m.topic ?? 'unknown'),
+            tags: Array.isArray(m.tags) ? (m.tags as string[]) : [],
+            earlySignal: Boolean(m.earlySignal ?? (typeof m.tier === 'number' && m.tier <= 1)),
+          };
+        });
+        (ctx.panels['telegram-intel'] as TelegramIntelPanel)?.setData({
+          source: 'telegram',
+          earlySignal: items.some(i => i.earlySignal),
+          enabled: true,
+          count: items.length,
+          updatedAt: rawNow,
+          items,
+        });
+        return;
+      }
+      if (typeof payload !== 'object') { console.warn('[wm:telegram] skipped — invalid payload type:', typeof payload); return; }
+      // ingest-telegram may send { data: { messages: [...] } } or raw { messages: [...], count, timestamp }
+      const raw = ('data' in (payload as Record<string, unknown>)
+        && (payload as Record<string, unknown>).data !== null
+        && typeof (payload as Record<string, unknown>).data === 'object')
         ? (payload as Record<string, unknown>).data as Record<string, unknown>
         : payload as Record<string, unknown>;
-      console.debug('[wm:telegram] payload shape:', { keys: Object.keys(raw), itemCount: Array.isArray(raw.items) ? (raw.items as unknown[]).length : 0, msgCount: Array.isArray(raw.messages) ? (raw.messages as unknown[]).length : 0 });
+      if (import.meta.env.DEV) {
+        console.debug('[wm:telegram] payload shape:', {
+          keys: Object.keys(raw),
+          itemCount: Array.isArray(raw.items) ? (raw.items as unknown[]).length : 0,
+          msgCount: Array.isArray(raw.messages) ? (raw.messages as unknown[]).length : 0,
+        });
+      }
       const messages: unknown[] = Array.isArray(raw.items)
         ? raw.items
         : Array.isArray(raw.messages)

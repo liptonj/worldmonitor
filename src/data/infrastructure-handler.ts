@@ -268,7 +268,8 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
       // Normalize pubDate from string to Date for panel compatibility
       const normalized = items.map((item: unknown) => {
         const i = item as Record<string, unknown>;
-        const pubDate = i.pubDate instanceof Date ? i.pubDate : new Date(String(i.pubDate ?? ''));
+        const parsed = i.pubDate instanceof Date ? i.pubDate : new Date(String(i.pubDate ?? ''));
+        const pubDate = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
         return { ...i, pubDate };
       });
       (ctx.panels['security-advisories'] as { setData?: (d: unknown[]) => void } | undefined)?.setData?.(normalized);
