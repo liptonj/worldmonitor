@@ -160,7 +160,12 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
     },
     telegram: (payload: unknown) => {
       if (!payload || typeof payload !== 'object') { console.warn('[wm:telegram] skipped — invalid payload type:', typeof payload); return; }
-      const raw = payload as Record<string, unknown>;
+      // ingest-telegram may send { data: { messages: [...] } } which unwrapEnvelope turns to { messages: [...] }
+      // or raw { messages: [...], count, timestamp } without envelope
+      const raw = (typeof payload === 'object' && payload !== null && 'data' in (payload as Record<string, unknown>) && (payload as Record<string, unknown>).data !== null && typeof (payload as Record<string, unknown>).data === 'object')
+        ? (payload as Record<string, unknown>).data as Record<string, unknown>
+        : payload as Record<string, unknown>;
+      console.debug('[wm:telegram] payload shape:', { keys: Object.keys(raw), itemCount: Array.isArray(raw.items) ? (raw.items as unknown[]).length : 0, msgCount: Array.isArray(raw.messages) ? (raw.messages as unknown[]).length : 0 });
       const messages: unknown[] = Array.isArray(raw.items)
         ? raw.items
         : Array.isArray(raw.messages)
