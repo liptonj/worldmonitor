@@ -228,7 +228,7 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
       }
     },
     opensky: (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
+      if (!payload || typeof payload !== 'object') { console.warn('[wm:opensky] skipped — invalid payload type:', typeof payload); return; }
       const p = payload as Record<string, unknown>;
       const data = (p.data as Record<string, unknown>) ?? p;
       let flights: MilitaryFlight[] = Array.isArray(p.flights) ? (p.flights as MilitaryFlight[]) : Array.isArray(data.flights) ? (data.flights as MilitaryFlight[]) : [];
