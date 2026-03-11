@@ -27,6 +27,8 @@ services:
     environment:
       - LOG_LEVEL=debug
       - NODE_ENV=development
+      - TELEGRAM_POLL_INTERVAL_MS=30000
+      - TELEGRAM_STARTUP_DELAY_MS=5000
 
   ai-engine:
     environment:
