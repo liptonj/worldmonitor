@@ -2,6 +2,7 @@
 
 const config = require('./config.cjs');
 const http = require('./http.cjs');
+const { getAllCachedSecrets } = require('./secrets.cjs');
 const { fetchSimple } = require('./channels/_simple-fetcher.cjs');
 
 async function runWorker(triggerRequest, { channelFn, redis, grpcBroadcast, log }) {
@@ -41,7 +42,8 @@ async function runWorker(triggerRequest, { channelFn, redis, grpcBroadcast, log 
       if (typeof channelFn !== 'function') {
         return { status: 'error', error: 'channelFn required for custom fetch_type', duration_ms: Date.now() - start, service_key, trigger_id };
       }
-      result = await channelFn({ config, redis, log, http });
+      const enrichedConfig = { ...config, ...getAllCachedSecrets() };
+      result = await channelFn({ config: enrichedConfig, redis, log, http });
     } else {
       return { status: 'error', error: `Unknown fetch_type: ${fetch_type}`, duration_ms: Date.now() - start, service_key, trigger_id };
     }
