@@ -2,8 +2,8 @@
 
 const { callLLMForFunction, extractJson } = require('@worldmonitor/shared/llm.cjs');
 
-const MAX_CONTEXT_CHARS = 12_000;
-const MAX_CHANNEL_MSGS = 30;
+const MAX_CONTEXT_CHARS = 6_000; // Reduced to fit in context window with 26 channels
+const MAX_CHANNEL_MSGS = 15; // Reduced per-channel limit to avoid context overflow
 
 function groupMessagesByChannel(messages) {
   const grouped = Object.create(null);
@@ -21,7 +21,7 @@ function buildChannelContext(grouped, maxChars) {
     const title = msgs[0]?.channelTitle || channel;
     const lines = msgs.slice(0, MAX_CHANNEL_MSGS).map((m) => {
       const ts = m.ts || (typeof m.date === 'number' ? new Date(m.date).toISOString() : '');
-      return `[${ts}] ${String(m.text || '').slice(0, 400)}`;
+      return `[${ts}] ${String(m.text || '').slice(0, 200)}`; // Reduced to 200 chars per message
     });
     sections.push(`### ${title} (@${channel}) — ${msgs.length} messages\n${lines.join('\n')}`);
   }
@@ -87,13 +87,23 @@ module.exports = async function generateTelegramSummary({ supabase, redis, log, 
     }
 
     const grouped = groupMessagesByChannel(textMessages);
-    const channelCount = Object.keys(grouped).length;
-    const channelContext = buildChannelContext(grouped, MAX_CONTEXT_CHARS);
+    
+    // Prioritize channels by message count (most active first) and limit to top channels
+    const MAX_CHANNELS_TO_SUMMARIZE = 20; // Limit to top 20 most active channels
+    const sortedChannels = Object.entries(grouped)
+      .sort(([, a], [, b]) => b.length - a.length)
+      .slice(0, MAX_CHANNELS_TO_SUMMARIZE);
+    const prioritizedGrouped = Object.fromEntries(sortedChannels);
+    
+    const channelCount = Object.keys(prioritizedGrouped).length;
+    const channelContext = buildChannelContext(prioritizedGrouped, MAX_CONTEXT_CHARS);
     const dateStr = new Date().toISOString().slice(0, 10);
 
     log.info('Telegram summary: starting per-channel LLM call', {
       channelCount,
+      totalChannels: Object.keys(grouped).length,
       messageCount: textMessages.length,
+      contextChars: channelContext.length,
     });
 
     // --- LLM Call 1: Per-channel summaries ---
