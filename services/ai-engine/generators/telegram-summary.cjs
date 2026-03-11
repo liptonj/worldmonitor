@@ -1,8 +1,8 @@
 'use strict';
 
 const { callLLMForFunction, extractJson } = require('@worldmonitor/shared/llm.cjs');
+const { buildPromptPayload } = require('../utils/truncate.cjs');
 
-const MAX_CHANNEL_MSGS = 15; // Messages per channel for summarization
 const MIN_NEW_MESSAGES = 3;
 
 function groupMessagesByChannel(messages) {
@@ -15,8 +15,16 @@ function groupMessagesByChannel(messages) {
   return grouped;
 }
 
-const FALLBACK_CROSS_SYSTEM =
-  'You are a senior intelligence analyst. Given per-channel Telegram summaries and the previous digest, produce: crossChannelDigest (3-5 sentences), earlyWarnings (events from 2+ channels), changes (new/escalation/de-escalation/resolved vs previous), previousSummaryComparison (one sentence). Respond with ONLY valid JSON.';
+const BATCH_SYSTEM_PROMPT_TEMPLATE = `You are a senior OSINT analyst. Current date: {date}.
+
+Analyze Telegram channel messages and produce a JSON response with:
+1. channelSummaries: array of per-channel objects (channel, channelTitle, summary [2-3 sentences], themes [2-4 keywords], sentiment [alarming|routine|escalatory|de-escalatory|mixed], messageCount)
+2. crossChannelDigest: 3-5 sentence cross-channel analysis
+3. earlyWarnings: events corroborated by 2+ channels
+4. changes: list of new/escalation/de-escalation/resolved vs previous digest
+5. previousSummaryComparison: one sentence comparing to previous
+
+Respond with ONLY valid JSON matching this structure. Include a channelSummary entry for every channel provided.`;
 
 module.exports = async function generateTelegramSummary({ supabase, redis, log, http }) {
   log.debug('generateTelegramSummary executing');
@@ -46,7 +54,7 @@ module.exports = async function generateTelegramSummary({ supabase, redis, log, 
 
     const textMessages = messages.filter((m) => m.text && String(m.text).trim().length > 10);
     if (textMessages.length === 0) {
-      log.info('No text messages to summarize (all media-only or too short)');
+      log.info('No text messages to summarize');
       return {
         timestamp: new Date().toISOString(),
         source: 'ai:telegram-summary',
@@ -56,7 +64,7 @@ module.exports = async function generateTelegramSummary({ supabase, redis, log, 
       };
     }
 
-    // Delta detection: skip if not enough new messages since last run
+    // --- Delta detection ---
     let lastSummarizedAt = null;
     if (metaRaw) {
       try {
@@ -77,7 +85,6 @@ module.exports = async function generateTelegramSummary({ supabase, redis, log, 
         log.info('Telegram summary: insufficient new messages, skipping', {
           newCount: newMessages.length,
           threshold: MIN_NEW_MESSAGES,
-          lastSummarizedAt: lastSummarizedAt.toISOString(),
         });
         return {
           timestamp: new Date().toISOString(),
@@ -89,6 +96,7 @@ module.exports = async function generateTelegramSummary({ supabase, redis, log, 
       }
     }
 
+    // --- Build prompt payload ---
     let previousCrossDigest = null;
     if (previousSummaryRaw) {
       try {
@@ -97,155 +105,71 @@ module.exports = async function generateTelegramSummary({ supabase, redis, log, 
         const prevData = prev?.data ?? prev;
         previousCrossDigest = prevData?.crossChannelDigest || null;
       } catch (_) {
-        /* ignore parse errors */
+        /* ignore */
       }
     }
 
     const grouped = groupMessagesByChannel(textMessages);
-    
-    // Prioritize channels by message count (most active first) and limit to top channels
-    const MAX_CHANNELS_TO_SUMMARIZE = 20; // Limit to top 20 most active channels
-    const sortedChannels = Object.entries(grouped)
-      .sort(([, a], [, b]) => b.length - a.length)
-      .slice(0, MAX_CHANNELS_TO_SUMMARIZE);
-    
-    const channelCount = sortedChannels.length;
     const dateStr = new Date().toISOString().slice(0, 10);
+    const prevSummaryStr = previousCrossDigest || 'No previous summary available (first run).';
 
-    log.info('Telegram summary: starting per-channel summaries', {
+    // Use 10K tokens for Groq (32K context), fallback builder uses 6K for Ollama
+    const payload = buildPromptPayload(grouped, { maxTokens: 10000 });
+    const channelCount = payload.channelBlocks.length;
+
+    log.info('Telegram summary: single-call batch', {
       channelCount,
       totalChannels: Object.keys(grouped).length,
       messageCount: textMessages.length,
+      estimatedTokens: payload.estimatedTokens,
     });
 
-    // --- Process each channel individually to avoid context overflow ---
-    const channelSummaries = [];
-    const SINGLE_CHANNEL_PROMPT = `You are an OSINT analyst. Current date: ${dateStr}.
+    const userPrompt = `${payload.combinedText}\n\nPrevious digest:\n${prevSummaryStr}`;
 
-Analyze messages from this Telegram channel and produce a summary with:
-- 2-3 sentence summary of key developments
-- Key themes (2-4 keywords)
-- Overall sentiment: alarming|routine|escalatory|de-escalatory|mixed
-- Message count
-
-Respond with ONLY valid JSON:
-{
-  "channel": "handle",
-  "channelTitle": "Display Name",
-  "summary": "2-3 sentences",
-  "themes": ["theme1", "theme2"],
-  "sentiment": "alarming|routine|escalatory|de-escalatory|mixed",
-  "messageCount": 12
-}`;
-
-    for (const [channel, msgs] of sortedChannels) {
-      const title = msgs[0]?.channelTitle || channel;
-      const messageLines = msgs.slice(0, MAX_CHANNEL_MSGS).map((m) => {
-        const ts = m.ts || (typeof m.date === 'number' ? new Date(m.date).toISOString() : '');
-        const text = String(m.text || '').slice(0, 300);
-        return `[${ts}] ${text}`;
-      });
-      const channelContext = `Channel: ${title} (@${channel})\nMessages (${msgs.length} total, showing ${messageLines.length}):\n\n${messageLines.join('\n')}`;
-      
-      try {
-        const result = await callLLMForFunction(
-          supabase,
-          'telegram_channel_summary',
-          'telegram_channel_summary',
-          { date: dateStr, channel, channelTitle: title, channelMessages: channelContext },
-          http,
-          {
-            jsonMode: false,
-            fallbackSystemPrompt: SINGLE_CHANNEL_PROMPT,
-            fallbackUserPrompt: channelContext,
-          },
-        );
-
-        let parsed = result.parsed;
-        if (!parsed) {
-          try { parsed = extractJson(result.content); } catch (_) { /* ignore */ }
-        }
-        
-        if (parsed && typeof parsed === 'object') {
-          channelSummaries.push({
-            channel: parsed.channel || channel,
-            channelTitle: parsed.channelTitle || title,
-            summary: parsed.summary || result.content.slice(0, 200),
-            themes: Array.isArray(parsed.themes) ? parsed.themes : [],
-            sentiment: parsed.sentiment || 'routine',
-            messageCount: parsed.messageCount || msgs.length,
-          });
-        }
-      } catch (err) {
-        log.warn('Failed to summarize channel', { channel, error: err.message });
-        // Continue with other channels even if one fails
-      }
-    }
-
-    log.info('Telegram summary: per-channel complete', {
-      summaryCount: channelSummaries.length,
-      channelCount,
-    });
-
-    // --- LLM Call 2: Cross-channel synthesis using per-channel summaries ---
-    // Build a concise context from channel summaries (not the full message text)
-    const summaryLines = channelSummaries.map((cs) => {
-      const themes = cs.themes?.join(', ') || 'none';
-      return `**${cs.channelTitle}** (@${cs.channel})\n- Summary: ${cs.summary}\n- Themes: ${themes}\n- Sentiment: ${cs.sentiment}\n- Messages: ${cs.messageCount}`;
-    });
-    const channelSummariesStr = summaryLines.join('\n\n');
-    const prevSummaryStr = previousCrossDigest || 'No previous summary available (first run).';
-
-    log.info('Telegram summary: starting cross-channel LLM call', {
-      summariesContextChars: channelSummariesStr.length,
-      previousContextChars: prevSummaryStr.length,
-    });
-
-    const crossResult = await callLLMForFunction(
+    const result = await callLLMForFunction(
       supabase,
-      'telegram_cross_channel',
-      'telegram_cross_channel',
-      {
-        date: dateStr,
-        channelCount: String(channelCount),
-        channelSummaries: channelSummariesStr,
-        previousSummary: prevSummaryStr,
-      },
+      'telegram_channel_summary',
+      'telegram_channel_summary',
+      { date: dateStr, channelMessages: userPrompt },
       http,
       {
         jsonMode: false,
-        fallbackSystemPrompt: FALLBACK_CROSS_SYSTEM,
-        fallbackUserPrompt: `Per-channel summaries:\n\n${channelSummariesStr}\n\nPrevious digest:\n${prevSummaryStr}\n\nProduce cross-channel digest, early warnings, and change analysis.`,
+        maxTokens: 2000,
+        fallbackSystemPrompt: BATCH_SYSTEM_PROMPT_TEMPLATE.replace('{date}', dateStr),
+        fallbackUserPrompt: userPrompt,
       },
     );
 
+    let parsed = result.parsed;
+    if (!parsed) {
+      try {
+        parsed = extractJson(result.content);
+      } catch (_) {
+        /* fallback */
+      }
+    }
+
+    let channelSummaries = [];
     let crossChannelDigest = '';
     let earlyWarnings = [];
     let changes = [];
     let previousSummaryComparison = '';
 
-    let crossParsed = crossResult.parsed;
-    if (!crossParsed) {
-      try {
-        crossParsed = extractJson(crossResult.content);
-      } catch (_) {
-        /* fallback */
-      }
-    }
-    if (crossParsed && typeof crossParsed === 'object') {
-      crossChannelDigest = crossParsed.crossChannelDigest || crossResult.content;
-      earlyWarnings = Array.isArray(crossParsed.earlyWarnings) ? crossParsed.earlyWarnings : [];
-      changes = Array.isArray(crossParsed.changes) ? crossParsed.changes : [];
-      previousSummaryComparison = crossParsed.previousSummaryComparison || '';
+    if (parsed && typeof parsed === 'object') {
+      channelSummaries = Array.isArray(parsed.channelSummaries) ? parsed.channelSummaries : [];
+      crossChannelDigest = parsed.crossChannelDigest || result.content;
+      earlyWarnings = Array.isArray(parsed.earlyWarnings) ? parsed.earlyWarnings : [];
+      changes = Array.isArray(parsed.changes) ? parsed.changes : [];
+      previousSummaryComparison = parsed.previousSummaryComparison || '';
     } else {
-      crossChannelDigest = crossResult.content;
+      crossChannelDigest = result.content;
     }
 
-    log.info('Telegram summary: cross-channel complete', {
+    log.info('Telegram summary: complete', {
+      channelSummaryCount: channelSummaries.length,
       earlyWarningCount: earlyWarnings.length,
-      changeCount: changes.length,
-      provider: crossResult.provider_name,
-      model: crossResult.model_name,
+      provider: result.provider_name,
+      model: result.model_name,
     });
 
     await redis.set(
@@ -267,8 +191,8 @@ Respond with ONLY valid JSON:
         previousSummaryComparison,
         messageCount: textMessages.length,
         channelCount,
-        model: crossResult.model_name,
-        provider: crossResult.provider_name,
+        model: result.model_name,
+        provider: result.provider_name,
         generatedAt: new Date().toISOString(),
       },
       status: 'success',
