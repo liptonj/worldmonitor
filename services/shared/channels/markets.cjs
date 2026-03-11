@@ -1,7 +1,7 @@
 'use strict';
 
-// Extracted from scripts/ais-relay.cjs - market data fetching logic
-// APIs: Supabase get_market_symbols, Finnhub, Yahoo Finance, CoinGecko
+const { fetchYahooQuote } = require('../yahoo-gate.cjs');
+const { fetchFinnhubQuote } = require('../finnhub-client.cjs');
 
 const PHASE3C_TIMEOUT_MS = 15_000;
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -13,23 +13,11 @@ const CRYPTO_META = {
   ripple: { name: 'XRP', symbol: 'XRP' },
 };
 
-function isYahooOnlySymbol(s) {
-  return s.startsWith('^') || s.includes('=');
-}
+const INDEX_PROXY = { '^GSPC': 'SPY', '^DJI': 'DIA', '^IXIC': 'QQQ' };
+const PROXY_REVERSE = Object.fromEntries(Object.entries(INDEX_PROXY).map(([k, v]) => [v, k]));
 
-// Yahoo rate-limit gate (min 350ms between requests)
-let yahooLastRequest = 0;
-const YAHOO_MIN_GAP_MS = 350;
-let yahooQueue = Promise.resolve();
-function yahooGate() {
-  yahooQueue = yahooQueue.then(async () => {
-    const elapsed = Date.now() - yahooLastRequest;
-    if (elapsed < YAHOO_MIN_GAP_MS) {
-      await new Promise((r) => setTimeout(r, YAHOO_MIN_GAP_MS - elapsed));
-    }
-    yahooLastRequest = Date.now();
-  });
-  return yahooQueue;
+function isCommoditySymbol(s) {
+  return s.startsWith('^') || s.includes('=');
 }
 
 async function fetchMarketSymbols(config, http) {
@@ -48,47 +36,6 @@ async function fetchMarketSymbols(config, http) {
     if (!data) return null;
     return data;
   } catch (err) {
-    return null;
-  }
-}
-
-async function fetchFinnhubQuote(symbol, apiKey, http) {
-  if (!apiKey) return null;
-  try {
-    const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}`;
-    const data = await http.fetchJson(url, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': USER_AGENT,
-        'X-Finnhub-Token': apiKey,
-      },
-      timeout: PHASE3C_TIMEOUT_MS,
-    });
-    if (data && (data.c !== 0 || data.h !== 0 || data.l !== 0)) {
-      return { symbol, price: data.c, changePercent: data.dp };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchYahooQuote(symbol, http) {
-  await yahooGate();
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`;
-    const chart = await http.fetchJson(url, {
-      headers: { 'User-Agent': USER_AGENT },
-      timeout: PHASE3C_TIMEOUT_MS,
-    });
-    const result = chart?.chart?.result?.[0];
-    const quote = result?.indicators?.quote?.[0];
-    const closes = (quote?.close || []).filter((v) => v != null);
-    const price = closes.length > 0 ? closes[closes.length - 1] : result?.meta?.regularMarketPrice;
-    const prev = closes.length >= 2 ? closes[closes.length - 2] : result?.chartPreviousClose;
-    const change = prev && price ? ((price - prev) / prev) * 100 : 0;
-    return price != null ? { price, change, sparkline: closes.slice(-48) } : null;
-  } catch {
     return null;
   }
 }
@@ -161,52 +108,41 @@ module.exports = async function fetchMarkets({ config, redis, log, http }) {
     const commodityMeta = new Map((symbolConfig.commodity || []).map((e) => [e.symbol, e]));
     const sectorMeta = new Map((symbolConfig.sector || []).map((e) => [e.symbol, e]));
 
-    const finnhubSymbols = stockSymbols.filter((s) => !isYahooOnlySymbol(s));
-    const allFinnhubSymbols = apiKey ? [...finnhubSymbols, ...sectorSymbols] : [];
-    const yahooStockSymbols = [
-      ...stockSymbols.filter(isYahooOnlySymbol),
-      ...(!apiKey ? finnhubSymbols : []),
-    ];
-    // Always fetch Yahoo sector quotes so we can fall back when Finnhub misses symbols.
-    const yahooSectorFallback = sectorSymbols;
+    const finnhubStockSymbols = apiKey
+      ? stockSymbols.map((s) => INDEX_PROXY[s] || s).filter((s) => !isCommoditySymbol(s))
+      : [];
+    const allFinnhubSymbols = [...finnhubStockSymbols, ...(apiKey ? sectorSymbols : [])];
 
-    const [
-      finnhubResults,
-      yahooCommodityResults,
-      yahooStockResults,
-      yahooSectorResults,
-      cryptoResults,
-    ] = await Promise.allSettled([
-      allFinnhubSymbols.length > 0
-        ? Promise.all(
-            allFinnhubSymbols.map((s) =>
-              fetchFinnhubQuote(s, apiKey || '', http).then((r) => (r ? { ...r, symbol: s } : null))
+    const yahooOnlyStocks = apiKey ? [] : stockSymbols.filter((s) => !INDEX_PROXY[s]);
+    const yahooCommodityList = commoditySymbols;
+
+    const [finnhubResults, yahooCommodityResults, yahooStockResults, cryptoResults] =
+      await Promise.allSettled([
+        allFinnhubSymbols.length > 0
+          ? Promise.all(
+              allFinnhubSymbols.map((s) =>
+                fetchFinnhubQuote(s, apiKey || '', http).then((r) =>
+                  r ? { ...r, symbol: s } : null
+                )
+              )
             )
-          )
-        : Promise.resolve([]),
-      commoditySymbols.length > 0
-        ? Promise.all(
-            commoditySymbols.map((s) =>
-              fetchYahooQuote(s, http).then((q) => (q ? { symbol: s, ...q } : null))
+          : Promise.resolve([]),
+        yahooCommodityList.length > 0
+          ? Promise.all(
+              yahooCommodityList.map((s) =>
+                fetchYahooQuote(s, http).then((q) => (q ? { symbol: s, ...q } : null))
+              )
             )
-          )
-        : Promise.resolve([]),
-      yahooStockSymbols.length > 0
-        ? Promise.all(
-            yahooStockSymbols.map((s) =>
-              fetchYahooQuote(s, http).then((q) => (q ? { symbol: s, ...q } : null))
+          : Promise.resolve([]),
+        yahooOnlyStocks.length > 0
+          ? Promise.all(
+              yahooOnlyStocks.map((s) =>
+                fetchYahooQuote(s, http).then((q) => (q ? { symbol: s, ...q } : null))
+              )
             )
-          )
-        : Promise.resolve([]),
-      yahooSectorFallback.length > 0
-        ? Promise.all(
-            yahooSectorFallback.map((s) =>
-              fetchYahooQuote(s, http).then((q) => (q ? { symbol: s, ...q } : null))
-            )
-          )
-        : Promise.resolve([]),
-      cryptoIds.length > 0 ? fetchCoinGeckoMarkets(cryptoIds, http) : Promise.resolve([]),
-    ]);
+          : Promise.resolve([]),
+        cryptoIds.length > 0 ? fetchCoinGeckoMarkets(cryptoIds, http) : Promise.resolve([]),
+      ]);
 
     const finnhubData = finnhubResults.status === 'fulfilled' ? finnhubResults.value : [];
     const yahooCommodity =
@@ -217,44 +153,37 @@ module.exports = async function fetchMarkets({ config, redis, log, http }) {
       yahooStockResults.status === 'fulfilled'
         ? (yahooStockResults.value || []).filter(Boolean)
         : [];
-    const yahooSector =
-      yahooSectorResults.status === 'fulfilled'
-        ? (yahooSectorResults.value || []).filter(Boolean)
-        : [];
     let cryptoData = cryptoResults.status === 'fulfilled' ? cryptoResults.value : [];
     if (cryptoResults.status === 'rejected' && cryptoResults.reason?.message?.includes('429')) {
       cryptoData = [];
     }
 
     const yahooMap = new Map();
-    for (const x of [...yahooCommodity, ...yahooStock, ...yahooSector]) {
+    for (const x of [...yahooCommodity, ...yahooStock]) {
       if (x && x.symbol) {
-        yahooMap.set(x.symbol, {
-          price: x.price,
-          change: x.change,
-          sparkline: x.sparkline || [],
-        });
+        yahooMap.set(x.symbol, { price: x.price, change: x.change, sparkline: x.sparkline || [] });
       }
     }
 
     const stocks = [];
     const finnhubHits = new Set();
     for (const r of finnhubData) {
-      if (r) {
-        finnhubHits.add(r.symbol);
-        const meta = stockMeta.get(r.symbol);
-        stocks.push({
-          symbol: r.symbol,
-          name: meta?.name ?? r.symbol,
-          display: meta?.display ?? r.symbol,
-          price: r.price,
-          change: r.changePercent,
-          sparkline: [],
-        });
-      }
+      if (!r || sectorSymbols.includes(r.symbol)) continue;
+      finnhubHits.add(r.symbol);
+      const origSymbol = PROXY_REVERSE[r.symbol] || r.symbol;
+      const meta = stockMeta.get(origSymbol) || stockMeta.get(r.symbol);
+      stocks.push({
+        symbol: origSymbol,
+        name: meta?.name ?? origSymbol,
+        display: meta?.display ?? origSymbol,
+        price: r.price,
+        change: r.changePercent,
+        sparkline: [],
+      });
     }
-    const missedFinnhub = apiKey ? finnhubSymbols.filter((s) => !finnhubHits.has(s)) : finnhubSymbols;
-    for (const s of [...stockSymbols.filter(isYahooOnlySymbol), ...missedFinnhub]) {
+    for (const s of yahooOnlyStocks) {
+      const proxy = INDEX_PROXY[s];
+      if (proxy && finnhubHits.has(proxy)) continue;
       if (finnhubHits.has(s)) continue;
       const y = yahooMap.get(s);
       if (y) {
@@ -288,25 +217,11 @@ module.exports = async function fetchMarkets({ config, redis, log, http }) {
       })
       .filter(Boolean);
 
-    const sectorFinnhubHits = new Set();
     const sectors = [];
     for (const r of finnhubData) {
       if (r && sectorSymbols.includes(r.symbol)) {
-        sectorFinnhubHits.add(r.symbol);
         const meta = sectorMeta.get(r.symbol);
-        sectors.push({
-          symbol: r.symbol,
-          name: meta?.name ?? r.symbol,
-          change: r.changePercent,
-        });
-      }
-    }
-    for (const s of sectorSymbols) {
-      if (sectorFinnhubHits.has(s)) continue;
-      const y = yahooMap.get(s);
-      if (y) {
-        const meta = sectorMeta.get(s);
-        sectors.push({ symbol: s, name: meta?.name ?? s, change: y.change });
+        sectors.push({ symbol: r.symbol, name: meta?.name ?? r.symbol, change: r.changePercent });
       }
     }
 
@@ -318,7 +233,7 @@ module.exports = async function fetchMarkets({ config, redis, log, http }) {
       const configEntry = (symbolConfig.crypto || []).find((c) => c.symbol === id);
       const meta = CRYPTO_META[id];
       const prices = coin.sparkline_in_7d?.price;
-      const sparkline = prices && prices.length > 24 ? prices.slice(-48) : (prices || []);
+      const sparkline = prices && prices.length > 24 ? prices.slice(-48) : prices || [];
       crypto.push({
         name: configEntry?.name ?? meta?.name ?? id,
         symbol: configEntry?.display ?? meta?.symbol ?? id.toUpperCase(),
@@ -328,15 +243,10 @@ module.exports = async function fetchMarkets({ config, redis, log, http }) {
       });
     }
 
-    const hasData =
-      stocks.length > 0 ||
-      commodities.length > 0 ||
-      sectors.length > 0 ||
-      crypto.length > 0;
-
-    const coveredByYahoo = finnhubSymbols.every((s) => stocks.some((q) => q.symbol === s));
-    const skipped = !apiKey && !coveredByYahoo;
-
+    const coveredByFinnhub = stockSymbols.every(
+      (s) => finnhubHits.has(INDEX_PROXY[s] || s) || stocks.some((q) => q.symbol === s)
+    );
+    const skipped = !apiKey && !coveredByFinnhub;
     const data = flattenToDataArray(stocks, commodities, sectors, crypto);
 
     return {
