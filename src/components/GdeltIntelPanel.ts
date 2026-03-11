@@ -93,6 +93,7 @@ export class GdeltIntelPanel extends Panel {
     this._relayCache = candidate;
     const topicData = this._relayCache[this.activeTopic.id];
     if (topicData && Array.isArray(topicData.articles)) {
+      this.clearLoadingTimeout();
       this.renderArticles(topicData.articles);
       this.setCount(topicData.articles.length);
     } else {
@@ -104,6 +105,7 @@ export class GdeltIntelPanel extends Panel {
     if (this._relayCache) {
       const cached = this._relayCache[this.activeTopic.id];
       if (cached && Array.isArray(cached.articles)) {
+        this.clearLoadingTimeout();
         this.renderArticles(cached.articles);
         this.setCount(cached.articles.length);
         return;
@@ -123,6 +125,7 @@ export class GdeltIntelPanel extends Panel {
           continue;
         }
 
+        this.clearLoadingTimeout();
         this.renderArticles(data.articles);
         this.setCount(data.articles.length);
         return;
