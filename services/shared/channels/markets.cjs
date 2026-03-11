@@ -149,7 +149,7 @@ module.exports = async function fetchMarkets({ config, redis, log, http }) {
       };
     }
 
-    const apiKey = process.env.FINNHUB_API_KEY;
+    const apiKey = config?.FINNHUB_API_KEY || process.env.FINNHUB_API_KEY;
     if (!apiKey) log.warn('fetchMarkets: FINNHUB_API_KEY not set — using Yahoo fallback only');
 
     const stockSymbols = (symbolConfig.stock || []).map((s) => s.symbol);
