@@ -57,6 +57,11 @@ function loadChannelsFromSet(channelSet) {
 const TELEGRAM_MAX_TEXT_CHARS = Math.max(200, Number(process.env.TELEGRAM_MAX_TEXT_CHARS || 800));
 const TELEGRAM_MAX_FEED_ITEMS = Math.max(50, Number(process.env.TELEGRAM_MAX_FEED_ITEMS || 200));
 
+const TELEGRAM_POLL_INTERVAL_MS = Math.max(15_000, Number(process.env.TELEGRAM_POLL_INTERVAL_MS || 60_000));
+const TELEGRAM_CHANNEL_TIMEOUT_MS = 15_000;
+const TELEGRAM_POLL_CYCLE_TIMEOUT_MS = 180_000;
+const TELEGRAM_RATE_LIMIT_MS = Math.max(300, Number(process.env.TELEGRAM_RATE_LIMIT_MS || 800));
+
 const REDIS_KEY = 'relay:telegram:v1';
 const BUFFER_TTL = 3600;
 const MAX_BUFFER_SIZE = 500;
@@ -99,6 +104,98 @@ function mergeNewItems(newItems) {
     })
     .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
     .slice(0, TELEGRAM_MAX_FEED_ITEMS);
+}
+
+async function pollTelegramOnce(client, channels, handleToConfig) {
+  const result = { channelsPolled: 0, channelsFailed: 0, newItemCount: 0, mediaSkipped: 0 };
+  if (!client || !channels.length) return result;
+
+  const pollStart = Date.now();
+  const newItems = [];
+
+  for (const channel of channels) {
+    if (Date.now() - pollStart > TELEGRAM_POLL_CYCLE_TIMEOUT_MS) {
+      log.warn('Poll cycle timeout', {
+        timeoutMs: TELEGRAM_POLL_CYCLE_TIMEOUT_MS,
+        polled: result.channelsPolled,
+        total: channels.length,
+      });
+      break;
+    }
+
+    const handle = channel.handle;
+    const minId = pollState.cursorByHandle[handle] || 0;
+
+    try {
+      const entity = await withTimeout(
+        client.getEntity(handle),
+        TELEGRAM_CHANNEL_TIMEOUT_MS,
+        `getEntity(${handle})`
+      );
+      const rawMsgs = await withTimeout(
+        client.getMessages(entity, {
+          limit: Math.max(1, Math.min(50, channel.maxMessages || 25)),
+          minId,
+        }),
+        TELEGRAM_CHANNEL_TIMEOUT_MS,
+        `getMessages(${handle})`
+      );
+      const msgs = Array.isArray(rawMsgs) ? rawMsgs : (rawMsgs?.messages || []);
+
+      for (const msg of msgs) {
+        if (!msg || !msg.id) continue;
+        if (!msg.message) {
+          result.mediaSkipped++;
+          continue;
+        }
+        const item = normalizeTelegramMessage(msg, channel);
+        newItems.push(item);
+        if (!pollState.cursorByHandle[handle] || msg.id > pollState.cursorByHandle[handle]) {
+          pollState.cursorByHandle[handle] = msg.id;
+        }
+      }
+
+      result.channelsPolled++;
+      await new Promise((r) => setTimeout(r, TELEGRAM_RATE_LIMIT_MS));
+    } catch (e) {
+      const em = e?.message || String(e);
+      result.channelsFailed++;
+      pollState.lastError = `poll ${handle} failed: ${em}`;
+      log.warn('Telegram poll error', { handle, error: em });
+
+      if (/AUTH_KEY_DUPLICATED/.test(em)) {
+        pollState.lastError = 'session invalidated (AUTH_KEY_DUPLICATED)';
+        log.error('Telegram session permanently invalidated', { handle });
+        result.permanentlyDisabled = true;
+        break;
+      }
+      if (/FLOOD_WAIT/.test(em)) {
+        const wait = parseInt(em.match(/(\d+)/)?.[1] || '60', 10);
+        log.warn('Telegram FLOOD_WAIT — stopping poll cycle early', { waitSeconds: wait });
+        break;
+      }
+    }
+  }
+
+  if (newItems.length) {
+    mergeNewItems(newItems);
+  }
+
+  pollState.lastPollAt = Date.now();
+  result.newItemCount = newItems.length;
+
+  const elapsed = ((Date.now() - pollStart) / 1000).toFixed(1);
+  log.info('Telegram poll complete', {
+    channelsPolled: result.channelsPolled,
+    totalChannels: channels.length,
+    newMessages: result.newItemCount,
+    totalItems: pollState.items.length,
+    errors: result.channelsFailed,
+    mediaSkipped: result.mediaSkipped,
+    elapsedSeconds: elapsed,
+  });
+
+  return result;
 }
 
 function _resetBuffer() {
@@ -390,4 +487,5 @@ module.exports = {
   _resetPollState,
   getPollState,
   mergeNewItems,
+  pollTelegramOnce,
 };

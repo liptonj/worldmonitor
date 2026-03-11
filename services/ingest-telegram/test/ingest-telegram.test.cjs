@@ -19,6 +19,7 @@ const {
   _resetPollState,
   getPollState,
   mergeNewItems,
+  pollTelegramOnce,
 } = require('../index.cjs');
 
 describe('withTimeout', () => {
@@ -397,5 +398,92 @@ describe('polling state management', () => {
     mergeNewItems(items);
     const state = getPollState();
     assert.ok(state.items.length <= 200);
+  });
+});
+
+describe('pollTelegramOnce', () => {
+  beforeEach(() => {
+    _resetPollState();
+  });
+
+  it('returns early when client is null', async () => {
+    const result = await pollTelegramOnce(null, [], new Map());
+    assert.strictEqual(result.channelsPolled, 0);
+    assert.strictEqual(result.newItemCount, 0);
+  });
+
+  it('polls channels and collects messages from mock client', async () => {
+    const mockClient = {
+      getEntity: async (handle) => ({ id: BigInt(123) }),
+      getMessages: async (entity, opts) => [
+        { id: 10, message: 'test message 1', date: 1709251200 },
+        { id: 11, message: 'test message 2', date: 1709251201 },
+      ],
+    };
+    const channels = [
+      { handle: 'TestChannel', label: 'Test Channel', topic: 'breaking', region: 'global', tier: 2, maxMessages: 25 },
+    ];
+    const handleToConfig = new Map([['testchannel', channels[0]]]);
+
+    const result = await pollTelegramOnce(mockClient, channels, handleToConfig);
+    assert.strictEqual(result.channelsPolled, 1);
+    assert.strictEqual(result.newItemCount, 2);
+    assert.strictEqual(result.channelsFailed, 0);
+
+    const state = getPollState();
+    assert.strictEqual(state.items.length, 2);
+  });
+
+  it('skips media-only messages (no text)', async () => {
+    const mockClient = {
+      getEntity: async () => ({ id: BigInt(123) }),
+      getMessages: async () => [
+        { id: 10, message: '', date: 1709251200, media: { photo: {} } },
+        { id: 11, message: 'has text', date: 1709251201 },
+      ],
+    };
+    const channels = [{ handle: 'TestChannel', topic: 'test' }];
+    const handleToConfig = new Map([['testchannel', channels[0]]]);
+
+    const result = await pollTelegramOnce(mockClient, channels, handleToConfig);
+    assert.strictEqual(result.newItemCount, 1);
+    assert.strictEqual(result.mediaSkipped, 1);
+  });
+
+  it('tracks cursor per handle for pagination', async () => {
+    let callCount = 0;
+    const mockClient = {
+      getEntity: async () => ({ id: BigInt(123) }),
+      getMessages: async (entity, opts) => {
+        callCount++;
+        if (callCount === 1) {
+          return [{ id: 10, message: 'first poll', date: 1709251200 }];
+        }
+        assert.strictEqual(opts.minId, 10);
+        return [{ id: 11, message: 'second poll', date: 1709251201 }];
+      },
+    };
+    const channels = [{ handle: 'TestChannel', topic: 'test', maxMessages: 25 }];
+    const handleToConfig = new Map([['testchannel', channels[0]]]);
+
+    await pollTelegramOnce(mockClient, channels, handleToConfig);
+    await pollTelegramOnce(mockClient, channels, handleToConfig);
+
+    const state = getPollState();
+    assert.strictEqual(state.items.length, 2);
+  });
+
+  it('handles getEntity failure gracefully', async () => {
+    const mockClient = {
+      getEntity: async () => {
+        throw new Error('entity not found');
+      },
+    };
+    const channels = [{ handle: 'BadChannel', topic: 'test' }];
+    const handleToConfig = new Map([['badchannel', channels[0]]]);
+
+    const result = await pollTelegramOnce(mockClient, channels, handleToConfig);
+    assert.strictEqual(result.channelsFailed, 1);
+    assert.strictEqual(result.channelsPolled, 0);
   });
 });
