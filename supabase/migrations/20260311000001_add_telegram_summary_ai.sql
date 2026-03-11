@@ -19,10 +19,12 @@
 --                  wm_admin.service_config
 -- =============================================================
 
--- 1. Prompts
-insert into wm_admin.llm_prompts (prompt_key, variant, mode, model_name, system_prompt, user_prompt)
-values
-  ('telegram_channel_summary', null, null, null,
+-- 1. Prompts (check if exists first, only insert if not)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM wm_admin.llm_prompts WHERE prompt_key = 'telegram_channel_summary') THEN
+    INSERT INTO wm_admin.llm_prompts (prompt_key, variant, mode, model_name, system_prompt, user_prompt)
+    VALUES ('telegram_channel_summary', null, null, null,
    'You are an OSINT analyst specializing in Telegram channel monitoring. Current date: {date}.
 
 Analyze the following messages from monitored Telegram channels grouped by channel. For each channel that has messages, produce a detailed summary including:
@@ -51,9 +53,12 @@ Only include channels that have messages. Order by significance (most noteworthy
 
 {channelMessages}
 
-Produce detailed per-channel summaries.'),
+Produce detailed per-channel summaries.');
+  END IF;
 
-  ('telegram_cross_channel', null, null, null,
+  IF NOT EXISTS (SELECT 1 FROM wm_admin.llm_prompts WHERE prompt_key = 'telegram_cross_channel') THEN
+    INSERT INTO wm_admin.llm_prompts (prompt_key, variant, mode, model_name, system_prompt, user_prompt)
+    VALUES ('telegram_cross_channel', null, null, null,
    'You are a senior intelligence analyst. Current date: {date}.
 
 You are given per-channel summaries from {channelCount} Telegram OSINT channels, plus the previous cross-channel digest from ~5 minutes ago.
@@ -88,18 +93,19 @@ If there is no previous summary, treat everything as "new".',
 Previous cross-channel digest (from ~5 minutes ago):
 {previousSummary}
 
-Produce the cross-channel digest, early warnings, and change analysis.')
-on conflict (prompt_key, variant, mode, model_name) do nothing;
+Produce the cross-channel digest, early warnings, and change analysis.');
+  END IF;
+END $$;
 
--- 2. Function config (provider chain)
-insert into wm_admin.llm_function_config (function_key, provider_chain, timeout_ms, description)
-values
+-- 2. Function config (using on conflict with the actual primary key)
+INSERT INTO wm_admin.llm_function_config (function_key, provider_chain, timeout_ms, description)
+VALUES
   ('telegram_channel_summary', '{ollama}', 120000, 'Per-channel Telegram summaries'),
   ('telegram_cross_channel', '{ollama}', 120000, 'Cross-channel Telegram digest with delta')
-on conflict (function_key) do nothing;
+ON CONFLICT (function_key) DO NOTHING;
 
--- 3. Service config (orchestrator schedule — every 5 minutes, offset by 2 min)
-insert into wm_admin.service_config (service_key, cron_schedule, redis_key, ttl_seconds, fetch_type, description, settings)
-values
+-- 3. Service config (using on conflict with the actual primary key)
+INSERT INTO wm_admin.service_config (service_key, cron_schedule, redis_key, ttl_seconds, fetch_type, description, settings)
+VALUES
   ('ai:telegram-summary', '2-59/5 * * * *', 'ai:telegram-summary:v1', 300, 'custom', 'AI Telegram channel summaries with cross-channel digest', '{}')
-on conflict (service_key) do nothing;
+ON CONFLICT (service_key) DO NOTHING;
