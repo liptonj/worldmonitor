@@ -35,18 +35,19 @@ function dispatch(channel: string, payload: unknown): void {
   }
 
   const schema = channelSchemas[channel];
-  let resolvedPayload: unknown = payload;
   if (schema) {
     const result = schema.safeParse(payload);
     if (!result.success) {
+      const payloadType = Array.isArray(payload) ? 'array' : typeof payload;
+      const keys = (payload && typeof payload === 'object' && !Array.isArray(payload))
+        ? Object.keys(payload as Record<string, unknown>).slice(0, 8)
+        : [];
       console.warn(
         `[relay-push] schema mismatch (${channel}):`,
         result.error.issues.map((i) => i.message).join('; '),
+        { payloadType, keys },
       );
-      setChannelState(channel, 'error', 'websocket', { error: 'Invalid payload shape' });
-      return;
     }
-    resolvedPayload = result.data;
   }
 
   setChannelState(channel, 'ready', 'websocket', { lastDataAt: Date.now() });
@@ -54,7 +55,7 @@ function dispatch(channel: string, payload: unknown): void {
   if (!channelHandlers) return;
   for (const h of channelHandlers) {
     try {
-      h(resolvedPayload);
+      h(payload);
     } catch (err) {
       console.error(`[relay-push] handler error (${channel}):`, err);
     }
