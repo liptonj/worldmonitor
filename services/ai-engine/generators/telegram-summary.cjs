@@ -54,6 +54,42 @@ module.exports = async function generateTelegramSummary({ supabase, redis, log, 
       };
     }
 
+    const MIN_NEW_MESSAGES = 3;
+
+    // Delta detection: skip if not enough new messages since last run
+    const metaRaw = await redis.get('ai:telegram-summary:meta');
+    let lastSummarizedAt = null;
+    if (metaRaw) {
+      try {
+        const meta = typeof metaRaw === 'string' ? JSON.parse(metaRaw) : metaRaw;
+        lastSummarizedAt = meta.lastSummarizedAt ? new Date(meta.lastSummarizedAt) : null;
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    if (lastSummarizedAt) {
+      const lastTs = lastSummarizedAt.getTime() / 1000;
+      const newMessages = textMessages.filter((m) => {
+        const msgTs = m.date || (m.ts ? new Date(m.ts).getTime() / 1000 : 0);
+        return msgTs > lastTs;
+      });
+      if (newMessages.length < MIN_NEW_MESSAGES) {
+        log.info('Telegram summary: insufficient new messages, skipping', {
+          newCount: newMessages.length,
+          threshold: MIN_NEW_MESSAGES,
+          lastSummarizedAt: lastSummarizedAt.toISOString(),
+        });
+        return {
+          timestamp: new Date().toISOString(),
+          source: 'ai:telegram-summary',
+          data: null,
+          status: 'skipped',
+          error: `insufficient new messages (${newMessages.length} < ${MIN_NEW_MESSAGES})`,
+        };
+      }
+    }
+
     let previousCrossDigest = null;
     if (previousSummaryRaw) {
       try {
@@ -212,6 +248,14 @@ Respond with ONLY valid JSON:
       provider: crossResult.provider_name,
       model: crossResult.model_name,
     });
+
+    await redis.set(
+      'ai:telegram-summary:meta',
+      JSON.stringify({
+        lastSummarizedAt: new Date().toISOString(),
+        messageCount: textMessages.length,
+      }),
+    );
 
     return {
       timestamp: new Date().toISOString(),

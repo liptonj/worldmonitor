@@ -58,4 +58,38 @@ describe('generateTelegramSummary', () => {
     assert.strictEqual(grouped['BNONews'].length, 2);
     assert.strictEqual(grouped['AuroraIntel'].length, 1);
   });
+
+  it('skips run when fewer than 3 new messages since last summary', async () => {
+    const mockRedis = {
+      get: async (key) => {
+        if (key === 'relay:telegram:v1') {
+          return {
+            messages: [
+              { text: 'old message 1', channel: 'ch1', date: Date.now() / 1000 - 600 },
+              { text: 'old message 2', channel: 'ch1', date: Date.now() / 1000 - 500 },
+            ],
+          };
+        }
+        if (key === 'ai:telegram-summary:v1') return null;
+        if (key === 'ai:telegram-summary:meta') {
+          return JSON.stringify({
+            lastSummarizedAt: new Date(Date.now() - 120_000).toISOString(),
+            messageHash: 'abc123',
+          });
+        }
+        return null;
+      },
+      set: async () => {},
+    };
+    const mockLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+
+    const result = await generateTelegramSummary({
+      supabase: {},
+      redis: mockRedis,
+      log: mockLog,
+      http: {},
+    });
+    assert.equal(result.status, 'skipped');
+    assert.ok(result.error.includes('insufficient new'));
+  });
 });
