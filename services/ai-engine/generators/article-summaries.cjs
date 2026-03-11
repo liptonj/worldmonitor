@@ -14,7 +14,7 @@ function fnv1aHash(str) {
   return hash.toString(36);
 }
 
-const MAX_ARTICLES = 10;
+const MAX_ARTICLES = 25;
 
 const FALLBACK_SYSTEM_PROMPT =
   'You are a skilled content summarizer. For each article provided, create a concise summary (2-3 sentences) and extract 3-5 key points. You MUST respond with ONLY valid JSON, no prose, no markdown fences, no explanation. Use this exact structure: { "summaries": [{ "url": string, "title": string, "summary": string, "keyPoints": string[] }] }. Preserve the exact url and title from each input article.';

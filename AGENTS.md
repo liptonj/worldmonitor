@@ -22,6 +22,9 @@
 - Use workers for server-side prefiltering; avoid relying on the client
 - Telegram AI: process each channel sequentially, then cross-channel synthesis pass
 - On the production server, the env file is `.env` (not `.env.production`)
+- API keys and secrets belong in Supabase Vault (via secrets.cjs), not in .env or docker-compose environment blocks
+- When a bug has been "fixed" multiple times, fix the root cause in the base class rather than patching individual subclasses
+- Use /brainstorm and /write-plan skills before implementing major features
 
 ## Learned Workspace Facts
 
@@ -32,12 +35,16 @@
 - CHANNEL_REGISTRY maps channel names to target panels and apply methods
 - Channel state management uses setChannelState() to transition between loading/ready/error states
 - Panel base class has 30-second loading timeout that must be cleared via clearLoadingTimeout() when data arrives
+- Panel base class has `hasContent` flag — when true, handleChannelStatus will not call showLoading/showError/showUnavailable to avoid destroying rendered content
+- Bootstrap sets ALL channels to 'loading' state, which triggers handleChannelStatus on every panel via microtask; panels that self-render in their constructor must set hasContent=true to prevent the base class from wiping their DOM
+- Panels that manage their own DOM elements (contentEl, footerEl) must re-attach them if showLoading()/showUnavailable() has detached them (use ensureContentAttached pattern)
+- `intelligence` and `ai:intel-digest` are two channel names for the same data (Redis key ai:digest:global:v1); gateway pushes on both
 - Panel content elements use ID pattern: ${panelId}Content
 - AI engine uses LLM prompts stored in Supabase
 - Telegram polling service populates Redis with data
 - All 35+ backend channels should be available via WebSocket relay
 - Docker logs available for debugging: docker logs worldmon-gateway-1, worldmon-worker-1, etc.
-- Server accessible via SSH at 10.230.255.80 (username: ubuntu)
+- Server accessible via SSH at 10.230.255.80 (username: ubuntu); redis-cli is installed
 - Strategic Posture panel depends on OpenSky Network API for military aircraft tracking
 - Check Redis data without redis-cli using scripts/check-redis-data-nc.sh (uses netcat)
 - Redis key for Strategic Posture: theater-posture:sebuf:v1
@@ -48,3 +55,7 @@
 - Most channels fetch from external APIs; config-news-sources, config-feature-flags, and markets query Supabase directly
 - scripts/ais-relay.cjs is DEPRECATED — do NOT modify or reference it; all logic has been ported to services/
 - .env.production is in .gitignore; credentials are not committed
+- LLM providers: Groq (free, 500K TPD limit), OpenRouter (no rate limit), Ollama (local, small tasks only); provider_chain in wm_admin.llm_function_config controls routing order
+- LLM rate limiting: services/shared/llm.cjs handles per-provider backoff; daily quota exhaustion (TPD) triggers cooldown until next UTC midnight
+- URLhaus API requires Auth-Key header; key stored in Supabase Vault as URLHAUS_AUTH_KEY
+- Orchestrator cron schedule config is in wm_admin.service_config; column is cron_schedule (not cron_expression)

@@ -1,30 +1,35 @@
 /**
- * @deprecated Migrated to relay-native AI (2026-03-06).
- * AI functions now run on the relay server via Ollama cron jobs.
- * This endpoint is no longer called. Kept for rollback reference.
- */
-
-/**
- * Summarization Service with Fallback Chain
- * Server-side Redis caching handles cross-user deduplication
- * Fallback: Ollama -> Groq -> OpenRouter -> Browser T5
+ * Article Summarization — Relay Cache Only
  *
- * Uses NewsServiceClient.summarizeArticle() RPC instead of legacy
- * per-provider fetch endpoints.
+ * Summaries are pre-computed server-side by the AI engine and pushed
+ * via the ai:article-summaries WebSocket channel. This module looks
+ * them up from window.__wmArticleSummaries.
+ *
+ * translateText() still uses the SummarizeArticle RPC for on-demand
+ * translation (different use case from pre-computed summaries).
  */
 
-import { mlWorker } from './ml-worker';
-import { SITE_VARIANT } from '@/config';
-import { BETA_MODE } from '@/config/beta';
 import { isFeatureAvailable, type RuntimeFeatureId } from './runtime-config';
-import { trackLLMUsage, trackLLMFailure } from './analytics';
+import { trackLLMUsage } from './analytics';
 import { NewsServiceClient, type SummarizeArticleResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
 import { createCircuitBreaker } from '@/utils';
-import { buildSummaryCacheKey } from '@/utils/summary-cache-key';
 
-const CLIENT_ML_ENABLED = import.meta.env.VITE_ENABLE_CLIENT_ML === '1';
+export type SummarizationProvider = 'ollama' | 'groq' | 'openrouter' | 'browser' | 'cache' | 'pending';
 
-// FNV-1a — matches simpleHash() in ais-relay.cjs
+export interface SummarizationResult {
+  summary: string;
+  provider: SummarizationProvider;
+  model: string;
+  cached: boolean;
+}
+
+export type ProgressCallback = (step: number, total: number, message: string) => void;
+
+export interface SummarizeOptions {
+  skipCloudProviders?: boolean;
+  skipBrowserFallback?: boolean;
+}
+
 function fnv1aHash(str: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -45,151 +50,26 @@ function lookupRelaySummary(headlines: string[]): SummarizationResult | null {
   return null;
 }
 
-export type SummarizationProvider = 'ollama' | 'groq' | 'openrouter' | 'browser' | 'cache';
-
-export interface SummarizationResult {
-  summary: string;
-  provider: SummarizationProvider;
-  model: string;
-  cached: boolean;
-}
-
-export type ProgressCallback = (step: number, total: number, message: string) => void;
-
-export interface SummarizeOptions {
-  skipCloudProviders?: boolean;  // true = skip Ollama/Groq/OpenRouter, go straight to browser T5
-  skipBrowserFallback?: boolean; // true = skip browser T5 fallback
-}
-
-// ── Sebuf client (replaces direct fetch to /api/{provider}-summarize) ──
-
-const newsClient = new NewsServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-const summaryBreaker = createCircuitBreaker<SummarizeArticleResponse>({ name: 'News Summarization', cacheTtlMs: 0 });
-
-const emptySummaryFallback: SummarizeArticleResponse = { summary: '', provider: '', model: '', cached: false, skipped: false, fallback: true, tokens: 0, reason: '', error: '', errorType: '' };
-
-// ── Provider definitions ──
-
-interface ApiProviderDef {
-  featureId: RuntimeFeatureId;
-  provider: SummarizationProvider;
-  label: string;
-}
-
-const API_PROVIDERS: ApiProviderDef[] = [
-  { featureId: 'aiOllama',      provider: 'ollama',     label: 'Ollama' },
-  { featureId: 'aiGroq',        provider: 'groq',       label: 'Groq AI' },
-  { featureId: 'aiOpenRouter',  provider: 'openrouter', label: 'OpenRouter' },
-];
-
-let lastAttemptedProvider = 'none';
-
-// ── Unified API provider caller (via SummarizeArticle RPC) ──
-
-async function tryApiProvider(
-  providerDef: ApiProviderDef,
-  headlines: string[],
-  geoContext?: string,
-  lang?: string,
-): Promise<SummarizationResult | null> {
-  if (!isFeatureAvailable(providerDef.featureId)) return null;
-  lastAttemptedProvider = providerDef.provider;
-  try {
-    const resp: SummarizeArticleResponse = await summaryBreaker.execute(async () => {
-      return newsClient.summarizeArticle({
-        provider: providerDef.provider,
-        headlines,
-        mode: 'brief',
-        geoContext: geoContext || '',
-        variant: SITE_VARIANT,
-        lang: lang || 'en',
-      });
-    }, emptySummaryFallback);
-
-    // Provider skipped (credentials missing) or signaled fallback
-    if (resp.skipped || resp.fallback) return null;
-
-    const summary = typeof resp.summary === 'string' ? resp.summary.trim() : '';
-    if (!summary) return null;
-
-    const cached = Boolean(resp.cached);
-    const resultProvider = cached ? 'cache' : providerDef.provider;
-    return {
-      summary,
-      provider: resultProvider as SummarizationProvider,
-      model: resp.model || providerDef.provider,
-      cached,
-    };
-  } catch (error) {
-    console.warn(`[Summarization] ${providerDef.label} failed:`, error);
-    return null;
-  }
-}
-
-// ── Browser T5 provider (different interface -- no API call) ──
-
-async function tryBrowserT5(headlines: string[], modelId?: string): Promise<SummarizationResult | null> {
-  try {
-    if (!mlWorker.isAvailable) {
-      return null;
-    }
-    lastAttemptedProvider = 'browser';
-
-    const combinedText = headlines.slice(0, 5).map(h => h.slice(0, 80)).join('. ');
-    const prompt = `Summarize the most important headline in 2 concise sentences (under 60 words): ${combinedText}`;
-
-    const [summary] = await mlWorker.summarize([prompt], modelId);
-
-    if (!summary || summary.length < 20 || summary.toLowerCase().includes('summarize')) {
-      return null;
-    }
-
-    return {
-      summary,
-      provider: 'browser',
-      model: modelId || 't5-small',
-      cached: false,
-    };
-  } catch (error) {
-    console.warn('[Summarization] Browser T5 failed:', error);
-    return null;
-  }
-}
-
-// ── Fallback chain runner ──
-
-async function runApiChain(
-  providers: ApiProviderDef[],
-  headlines: string[],
-  geoContext: string | undefined,
-  lang: string | undefined,
-  onProgress: ProgressCallback | undefined,
-  stepOffset: number,
-  totalSteps: number,
-): Promise<SummarizationResult | null> {
-  for (const [i, provider] of providers.entries()) {
-    onProgress?.(stepOffset + i, totalSteps, `Connecting to ${provider.label}...`);
-    const result = await tryApiProvider(provider, headlines, geoContext, lang);
-    if (result) return result;
-  }
-  return null;
-}
+const PENDING_RESULT: SummarizationResult = {
+  summary: '',
+  provider: 'pending',
+  model: 'relay',
+  cached: false,
+};
 
 /**
- * Generate a summary using the fallback chain: Ollama -> Groq -> OpenRouter -> Browser T5
- * Server-side Redis caching is handled by the SummarizeArticle RPC handler
- * @param geoContext Optional geographic signal context to include in the prompt
+ * Look up a pre-computed summary from the relay cache.
+ * Returns a "pending" result (empty summary) if not yet available.
+ * Panels should listen for 'wm:article-summaries-updated' to re-check.
  */
-export async function generateSummary(
+export function generateSummary(
   headlines: string[],
-  onProgress?: ProgressCallback,
-  geoContext?: string,
-  lang: string = 'en',
-  options?: SummarizeOptions,
-): Promise<SummarizationResult | null> {
-  if (!headlines || headlines.length < 2) {
-    return null;
-  }
+  _onProgress?: ProgressCallback,
+  _geoContext?: string,
+  _lang?: string,
+  _options?: SummarizeOptions,
+): SummarizationResult | null {
+  if (!headlines || headlines.length < 2) return null;
 
   const relayResult = lookupRelaySummary(headlines);
   if (relayResult) {
@@ -197,132 +77,41 @@ export async function generateSummary(
     return relayResult;
   }
 
-  lastAttemptedProvider = 'none';
-  const effectiveOptions: SummarizeOptions = {
-    ...(options ?? {}),
-    // Force server-side providers unless explicitly enabled.
-    skipBrowserFallback: CLIENT_ML_ENABLED ? options?.skipBrowserFallback : true,
-  };
-
-  const result = await generateSummaryInternal(headlines, onProgress, geoContext, lang, effectiveOptions);
-
-  // Track at generateSummary return only (not inside tryApiProvider) to avoid
-  // double-counting beta comparison traffic. Only the winning provider is recorded.
-  if (result) {
-    trackLLMUsage(result.provider, result.model, result.cached);
-  } else {
-    trackLLMFailure(lastAttemptedProvider);
-  }
-
-  return result;
+  return PENDING_RESULT;
 }
 
-async function generateSummaryInternal(
-  headlines: string[],
-  onProgress: ProgressCallback | undefined,
-  geoContext: string | undefined,
-  lang: string,
-  options?: SummarizeOptions,
-): Promise<SummarizationResult | null> {
-  if (!options?.skipCloudProviders) {
-    try {
-      const cacheKey = buildSummaryCacheKey(headlines, 'brief', geoContext, SITE_VARIANT, lang);
-      const cached = await newsClient.getSummarizeArticleCache({ cacheKey });
-      if (cached.summary) {
-        return { summary: cached.summary, provider: 'cache', model: cached.model || '', cached: true };
-      }
-    } catch { /* cache lookup failed — proceed to provider chain */ }
-  }
+// ── Translation (still uses API — on-demand, cannot be pre-computed) ──
 
-  if (BETA_MODE) {
-    const modelReady = mlWorker.isAvailable && mlWorker.isModelLoaded('summarization-beta');
-
-    if (modelReady) {
-      const totalSteps = 1 + API_PROVIDERS.length;
-      // Model already loaded -- use browser T5-small first
-      if (!options?.skipBrowserFallback) {
-        onProgress?.(1, totalSteps, 'Running local AI model (beta)...');
-        const browserResult = await tryBrowserT5(headlines, 'summarization-beta');
-        if (browserResult) {
-          const groqProvider = API_PROVIDERS.find(p => p.provider === 'groq');
-          if (groqProvider && !options?.skipCloudProviders) tryApiProvider(groqProvider, headlines, geoContext).catch(() => {});
-
-          return browserResult;
-        }
-      }
-
-      // Warm model failed inference -- fallback through API providers
-      if (!options?.skipCloudProviders) {
-        const chainResult = await runApiChain(API_PROVIDERS, headlines, geoContext, undefined, onProgress, 2, totalSteps);
-        if (chainResult) return chainResult;
-      }
-    } else {
-      const totalSteps = API_PROVIDERS.length + 2;
-      if (mlWorker.isAvailable && !options?.skipBrowserFallback) {
-        mlWorker.loadModel('summarization-beta').catch(() => {});
-      }
-
-      // API providers while model loads
-      if (!options?.skipCloudProviders) {
-        const chainResult = await runApiChain(API_PROVIDERS, headlines, geoContext, undefined, onProgress, 1, totalSteps);
-        if (chainResult) {
-          return chainResult;
-        }
-      }
-
-      // Last resort: try browser T5 (may have finished loading by now)
-      if (mlWorker.isAvailable && !options?.skipBrowserFallback) {
-        onProgress?.(API_PROVIDERS.length + 1, totalSteps, 'Waiting for local AI model...');
-        const browserResult = await tryBrowserT5(headlines, 'summarization-beta');
-        if (browserResult) return browserResult;
-      }
-
-      onProgress?.(totalSteps, totalSteps, 'No providers available');
-    }
-
-    console.warn('[BETA] All providers failed');
-    return null;
-  }
-
-  // Normal mode: API chain -> Browser T5
-  const totalSteps = API_PROVIDERS.length + 1;
-  let chainResult: SummarizationResult | null = null;
-
-  if (!options?.skipCloudProviders) {
-    chainResult = await runApiChain(API_PROVIDERS, headlines, geoContext, lang, onProgress, 1, totalSteps);
-  }
-  if (chainResult) return chainResult;
-
-  if (!options?.skipBrowserFallback) {
-    onProgress?.(totalSteps, totalSteps, 'Loading local AI model...');
-    const browserResult = await tryBrowserT5(headlines);
-    if (browserResult) return browserResult;
-  }
-
-  console.warn('[Summarization] All providers failed');
-  return null;
+interface ApiProviderDef {
+  featureId: RuntimeFeatureId;
+  provider: SummarizationProvider;
+  label: string;
 }
 
+const TRANSLATION_PROVIDERS: ApiProviderDef[] = [
+  { featureId: 'aiOllama',      provider: 'ollama',     label: 'Ollama' },
+  { featureId: 'aiGroq',        provider: 'groq',       label: 'Groq AI' },
+  { featureId: 'aiOpenRouter',  provider: 'openrouter', label: 'OpenRouter' },
+];
 
-/**
- * Translate text using the fallback chain (via SummarizeArticle RPC with mode='translate')
- * @param text Text to translate
- * @param targetLang Target language code (e.g., 'fr', 'es')
- */
+const newsClient = new NewsServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
+const translationBreaker = createCircuitBreaker<SummarizeArticleResponse>({ name: 'Translation', cacheTtlMs: 0 });
+const emptyTranslationFallback: SummarizeArticleResponse = { summary: '', provider: '', model: '', cached: false, skipped: false, fallback: true, tokens: 0, reason: '', error: '', errorType: '' };
+
 export async function translateText(
   text: string,
   targetLang: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
 ): Promise<string | null> {
   if (!text) return null;
 
-  const totalSteps = API_PROVIDERS.length;
-  for (const [i, providerDef] of API_PROVIDERS.entries()) {
+  const totalSteps = TRANSLATION_PROVIDERS.length;
+  for (const [i, providerDef] of TRANSLATION_PROVIDERS.entries()) {
     if (!isFeatureAvailable(providerDef.featureId)) continue;
 
     onProgress?.(i + 1, totalSteps, `Translating with ${providerDef.label}...`);
     try {
-      const resp = await summaryBreaker.execute(async () => {
+      const resp = await translationBreaker.execute(async () => {
         return newsClient.summarizeArticle({
           provider: providerDef.provider,
           headlines: [text],
@@ -331,7 +120,7 @@ export async function translateText(
           variant: targetLang,
           lang: '',
         });
-      }, emptySummaryFallback);
+      }, emptyTranslationFallback);
 
       if (resp.fallback || resp.skipped) continue;
       const summary = typeof resp.summary === 'string' ? resp.summary.trim() : '';

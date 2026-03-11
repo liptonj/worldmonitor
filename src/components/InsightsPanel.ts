@@ -21,6 +21,7 @@ export class InsightsPanel extends Panel {
   private isHidden = false;
   private lastBriefUpdate = 0;
   private cachedBrief: string | null = null;
+  private briefUpdateListener: (() => void) | null = null;
   private lastMissedStories: AnalyzedHeadline[] = [];
   private lastConvergenceZones: RegionalConvergence[] = [];
   private lastFocalPoints: FocalPoint[] = [];
@@ -440,19 +441,33 @@ export class InsightsPanel extends Panel {
         const geoContext = SITE_VARIANT === 'full'
           ? (focalSummary.aiContext || signalSummary.aiContext) + theaterContext
           : '';
-        const result = await generateSummary(titles, (_step, _total, msg) => {
-          // Show sub-progress for summarization
-          this.setProgress(3, totalSteps, `Generating brief: ${msg}`);
-        }, geoContext, undefined, summarizeOpts);
+        const result = generateSummary(titles, undefined, geoContext, undefined, summarizeOpts);
 
         if (this.updateGeneration !== thisGeneration) return;
 
-        if (result) {
+        if (result?.summary) {
           worldBrief = result.summary;
           this.cachedBrief = worldBrief;
           this.lastBriefUpdate = now;
           usedCachedBrief = false;
           void setPersistentCache(InsightsPanel.BRIEF_CACHE_KEY, { summary: worldBrief });
+        } else if (result?.provider === 'pending') {
+          this.setProgress(3, totalSteps, 'Brief pending...');
+          this.cleanupBriefListener();
+          const gen = thisGeneration;
+          this.briefUpdateListener = () => {
+            if (this.updateGeneration !== gen) { this.cleanupBriefListener(); return; }
+            const updated = generateSummary(titles, undefined, geoContext);
+            if (updated?.summary) {
+              this.cachedBrief = updated.summary;
+              this.lastBriefUpdate = Date.now();
+              void setPersistentCache(InsightsPanel.BRIEF_CACHE_KEY, { summary: updated.summary });
+              this.setDataBadge('live');
+              this.renderInsights(importantClusters, sentiments, updated.summary);
+              this.cleanupBriefListener();
+            }
+          };
+          document.addEventListener('wm:article-summaries-updated', this.briefUpdateListener);
         }
       } else {
         usedCachedBrief = true;
@@ -781,9 +796,17 @@ export class InsightsPanel extends Panel {
     this.setContent(`<div class="insights-empty">${t('components.insights.waitingForData')}</div>`);
   }
 
+  private cleanupBriefListener(): void {
+    if (this.briefUpdateListener) {
+      document.removeEventListener('wm:article-summaries-updated', this.briefUpdateListener);
+      this.briefUpdateListener = null;
+    }
+  }
+
   public override destroy(): void {
     this.aiFlowUnsubscribe?.();
     this.panelSummaryUnsubscribe?.();
+    this.cleanupBriefListener();
     super.destroy();
   }
 }

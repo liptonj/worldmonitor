@@ -134,11 +134,12 @@ export class NewsPanel extends Panel {
     }
   }
 
-  private async handleSummarize(): Promise<void> {
+  private summaryUpdateListener: (() => void) | null = null;
+
+  private handleSummarize(): void {
     if (this.isSummarizing || !this.summaryContainer || !this.summaryBtn) return;
     if (this.currentHeadlines.length === 0) return;
 
-    // Check cache first (include variant, version, and language)
     const currentLang = getCurrentLanguage();
     const cacheKey = `panel_summary_v3_${SITE_VARIANT}_${this.panelId}_${currentLang}`;
     const cached = this.getCachedSummary(cacheKey);
@@ -147,35 +148,34 @@ export class NewsPanel extends Panel {
       return;
     }
 
-    // Show loading state
-    this.isSummarizing = true;
-    this.summaryBtn.innerHTML = '<span class="panel-summarize-spinner"></span>';
-    this.summaryBtn.disabled = true;
+    const result = generateSummary(this.currentHeadlines.slice(0, 8), undefined, this.panelId, currentLang);
+
+    if (result?.summary) {
+      this.setCachedSummary(cacheKey, result.summary);
+      this.showSummary(result.summary);
+      return;
+    }
+
     this.summaryContainer.style.display = 'block';
     this.summaryContainer.innerHTML = `<div class="panel-summary-loading">${t('components.newsPanel.generatingSummary')}</div>`;
 
-    const sigAtStart = this.lastHeadlineSignature;
+    this.cleanupSummaryListener();
+    const headlines = this.currentHeadlines.slice(0, 8);
+    this.summaryUpdateListener = () => {
+      const updated = generateSummary(headlines, undefined, this.panelId, currentLang);
+      if (updated?.summary) {
+        this.setCachedSummary(cacheKey, updated.summary);
+        this.showSummary(updated.summary);
+        this.cleanupSummaryListener();
+      }
+    };
+    document.addEventListener('wm:article-summaries-updated', this.summaryUpdateListener);
+  }
 
-    try {
-      const result = await generateSummary(this.currentHeadlines.slice(0, 8), undefined, this.panelId, currentLang);
-      if (this.lastHeadlineSignature !== sigAtStart) {
-        this.hideSummary();
-        return;
-      }
-      if (result?.summary) {
-        this.setCachedSummary(cacheKey, result.summary);
-        this.showSummary(result.summary);
-      } else {
-        this.summaryContainer.innerHTML = '<div class="panel-summary-error">Could not generate summary</div>';
-        setTimeout(() => this.hideSummary(), 3000);
-      }
-    } catch {
-      this.summaryContainer.innerHTML = '<div class="panel-summary-error">Summary failed</div>';
-      setTimeout(() => this.hideSummary(), 3000);
-    } finally {
-      this.isSummarizing = false;
-      this.summaryBtn.innerHTML = '✨';
-      this.summaryBtn.disabled = false;
+  private cleanupSummaryListener(): void {
+    if (this.summaryUpdateListener) {
+      document.removeEventListener('wm:article-summaries-updated', this.summaryUpdateListener);
+      this.summaryUpdateListener = null;
     }
   }
 
@@ -645,7 +645,8 @@ export class NewsPanel extends Panel {
     // Unregister from activity tracker
     activityTracker.unregister(this.panelId);
 
-    // Call parent destroy
+    this.cleanupSummaryListener();
+
     super.destroy();
   }
 }

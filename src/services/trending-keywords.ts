@@ -1,6 +1,5 @@
 import type { CorrelationSignal } from './correlation';
 import { mlWorker } from './ml-worker';
-import { generateSummary } from './summarization';
 import { SUPPRESSED_TRENDING_TERMS, escapeRegex, generateSignalId, tokenize } from '@/utils/analysis-constants';
 import { t } from '@/services/i18n';
 
@@ -68,7 +67,6 @@ const BASELINE_WINDOW_MS = 7 * DAY_MS;
 const BASELINE_REFRESH_MS = HOUR_MS;
 const SPIKE_COOLDOWN_MS = 30 * 60 * 1000;
 const MAX_TRACKED_TERMS = 10000;
-const MAX_AUTO_SUMMARIES_PER_HOUR = 5;
 const MIN_TOKEN_LENGTH = 3;
 const MIN_SPIKE_SOURCE_COUNT = 2;
 const CONFIG_KEY = 'worldmonitor-trending-config-v1';
@@ -101,7 +99,6 @@ const termFrequency = new Map<string, TermRecord>();
 const seenHeadlines = new Map<string, number>();
 const pendingSignals: CorrelationSignal[] = [];
 const activeSpikeTerms = new Set<string>();
-const autoSummaryRuns: number[] = [];
 
 let cachedConfig: TrendingConfig | null = null;
 let lastBaselineRefreshMs = 0;
@@ -292,10 +289,6 @@ function pruneOldState(now: number): void {
     }
   }
 
-  while (autoSummaryRuns.length > 0 && now - autoSummaryRuns[0]! > HOUR_MS) {
-    autoSummaryRuns.shift();
-  }
-
   if (termFrequency.size <= MAX_TRACKED_TERMS) return;
 
   const ordered = Array.from(termFrequency.entries())
@@ -435,12 +428,6 @@ function checkForSpikes(now: number, config: TrendingConfig, blockedTerms: Set<s
   return spikes.sort((a, b) => b.count - a.count);
 }
 
-function canRunAutoSummary(now: number): boolean {
-  while (autoSummaryRuns.length > 0 && now - autoSummaryRuns[0]! > HOUR_MS) {
-    autoSummaryRuns.shift();
-  }
-  return autoSummaryRuns.length < MAX_AUTO_SUMMARIES_PER_HOUR;
-}
 
 function pushSignal(signal: CorrelationSignal): void {
   pendingSignals.push(signal);
@@ -504,7 +491,7 @@ async function isSignificantTerm(term: string, headlines: StoredHeadline[]): Pro
   }
 }
 
-async function handleSpike(spike: TrendingSpike, config: TrendingConfig): Promise<void> {
+async function handleSpike(spike: TrendingSpike, _config: TrendingConfig): Promise<void> {
   const termKey = toTermKey(spike.term);
   if (activeSpikeTerms.has(termKey)) return;
   activeSpikeTerms.add(termKey);
@@ -517,23 +504,9 @@ async function handleSpike(spike: TrendingSpike, config: TrendingConfig): Promis
     }
 
     const windowHours = Math.round((spike.windowMs / HOUR_MS) * 10) / 10;
-    const headlines = spike.headlines.slice(0, 6).map(h => h.title);
     const multiplierText = spike.baseline > 0 ? `${spike.multiplier.toFixed(1)}x baseline` : 'cold-start threshold';
 
-    let description = `${spike.term} is appearing across ${spike.uniqueSources} sources (${spike.count} mentions in ${windowHours}h).`;
-
-    const now = Date.now();
-    if (config.autoSummarize && headlines.length >= 2 && canRunAutoSummary(now)) {
-      autoSummaryRuns.push(now);
-      const summary = await generateSummary(
-        headlines,
-        undefined,
-        `Breaking: "${spike.term}" mentioned ${spike.count}x in ${windowHours}h (${multiplierText})`
-      );
-      if (summary?.summary) {
-        description = summary.summary;
-      }
-    }
+    const description = `${spike.term} is appearing across ${spike.uniqueSources} sources (${spike.count} mentions in ${windowHours}h).`;
 
     const priorityBoost = spike.multiplier >= 5 ? 0.9 : spike.multiplier >= 3 ? 0.75 : 0.6;
     const confidence = spike.baseline > 0

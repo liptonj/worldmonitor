@@ -8,28 +8,22 @@ import { escapeHtml, sanitizeUrl } from '@/utils/sanitize';
  * each with an AI-generated summary of 50 words or less.
  *
  * Progressive rendering: titles render immediately as numbered cards,
- * then AI summaries fill in asynchronously via generateSummary().
- * Handles abort on re-render and graceful fallback on summarization failure.
+ * then AI summaries fill in from the relay cache. Cards showing
+ * "Summary pending..." auto-update when new summaries arrive via WebSocket.
  */
 export class GoodThingsDigestPanel extends Panel {
   private cardElements: HTMLElement[] = [];
-  private summaryAbort: AbortController | null = null;
+  private pendingItems: Array<{ idx: number; item: NewsItem }> = [];
+  private summaryUpdateListener: (() => void) | null = null;
 
   constructor() {
     super({ id: 'digest', title: '5 Good Things', trackActivity: false });
     this.content.innerHTML = '<p class="digest-placeholder">Loading today\u2019s digest\u2026</p>';
   }
 
-  /**
-   * Set the stories to display. Takes the first 5 items, renders stub cards
-   * with titles immediately, then summarizes each in parallel.
-   */
-  public async setStories(items: NewsItem[]): Promise<void> {
-    // Cancel any previous summarization batch
-    if (this.summaryAbort) {
-      this.summaryAbort.abort();
-    }
-    this.summaryAbort = new AbortController();
+  public setStories(items: NewsItem[]): void {
+    this.cleanupSummaryListener();
+    this.pendingItems = [];
 
     const top5 = items.slice(0, 5);
 
@@ -39,7 +33,6 @@ export class GoodThingsDigestPanel extends Panel {
       return;
     }
 
-    // Render stub cards immediately (titles only, no summaries yet)
     this.content.innerHTML = '';
     const list = document.createElement('div');
     list.className = 'digest-list';
@@ -64,32 +57,38 @@ export class GoodThingsDigestPanel extends Panel {
     }
     this.content.appendChild(list);
 
-    // Summarize in parallel with progressive updates
-    const signal = this.summaryAbort.signal;
-    await Promise.allSettled(top5.map(async (item, idx) => {
-      if (signal.aborted) return;
-      try {
-        // Pass [title, source] as two headlines to satisfy generateSummary's
-        // minimum length requirement (headlines.length >= 2).
-        const result = await generateSummary(
-          [item.title, item.source],
-          undefined,
-          item.locationName,
-        );
-        if (signal.aborted) return;
-        const summary = result?.summary ?? item.title.slice(0, 200);
-        this.updateCardSummary(idx, summary);
-      } catch {
-        if (!signal.aborted) {
-          this.updateCardSummary(idx, item.title.slice(0, 200));
-        }
+    for (let idx = 0; idx < top5.length; idx++) {
+      const item = top5[idx]!;
+      const result = generateSummary([item.title, item.source], undefined, item.locationName);
+      if (result?.summary) {
+        this.updateCardSummary(idx, result.summary);
+      } else {
+        this.pendingItems.push({ idx, item });
       }
-    }));
+    }
+
+    if (this.pendingItems.length > 0) {
+      this.summaryUpdateListener = () => this.retryPendingSummaries();
+      document.addEventListener('wm:article-summaries-updated', this.summaryUpdateListener);
+    }
   }
 
-  /**
-   * Update a single card's summary text and remove the loading indicator.
-   */
+  private retryPendingSummaries(): void {
+    const stillPending: Array<{ idx: number; item: NewsItem }> = [];
+    for (const entry of this.pendingItems) {
+      const result = generateSummary([entry.item.title, entry.item.source], undefined, entry.item.locationName);
+      if (result?.summary) {
+        this.updateCardSummary(entry.idx, result.summary);
+      } else {
+        stillPending.push(entry);
+      }
+    }
+    this.pendingItems = stillPending;
+    if (stillPending.length === 0) {
+      this.cleanupSummaryListener();
+    }
+  }
+
   private updateCardSummary(idx: number, summary: string): void {
     const card = this.cardElements[idx];
     if (!card) return;
@@ -99,15 +98,17 @@ export class GoodThingsDigestPanel extends Panel {
     summaryEl.classList.remove('digest-card-summary--loading');
   }
 
-  /**
-   * Clean up abort controller, card references, and parent resources.
-   */
-  public destroy(): void {
-    if (this.summaryAbort) {
-      this.summaryAbort.abort();
-      this.summaryAbort = null;
+  private cleanupSummaryListener(): void {
+    if (this.summaryUpdateListener) {
+      document.removeEventListener('wm:article-summaries-updated', this.summaryUpdateListener);
+      this.summaryUpdateListener = null;
     }
+  }
+
+  public destroy(): void {
+    this.cleanupSummaryListener();
     this.cardElements = [];
+    this.pendingItems = [];
     super.destroy();
   }
 }
