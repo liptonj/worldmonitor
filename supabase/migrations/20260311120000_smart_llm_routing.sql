@@ -173,3 +173,72 @@ comment on function public.get_llm_function_config() is
 grant execute on function public.get_llm_function_config() to anon;
 grant execute on function public.get_llm_function_config() to authenticated;
 revoke execute on function public.get_llm_function_config() from public;
+
+-- =============================================================
+-- 6. Update admin_update_llm_provider() to handle new columns
+-- =============================================================
+
+create or replace function public.admin_update_llm_provider(p_id uuid, p_data jsonb)
+  returns void language plpgsql security definer set search_path = ''
+as $$
+begin
+  update wm_admin.llm_providers set
+    name                = coalesce(p_data->>'name', name),
+    api_url             = coalesce(p_data->>'api_url', api_url),
+    default_model       = coalesce(p_data->>'default_model', default_model),
+    priority            = coalesce((p_data->>'priority')::int, priority),
+    enabled             = coalesce((p_data->>'enabled')::boolean, enabled),
+    requests_per_minute = coalesce((p_data->>'requests_per_minute')::int, requests_per_minute),
+    tokens_per_minute   = coalesce((p_data->>'tokens_per_minute')::int, tokens_per_minute),
+    context_window      = coalesce((p_data->>'context_window')::int, context_window),
+    complexity_cap      = coalesce(p_data->>'complexity_cap', complexity_cap),
+    updated_at          = now()
+  where id = p_id;
+end;
+$$;
+
+-- =============================================================
+-- 7. Replace admin_insert_llm_provider() with new columns
+--    Drop the old 6-param overload and create a 10-param version.
+-- =============================================================
+
+drop function if exists public.admin_insert_llm_provider(text, text, text, text, int, boolean);
+
+create or replace function public.admin_insert_llm_provider(
+  p_name                text,
+  p_api_url             text,
+  p_default_model       text,
+  p_api_key_secret_name text,
+  p_priority            int     default 10,
+  p_enabled             boolean default true,
+  p_requests_per_minute int     default 60,
+  p_tokens_per_minute   int     default 0,
+  p_context_window      int     default 8192,
+  p_complexity_cap      text    default 'heavy'
+) returns wm_admin.llm_providers
+  language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_role text;
+  v_row  wm_admin.llm_providers;
+begin
+  select public.get_my_admin_role() into v_role;
+  if v_role is null then
+    raise exception 'Access denied: not an admin user' using errcode = '42501';
+  end if;
+
+  insert into wm_admin.llm_providers (
+    name, api_url, default_model, api_key_secret_name, priority, enabled,
+    requests_per_minute, tokens_per_minute, context_window, complexity_cap
+  ) values (
+    p_name, p_api_url, p_default_model, p_api_key_secret_name, p_priority, p_enabled,
+    p_requests_per_minute, p_tokens_per_minute, p_context_window, p_complexity_cap
+  )
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+grant execute on function public.admin_insert_llm_provider(text, text, text, text, int, boolean, int, int, int, text) to authenticated;
+revoke execute on function public.admin_insert_llm_provider(text, text, text, text, int, boolean, int, int, int, text) from anon, public;

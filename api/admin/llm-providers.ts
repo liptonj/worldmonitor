@@ -25,6 +25,8 @@ export default async function handler(req: Request): Promise<Response> {
     const body = (await req.json()) as {
       name: string; api_url: string; default_model: string;
       api_key_secret_name: string; priority?: number; enabled?: boolean;
+      requests_per_minute?: number; tokens_per_minute?: number;
+      context_window?: number; complexity_cap?: string;
     };
     if (!body.name || !body.api_url || !body.default_model || !body.api_key_secret_name)
       return new Response(JSON.stringify({ error: 'name, api_url, default_model, and api_key_secret_name required' }), { status: 400, headers });
@@ -35,6 +37,10 @@ export default async function handler(req: Request): Promise<Response> {
       p_api_key_secret_name: body.api_key_secret_name,
       p_priority: body.priority ?? 10,
       p_enabled: body.enabled ?? true,
+      p_requests_per_minute: body.requests_per_minute ?? 60,
+      p_tokens_per_minute: body.tokens_per_minute ?? 0,
+      p_context_window: body.context_window ?? 8192,
+      p_complexity_cap: body.complexity_cap ?? 'heavy',
     });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     await invalidateLlmCache();

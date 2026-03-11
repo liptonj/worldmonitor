@@ -66,10 +66,14 @@ function recordCall(providerName) {
 
 const _backoffState = {};
 
+/**
+ * Groq resets every 60s, OpenRouter is credit-based (near-instant),
+ * Ollama is self-hosted (no API limit). Backoff: 5s → 10s → 20s → 30s → 60s max.
+ */
 function markProviderRateLimited(providerName) {
   const state = _backoffState[providerName] ?? { count: 0, cooldownUntil: 0 };
   state.count++;
-  const delay = Math.min(300_000, 15_000 * Math.pow(2, state.count - 1));
+  const delay = Math.min(60_000, 5_000 * Math.pow(2, state.count - 1));
   state.cooldownUntil = Date.now() + delay;
   _backoffState[providerName] = state;
   log.warn('Provider rate-limited with backoff', {
@@ -173,6 +177,7 @@ async function fetchFunctionConfig(supabase) {
       providerChain: row.provider_chain ?? [],
       maxRetries: row.max_retries ?? 1,
       timeoutMs: row.timeout_ms ?? DEFAULT_LLM_TIMEOUT_MS,
+      complexity: row.complexity ?? 'medium',
     };
   }
 
@@ -436,6 +441,7 @@ async function callLLMForFunction(supabase, functionKey, promptKey, placeholders
   const config = funcConfig[functionKey] ?? {};
   const providerChain = config.providerChain ?? [];
   const timeoutMs = config.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
+  const complexity = config.complexity ?? 'medium';
   const providers = filterProvidersByChain(allProviders, providerChain);
 
   if (providers.length === 0) {
@@ -443,7 +449,26 @@ async function callLLMForFunction(supabase, functionKey, promptKey, placeholders
   }
 
   const errors = [];
+  const skipped = [];
+
   for (const provider of providers) {
+    const pName = provider.provider_name;
+
+    if (!meetsComplexity(provider.complexity_cap, complexity)) {
+      skipped.push({ provider: pName, reason: `complexity_cap=${provider.complexity_cap} < ${complexity}` });
+      continue;
+    }
+
+    if (isInCooldown(pName)) {
+      skipped.push({ provider: pName, reason: '429 backoff cooldown' });
+      continue;
+    }
+
+    if (isRateLimited(pName, provider.requests_per_minute)) {
+      skipped.push({ provider: pName, reason: `RPM limit (${provider.requests_per_minute})` });
+      continue;
+    }
+
     const promptOpts = {
       variant: options.variant ?? null,
       mode: options.mode ?? null,
@@ -462,7 +487,14 @@ async function callLLMForFunction(supabase, functionKey, promptKey, placeholders
       userPrompt = options.fallbackUserPrompt ?? '';
       log.debug('Using fallback prompt', { promptKey, model: provider.model_name });
     } else {
-      errors.push({ provider: provider.provider_name, model: provider.model_name, error: 'No prompt found' });
+      errors.push({ provider: pName, model: provider.model_name, error: 'No prompt found' });
+      continue;
+    }
+
+    const promptTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
+    const maxInputTokens = Math.floor((provider.context_window ?? 8192) * 0.85);
+    if (promptTokens > maxInputTokens) {
+      skipped.push({ provider: pName, reason: `prompt ~${promptTokens} tokens > context ${maxInputTokens}` });
       continue;
     }
 
@@ -474,11 +506,12 @@ async function callLLMForFunction(supabase, functionKey, promptKey, placeholders
 
     try {
       const rawContent = await callLLM(provider, systemPrompt, userPrompt, http, callOpts);
+      recordCall(pName);
 
       if (options.jsonMode === false) {
         return {
           content: rawContent,
-          provider_name: provider.provider_name,
+          provider_name: pName,
           model_name: provider.model_name,
         };
       }
@@ -487,22 +520,32 @@ async function callLLMForFunction(supabase, functionKey, promptKey, placeholders
       return {
         content: JSON.stringify(parsed),
         parsed,
-        provider_name: provider.provider_name,
+        provider_name: pName,
         model_name: provider.model_name,
       };
     } catch (err) {
+      if (is429Error(err)) {
+        markProviderRateLimited(pName);
+      }
       log.warn('LLM provider failed', {
         function: functionKey,
-        provider: provider.provider_name,
+        provider: pName,
         model: provider.model_name,
         error: err.message,
       });
-      errors.push({ provider: provider.provider_name, model: provider.model_name, error: err.message });
+      errors.push({ provider: pName, model: provider.model_name, error: err.message });
     }
   }
 
+  if (skipped.length > 0) {
+    log.info('Providers skipped by smart routing', { function: functionKey, skipped });
+  }
+
   const summary = errors.map((e) => `${e.provider}/${e.model}: ${e.error}`).join('; ');
-  throw new Error(`All LLM providers failed for ${functionKey}: ${summary}`);
+  const skipSummary = skipped.map((s) => `${s.provider}: ${s.reason}`).join('; ');
+  throw new Error(
+    `All LLM providers failed for ${functionKey}: ${summary}${skipSummary ? ` | skipped: ${skipSummary}` : ''}`,
+  );
 }
 
 module.exports = {
@@ -517,4 +560,6 @@ module.exports = {
   interpolate,
   truncateContext,
   stripThinking,
+  estimateTokens,
+  meetsComplexity,
 };

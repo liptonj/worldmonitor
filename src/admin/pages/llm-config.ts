@@ -6,6 +6,10 @@ type LlmProvider = {
   priority: number;
   enabled: boolean;
   api_key_secret_name: string;
+  requests_per_minute: number;
+  tokens_per_minute: number;
+  context_window: number;
+  complexity_cap: string;
 };
 
 type LlmPrompt = {
@@ -23,6 +27,7 @@ type LlmFunctionConfig = {
   provider_chain: string[];
   timeout_ms: number;
   max_retries: number;
+  complexity: string;
   description: string | null;
 };
 
@@ -148,6 +153,14 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
       ${fieldRow('Default Model *', textInput('default_model', '', 'e.g. llama-3.1-8b-instant'))}
       ${fieldRow('API Key Secret *', textInput('api_key_secret_name', '', 'e.g. OLLAMA_API_KEY'))}
       ${fieldRow('Priority', numInput('priority', 10))}
+      ${fieldRow('RPM Limit', numInput('requests_per_minute', 60))}
+      ${fieldRow('TPM Limit', numInput('tokens_per_minute', 0))}
+      ${fieldRow('Context Window', numInput('context_window', 8192))}
+      ${fieldRow('Complexity Cap', `<select data-field="complexity_cap" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px">
+        <option value="light">Light</option>
+        <option value="medium">Medium</option>
+        <option value="heavy" selected>Heavy</option>
+      </select>`)}
       ${fieldRow('', checkInput('enabled', true))}
       <div style="display:flex;gap:8px;margin-top:8px">
         ${primaryBtn('Save Provider', 'id="save-new-provider"')}
@@ -171,6 +184,10 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
         api_key_secret_name: getField('api_key_secret_name'),
         priority: Number((addProviderFormEl.querySelector('[data-field="priority"]') as HTMLInputElement).value),
         enabled: (addProviderFormEl.querySelector('[data-field="enabled"]') as HTMLInputElement).checked,
+        requests_per_minute: Number((addProviderFormEl.querySelector('[data-field="requests_per_minute"]') as HTMLInputElement).value),
+        tokens_per_minute: Number((addProviderFormEl.querySelector('[data-field="tokens_per_minute"]') as HTMLInputElement).value),
+        context_window: Number((addProviderFormEl.querySelector('[data-field="context_window"]') as HTMLInputElement).value),
+        complexity_cap: (addProviderFormEl.querySelector('[data-field="complexity_cap"]') as HTMLSelectElement).value,
       };
       if (!body.name || !body.api_url || !body.default_model || !body.api_key_secret_name) {
         msgEl.textContent = 'All starred fields required';
@@ -223,6 +240,14 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
         ${fieldRow('Default Model', textInput('default_model', p.default_model))}
         ${fieldRow('API Key Secret', textInput('api_key_secret_name', p.api_key_secret_name))}
         ${fieldRow('Priority', numInput('priority', p.priority))}
+        ${fieldRow('RPM Limit', numInput('requests_per_minute', p.requests_per_minute ?? 60))}
+        ${fieldRow('TPM Limit', numInput('tokens_per_minute', p.tokens_per_minute ?? 0))}
+        ${fieldRow('Context Window', numInput('context_window', p.context_window ?? 8192))}
+        ${fieldRow('Complexity Cap', `<select data-field="complexity_cap" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px">
+          <option value="light" ${(p.complexity_cap ?? 'heavy') === 'light' ? 'selected' : ''}>Light</option>
+          <option value="medium" ${(p.complexity_cap ?? 'heavy') === 'medium' ? 'selected' : ''}>Medium</option>
+          <option value="heavy" ${(p.complexity_cap ?? 'heavy') === 'heavy' ? 'selected' : ''}>Heavy</option>
+        </select>`)}
         ${fieldRow('', checkInput('enabled', p.enabled))}
         <div style="display:flex;gap:8px;margin-top:8px">
           ${primaryBtn('Save', `data-save-provider="${p.id}"`)}
@@ -242,6 +267,10 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
           const input = inp as HTMLInputElement;
           body[input.dataset['field']!] = input.type === 'checkbox' ? input.checked
             : input.type === 'number' ? Number(input.value) : input.value;
+        });
+        row.querySelectorAll('select[data-field]').forEach(sel => {
+          const select = sel as HTMLSelectElement;
+          body[select.dataset['field']!] = select.value;
         });
         const res = await fetch(`/api/admin/llm-providers?id=${id}`, {
           method: 'PUT',
@@ -565,6 +594,7 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
           style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:12px">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
             <span style="font-size:15px;font-weight:600;font-family:monospace">${escHtml(cfg.function_key)}</span>
+            ${badge(cfg.complexity ?? 'medium', cfg.complexity === 'heavy' ? 'var(--danger,#e53e3e)' : cfg.complexity === 'light' ? 'var(--success,#38a169)' : 'var(--text-muted)')}
             ${cfg.description ? `<span style="font-size:12px;color:var(--text-muted)">${escHtml(cfg.description)}</span>` : ''}
           </div>
 
@@ -589,6 +619,11 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
 
           ${fieldRow('Timeout (ms)', numInput('timeout_ms', cfg.timeout_ms))}
           ${fieldRow('Max Retries', numInput('max_retries', cfg.max_retries))}
+          ${fieldRow('Complexity', `<select data-field="complexity" style="padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px">
+            <option value="light" ${(cfg.complexity ?? 'medium') === 'light' ? 'selected' : ''}>Light</option>
+            <option value="medium" ${(cfg.complexity ?? 'medium') === 'medium' ? 'selected' : ''}>Medium</option>
+            <option value="heavy" ${(cfg.complexity ?? 'medium') === 'heavy' ? 'selected' : ''}>Heavy</option>
+          </select>`)}
 
           <div style="display:flex;gap:8px;margin-top:8px">
             ${primaryBtn('Save', `data-save-fn="${escHtml(cfg.function_key)}"`)}
@@ -640,10 +675,12 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
           return inp ? Number(inp.value) : 0;
         };
 
+        const complexitySelect = row.querySelector<HTMLSelectElement>('select[data-field="complexity"]');
         const body = {
           provider_chain: cfg.provider_chain,
           timeout_ms: getNum('timeout_ms'),
           max_retries: getNum('max_retries'),
+          complexity: complexitySelect?.value ?? cfg.complexity ?? 'medium',
         };
 
         const res = await fetch(`/api/admin/llm-function-configs?function_key=${encodeURIComponent(key)}`, {
@@ -659,6 +696,7 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
           if (cfg2) {
             cfg2.timeout_ms = body.timeout_ms;
             cfg2.max_retries = body.max_retries;
+            cfg2.complexity = body.complexity;
           }
           setTimeout(() => { msgEl.textContent = ''; }, 2500);
         }

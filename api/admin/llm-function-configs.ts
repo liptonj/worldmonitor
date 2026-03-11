@@ -24,7 +24,7 @@ export default async function handler(req: Request): Promise<Response> {
     const { data, error } = await client
       .schema('wm_admin')
       .from('llm_function_config')
-      .select('function_key, provider_chain, timeout_ms, max_retries, description, updated_at')
+      .select('function_key, provider_chain, timeout_ms, max_retries, complexity, description, updated_at')
       .order('function_key');
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     return new Response(JSON.stringify({ configs: data }), { status: 200, headers });
@@ -37,11 +37,13 @@ export default async function handler(req: Request): Promise<Response> {
       provider_chain?: string[];
       timeout_ms?: number;
       max_retries?: number;
+      complexity?: string;
     };
     const update: Record<string, unknown> = {};
     if (body.provider_chain !== undefined) update.provider_chain = body.provider_chain;
     if (body.timeout_ms !== undefined) update.timeout_ms = body.timeout_ms;
     if (body.max_retries !== undefined) update.max_retries = body.max_retries;
+    if (body.complexity !== undefined) update.complexity = body.complexity;
     if (Object.keys(update).length === 0)
       return new Response(JSON.stringify({ error: 'No updatable fields provided' }), { status: 400, headers });
     const { error } = await client
