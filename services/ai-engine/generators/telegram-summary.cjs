@@ -152,9 +152,19 @@ Respond with ONLY valid JSON:
       channelCount,
     });
 
-    // --- LLM Call 2: Cross-channel + delta ---
-    const channelSummariesStr = JSON.stringify(channelSummaries, null, 2);
+    // --- LLM Call 2: Cross-channel synthesis using per-channel summaries ---
+    // Build a concise context from channel summaries (not the full message text)
+    const summaryLines = channelSummaries.map((cs) => {
+      const themes = cs.themes?.join(', ') || 'none';
+      return `**${cs.channelTitle}** (@${cs.channel})\n- Summary: ${cs.summary}\n- Themes: ${themes}\n- Sentiment: ${cs.sentiment}\n- Messages: ${cs.messageCount}`;
+    });
+    const channelSummariesStr = summaryLines.join('\n\n');
     const prevSummaryStr = previousCrossDigest || 'No previous summary available (first run).';
+
+    log.info('Telegram summary: starting cross-channel LLM call', {
+      summariesContextChars: channelSummariesStr.length,
+      previousContextChars: prevSummaryStr.length,
+    });
 
     const crossResult = await callLLMForFunction(
       supabase,
@@ -170,7 +180,7 @@ Respond with ONLY valid JSON:
       {
         jsonMode: false,
         fallbackSystemPrompt: FALLBACK_CROSS_SYSTEM,
-        fallbackUserPrompt: `Per-channel summaries:\n${channelSummariesStr}\n\nPrevious digest:\n${prevSummaryStr}\n\nProduce cross-channel digest, early warnings, and change analysis.`,
+        fallbackUserPrompt: `Per-channel summaries:\n\n${channelSummariesStr}\n\nPrevious digest:\n${prevSummaryStr}\n\nProduce cross-channel digest, early warnings, and change analysis.`,
       },
     );
 
