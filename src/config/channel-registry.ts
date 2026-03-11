@@ -503,6 +503,15 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
   },
+  'ai:telegram-summary': {
+    key: 'ai:telegram-summary',
+    redisKey: 'ai:telegram-summary:v1',
+    panels: ['telegram-summary'],
+    domain: 'ai',
+    staleAfterMs: 10 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+  },
   /** News digest channels — variant-specific. Handled by createNewsHandlers. */
   'news:full': {
     key: 'news:full',
