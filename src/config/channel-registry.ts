@@ -562,7 +562,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
   'temporal-anomalies': {
     key: 'temporal-anomalies',
     redisKey: 'relay:temporal-anomalies:v1',
-    panels: [],
+    panels: ['cii', 'insights'],
     domain: 'intelligence',
     staleAfterMs: 5 * 60_000,
     timeoutMs: 30_000,
