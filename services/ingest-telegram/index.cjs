@@ -4,10 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
-const { NewMessage } = require('telegram/events');
 const config = require('@worldmonitor/shared/config.cjs');
 const { createLogger } = require('@worldmonitor/shared/logger.cjs');
-const { setex: redisSetex } = require('@worldmonitor/shared/redis.cjs');
+const { setex: redisSetex, getClient: getRedisClient } = require('@worldmonitor/shared/redis.cjs');
 const { createGatewayClient, broadcast } = require('@worldmonitor/shared/grpc-client.cjs');
 
 const log = createLogger('ingest-telegram');
@@ -58,6 +57,7 @@ const TELEGRAM_MAX_TEXT_CHARS = Math.max(200, Number(process.env.TELEGRAM_MAX_TE
 const TELEGRAM_MAX_FEED_ITEMS = Math.max(50, Number(process.env.TELEGRAM_MAX_FEED_ITEMS || 200));
 
 const TELEGRAM_POLL_INTERVAL_MS = Math.max(15_000, Number(process.env.TELEGRAM_POLL_INTERVAL_MS || 60_000));
+const TELEGRAM_STARTUP_DELAY_MS = Math.max(0, Number(process.env.TELEGRAM_STARTUP_DELAY_MS || 60_000));
 const TELEGRAM_CHANNEL_TIMEOUT_MS = 15_000;
 const TELEGRAM_POLL_CYCLE_TIMEOUT_MS = 180_000;
 const TELEGRAM_RATE_LIMIT_MS = Math.max(300, Number(process.env.TELEGRAM_RATE_LIMIT_MS || 800));
@@ -121,6 +121,12 @@ function getPollState() {
 
 function mergeNewItems(newItems) {
   if (!newItems.length) return;
+  for (const item of pollState.items) {
+    delete item._newThisCycle;
+  }
+  for (const item of newItems) {
+    item._newThisCycle = true;
+  }
   const seen = new Set();
   pollState.items = [...newItems, ...pollState.items]
     .filter((item) => {
@@ -266,6 +272,46 @@ async function persistBuffer(gatewayClient) {
   }
 }
 
+async function persistPollBuffer(gatewayClient) {
+  const data = {
+    messages: pollState.items,
+    count: pollState.items.length,
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    await redisSetex(REDIS_KEY, BUFFER_TTL, data);
+    log.debug('Telegram poll buffer persisted', { count: data.count });
+  } catch (err) {
+    log.warn('Failed to persist Telegram poll buffer', { error: err.message });
+  }
+
+  if (gatewayClient && data.count > 0) {
+    try {
+      await broadcast(gatewayClient, {
+        channel: 'telegram',
+        payload: Buffer.from(JSON.stringify(data)),
+        timestampMs: Date.now(),
+        triggerId: 'ingest-telegram',
+      });
+    } catch (err) {
+      log.warn('Failed to broadcast Telegram poll buffer', { error: err.message });
+    }
+  }
+
+  try {
+    const redisClient = getRedisClient();
+    if (redisClient) {
+      await ingestTelegramHeadlines(
+        pollState.items.filter((i) => i._newThisCycle),
+        redisClient,
+      );
+    }
+  } catch (err) {
+    log.warn('Failed to ingest headlines', { error: err.message });
+  }
+}
+
 function buildHandleToConfig(channels) {
   const map = new Map();
   for (const ch of channels) {
@@ -395,115 +441,79 @@ async function startTelegramClient(gatewayClient) {
   const handles = channels.map((c) => c.handle);
   log.info('Starting Telegram client', { channelCount: channels.length, handles });
 
+  if (TELEGRAM_STARTUP_DELAY_MS > 0) {
+    log.info('Startup delay — waiting for old container to disconnect', { delayMs: TELEGRAM_STARTUP_DELAY_MS });
+    await new Promise((r) => setTimeout(r, TELEGRAM_STARTUP_DELAY_MS));
+  }
+
   const normalised = sessionString[0] === '1' ? sessionString : '1' + sessionString;
   const session = new StringSession(normalised);
   const client = new TelegramClient(session, apiId, apiHash, {
-    connectionRetries: 5,
+    connectionRetries: 3,
     retryDelay: 2000,
     autoReconnect: true,
   });
 
-  let entityIdToHandle = new Map();
-  let reconnectDelay = RECONNECT_DELAY_MS;
   let connected = false;
+  let permanentlyDisabled = false;
 
-  async function connect() {
+  async function connectClient() {
     try {
       await client.connect();
       connected = true;
-      reconnectDelay = RECONNECT_DELAY_MS;
       log.info('Connected to Telegram');
-
-      entityIdToHandle = await resolveChannelEntities(client, handles);
-      log.info('Resolved channel entities', { count: entityIdToHandle.size });
-
-      if (entityIdToHandle.size === 0) {
-        log.error('No channels could be resolved — check handles');
-      }
     } catch (err) {
       connected = false;
-      log.error('Failed to connect to Telegram', { error: err.message });
-      scheduleReconnect();
+      const em = err?.message || String(err);
+      if (/AUTH_KEY_DUPLICATED/.test(em)) {
+        permanentlyDisabled = true;
+        log.error('Telegram session permanently invalidated (AUTH_KEY_DUPLICATED)');
+        return;
+      }
+      log.error('Failed to connect to Telegram', { error: em });
+      throw err;
     }
   }
 
-  function scheduleReconnect() {
-    log.info('Scheduling reconnect', { delayMs: reconnectDelay });
-    setTimeout(async () => {
-      try {
-        await connect();
-      } catch (err) {
-        log.error('Reconnect failed', { error: err.message });
-        reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY_MS);
-        scheduleReconnect();
-      }
-    }, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY_MS);
+  await connectClient();
+  if (permanentlyDisabled) return;
+
+  async function doPoll() {
+    if (!connected || permanentlyDisabled) return { channelsPolled: 0, newItemCount: 0, channelsFailed: 0, mediaSkipped: 0 };
+
+    const result = await pollTelegramOnce(client, channels, handleToConfig);
+
+    if (result.permanentlyDisabled) {
+      permanentlyDisabled = true;
+      try { client.disconnect(); } catch { /* ignore */ }
+      return result;
+    }
+
+    await persistPollBuffer(gatewayClient);
+    return result;
   }
 
-  client.addEventHandler(async (event) => {
-    try {
-      const msg = event.message;
-      if (!msg || !msg.message) return;
+  const guardedPoll = createGuardedPoll(doPoll);
 
-      const chatId = msg.peerId?.channelId?.toString() || '';
-      const handle = entityIdToHandle.get(chatId);
-      if (!handle) return;
-
-      const channelConfig = handleToConfig.get(handle);
-      const formatted = formatMessage(event, channelConfig);
-
-      addMessage(formatted);
-      log.debug('New message', {
-        channel: formatted.channel,
-        id: formatted.id,
-        textLen: formatted.text.length,
-        bufferSize: messageBuffer.length,
-      });
-
-      await persistBuffer(gatewayClient);
-    } catch (err) {
-      log.error('Error handling message event', { error: err.message });
-    }
-  }, new NewMessage({}));
-
-  client._handleUpdate = ((orig) => {
-    return function (...args) {
-      try {
-        return orig.apply(this, args);
-      } catch (err) {
-        log.error('Update handler error', { error: err.message });
-      }
-    };
-  })(client._handleUpdate);
-
-  await connect();
-
-  const persistInterval = setInterval(async () => {
-    try {
-      if (connected) {
-        await persistBuffer(gatewayClient);
-      }
-    } catch (err) {
-      log.error('Periodic persist failed', { error: err.message });
-    }
-  }, PERSIST_INTERVAL_MS);
+  guardedPoll();
+  const pollInterval = setInterval(guardedPoll, TELEGRAM_POLL_INTERVAL_MS);
+  log.info('Telegram poll loop started', { intervalMs: TELEGRAM_POLL_INTERVAL_MS });
 
   const statsInterval = setInterval(() => {
     log.info('Telegram stats', {
       connected,
-      bufferSize: messageBuffer.length,
-      resolvedChannels: entityIdToHandle.size,
+      permanentlyDisabled,
+      totalItems: pollState.items.length,
+      lastPollAt: pollState.lastPollAt ? new Date(pollState.lastPollAt).toISOString() : 'never',
+      lastError: pollState.lastError,
       targetChannels: handles.length,
     });
   }, 60_000);
 
   return () => {
-    clearInterval(persistInterval);
+    clearInterval(pollInterval);
     clearInterval(statsInterval);
-    try {
-      client.disconnect();
-    } catch { /* ignore */ }
+    try { client.disconnect(); } catch { /* ignore */ }
   };
 }
 
@@ -534,6 +544,7 @@ module.exports = {
   addMessage,
   getMessageBuffer,
   persistBuffer,
+  persistPollBuffer,
   startTelegramClient,
   formatMessage,
   normalizeTelegramMessage,
