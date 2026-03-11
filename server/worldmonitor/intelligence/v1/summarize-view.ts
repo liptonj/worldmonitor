@@ -5,6 +5,8 @@
  */
 
 import type { ServerContext } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
+import { getActiveLlmProvider, getLlmPrompt, buildPrompt } from '../../../_shared/llm';
+import { CHROME_UA } from '../../../_shared/constants';
 
 const SUMMARIZE_VIEW_TIMEOUT_MS = 25_000;
 const MIN_PANEL_LENGTH = 20;
