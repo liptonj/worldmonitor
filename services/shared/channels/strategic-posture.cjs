@@ -1,9 +1,9 @@
 'use strict';
 
-// Extracted from scripts/ais-relay.cjs - military/strategic postures
-// Fetches from OpenSky (via relay or direct) and computes theater posture levels
+const { getOpenSkyToken } = require('../opensky-auth.cjs');
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+const USER_AGENT = 'WorldMonitor/1.0';
+const OPENSKY_API_URL = 'https://opensky-network.org/api/states/all';
 const POSTURE_TIMEOUT_MS = 15_000;
 
 const THEATER_QUERY_REGIONS = [
@@ -34,23 +34,29 @@ module.exports = async function fetchStrategicPosture({ config, redis, log, http
   log.debug('fetchStrategicPosture executing');
   const timestamp = new Date().toISOString();
 
-  const relayBase = config?.WS_RELAY_URL || process.env.WS_RELAY_URL;
-  const openskyBase = relayBase ? relayBase.replace(/^wss?:\/\//, 'https://').replace(/\/$/, '') : 'https://opensky-network.org/api/states/all';
-  const openskyUrl = relayBase ? `${openskyBase}/opensky` : 'https://opensky-network.org/api/states/all';
-
-  const headers = { Accept: 'application/json', 'User-Agent': USER_AGENT };
-  const sharedSecret = config?.RELAY_SHARED_SECRET || process.env.RELAY_SHARED_SECRET;
-  if (sharedSecret) {
-    const authHeader = (config?.RELAY_AUTH_HEADER || process.env.RELAY_AUTH_HEADER || 'x-relay-key').toLowerCase();
-    headers[authHeader] = sharedSecret;
-    headers.Authorization = `Bearer ${sharedSecret}`;
+  const token = await getOpenSkyToken(config);
+  if (!token) {
+    log.warn('fetchStrategicPosture: OpenSky credentials not configured or auth failed');
+    return {
+      timestamp,
+      source: 'strategic-posture',
+      data: { theaters: [] },
+      status: 'error',
+      errors: ['OpenSky credentials not configured or auth failed'],
+    };
   }
+
+  const headers = {
+    Accept: 'application/json',
+    'User-Agent': USER_AGENT,
+    Authorization: `Bearer ${token}`,
+  };
 
   let flights = [];
   let anySuccess = false;
   for (const region of THEATER_QUERY_REGIONS) {
     const params = `lamin=${region.lamin}&lamax=${region.lamax}&lomin=${region.lomin}&lomax=${region.lomax}`;
-    const url = `${openskyUrl}?${params}`;
+    const url = `${OPENSKY_API_URL}?${params}`;
     try {
       const data = await http.fetchJson(url, {
         headers,
@@ -59,6 +65,7 @@ module.exports = async function fetchStrategicPosture({ config, redis, log, http
       anySuccess = true;
       const states = data?.states || [];
       for (const s of states) {
+        if (!Array.isArray(s) || s.length < 10) continue;
         const [icao24, callsign, , , , lon, lat, altitude, onGround, velocity, heading] = s;
         if (lat == null || lon == null || onGround) continue;
         if (!isMilitaryCallsign(callsign) && !isMilitaryHex(icao24)) continue;
