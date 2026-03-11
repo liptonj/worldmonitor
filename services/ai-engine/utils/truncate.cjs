@@ -27,6 +27,11 @@ function buildChannelBlock(channel, title, messages, maxMsgs, maxChars) {
   };
 }
 
+/**
+ * Build a combined prompt payload from channel-grouped messages that fits within maxTokens.
+ * Returns { channelBlocks, combinedText, estimatedTokens } where estimatedTokens = input text
+ * tokens + system prompt overhead (output reserve not included).
+ */
 function buildPromptPayload(grouped, { maxTokens = 10000 } = {}) {
   const SYSTEM_PROMPT_OVERHEAD = 500;
   const OUTPUT_RESERVE = 1500;
