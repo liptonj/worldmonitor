@@ -20,6 +20,7 @@ const GENERATOR_REGISTRY = {
   'ai:posture-analysis': require('./generators/posture-analysis.cjs'),
   'ai:instability-analysis': require('./generators/instability-analysis.cjs'),
   'ai:risk-overview': require('./generators/risk-overview.cjs'),
+  'ai:telegram-summary': require('./generators/telegram-summary.cjs'),
 };
 
 const PROTO_PATH = path.resolve(__dirname, '../proto/relay/v1/worker.proto');
