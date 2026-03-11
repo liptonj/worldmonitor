@@ -12,6 +12,24 @@ const { createGatewayClient, broadcast } = require('@worldmonitor/shared/grpc-cl
 
 const log = createLogger('ingest-telegram');
 
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`TIMEOUT after ${ms}ms: ${label}`));
+    }, ms);
+
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 function loadChannelsFromSet(channelSet) {
   const channelsFile = process.env.TELEGRAM_CHANNELS_FILE || '/app/data/telegram-channels.json';
   const set = String(channelSet || 'full').toLowerCase();
@@ -310,4 +328,5 @@ module.exports = {
   formatMessage,
   buildHandleToConfig,
   _resetBuffer,
+  withTimeout,
 };

@@ -14,7 +14,41 @@ const {
   formatMessage,
   buildHandleToConfig,
   _resetBuffer,
+  withTimeout,
 } = require('../index.cjs');
+
+describe('withTimeout', () => {
+  it('resolves when promise completes before timeout', async () => {
+    const result = await withTimeout(
+      Promise.resolve('ok'),
+      100,
+      'test-label'
+    );
+    assert.strictEqual(result, 'ok');
+  });
+
+  it('rejects with TIMEOUT error when promise exceeds timeout', async () => {
+    const slow = new Promise((resolve) => setTimeout(() => resolve('late'), 200));
+    await assert.rejects(
+      () => withTimeout(slow, 50, 'slow-channel'),
+      (err) => {
+        assert.strictEqual(err.message, 'TIMEOUT after 50ms: slow-channel');
+        return true;
+      }
+    );
+  });
+
+  it('propagates promise rejection when promise rejects before timeout', async () => {
+    const failing = Promise.reject(new Error('intentional failure'));
+    await assert.rejects(
+      () => withTimeout(failing, 100, 'failing-channel'),
+      (err) => {
+        assert.strictEqual(err.message, 'intentional failure');
+        return true;
+      }
+    );
+  });
+});
 
 describe('addMessage', () => {
   beforeEach(() => {
