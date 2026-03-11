@@ -66,12 +66,37 @@ function recordCall(providerName) {
 
 const _backoffState = {};
 
+function isDailyLimitError(errorMessage) {
+  const msg = String(errorMessage ?? '').toLowerCase();
+  return msg.includes('tokens per day') || msg.includes('tpd') ||
+         msg.includes('requests per day') || msg.includes('rpd') ||
+         msg.includes('daily') || msg.includes('per day');
+}
+
 /**
- * Groq resets every 60s, OpenRouter is credit-based (near-instant),
- * Ollama is self-hosted (no API limit). Backoff: 5s → 10s → 20s → 30s → 60s max.
+ * Per-minute 429s: short backoff 5s → 60s max (Groq resets in 60s).
+ * Daily quota 429s: long backoff until the next UTC midnight + 5 min buffer.
  */
-function markProviderRateLimited(providerName) {
+function markProviderRateLimited(providerName, errorMessage) {
   const state = _backoffState[providerName] ?? { count: 0, cooldownUntil: 0 };
+
+  if (isDailyLimitError(errorMessage)) {
+    const now = new Date();
+    const nextMidnight = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 5, 0,
+    ));
+    state.cooldownUntil = nextMidnight.getTime();
+    state.count = 0;
+    _backoffState[providerName] = state;
+    const remainingMin = Math.round((state.cooldownUntil - Date.now()) / 60_000);
+    log.warn('Provider daily quota exhausted — suspended until reset', {
+      provider: providerName,
+      resumesAt: nextMidnight.toISOString(),
+      remainingMinutes: remainingMin,
+    });
+    return;
+  }
+
   state.count++;
   const delay = Math.min(60_000, 5_000 * Math.pow(2, state.count - 1));
   state.cooldownUntil = Date.now() + delay;
@@ -460,7 +485,12 @@ async function callLLMForFunction(supabase, functionKey, promptKey, placeholders
     }
 
     if (isInCooldown(pName)) {
-      skipped.push({ provider: pName, reason: '429 backoff cooldown' });
+      const state = _backoffState[pName];
+      const remainingSec = state ? Math.round((state.cooldownUntil - Date.now()) / 1000) : 0;
+      const reason = remainingSec > 120
+        ? `daily quota exhausted (resumes in ${Math.round(remainingSec / 60)}m)`
+        : `429 backoff cooldown (${remainingSec}s)`;
+      skipped.push({ provider: pName, reason });
       continue;
     }
 
@@ -525,7 +555,7 @@ async function callLLMForFunction(supabase, functionKey, promptKey, placeholders
       };
     } catch (err) {
       if (is429Error(err)) {
-        markProviderRateLimited(pName);
+        markProviderRateLimited(pName, err.message);
       }
       log.warn('LLM provider failed', {
         function: functionKey,

@@ -165,11 +165,31 @@ async function loadServiceConfigs(supabase) {
   return data || [];
 }
 
+let _scheduleInFlight = null;
+let _reloadPending = false;
+let _scheduleArgs = null;
+
 function scheduleCronJobs(supabase, workerClient, aiEngineClient, jobsRef) {
+  _scheduleArgs = { supabase, workerClient, aiEngineClient, jobsRef };
+
+  if (_scheduleInFlight) {
+    _reloadPending = true;
+    return _scheduleInFlight;
+  }
+
+  return _runSchedule(supabase, workerClient, aiEngineClient, jobsRef);
+}
+
+function _runSchedule(supabase, workerClient, aiEngineClient, jobsRef) {
+  _reloadPending = false;
+
   jobsRef.current.forEach((j) => j.stop());
   jobsRef.current = [];
 
-  return loadServiceConfigs(supabase).then((configs) => {
+  _scheduleInFlight = loadServiceConfigs(supabase).then((configs) => {
+    jobsRef.current.forEach((j) => j.stop());
+    jobsRef.current = [];
+
     for (const cfg of configs) {
       try {
         const job = cron.schedule(cfg.cron_schedule, async () => {
@@ -189,10 +209,54 @@ function scheduleCronJobs(supabase, workerClient, aiEngineClient, jobsRef) {
   }).catch((err) => {
     log.error('Failed to load configs for cron', { error: err.message });
     throw err;
+  }).finally(() => {
+    _scheduleInFlight = null;
+    if (_reloadPending && _scheduleArgs) {
+      const a = _scheduleArgs;
+      _runSchedule(a.supabase, a.workerClient, a.aiEngineClient, a.jobsRef);
+    }
   });
+
+  return _scheduleInFlight;
+}
+
+const SCHEDULING_FIELDS = new Set([
+  'cron_schedule', 'enabled', 'settings', 'service_key',
+  'redis_key', 'ttl_seconds', 'fetch_type',
+]);
+
+function isSchedulingChange(payload) {
+  if (payload.eventType !== 'UPDATE') return true;
+
+  const rec = payload.new;
+  if (!rec) return true;
+
+  const old = payload.old;
+  if (!old) return true;
+
+  const oldHasOnlyPK = Object.keys(old).length <= 2;
+  if (oldHasOnlyPK) return false;
+
+  for (const field of SCHEDULING_FIELDS) {
+    if (old[field] !== undefined && old[field] !== rec[field]) return true;
+  }
+  return false;
 }
 
 function subscribeRealtime(supabase, workerClient, aiEngineClient) {
+  let _debounceTimer = null;
+  const DEBOUNCE_MS = 2000;
+
+  function debouncedReload() {
+    if (_debounceTimer) clearTimeout(_debounceTimer);
+    _debounceTimer = setTimeout(() => {
+      _debounceTimer = null;
+      log.info('service_config changed, reloading cron (debounced)');
+      scheduleCronJobs(supabase, workerClient, aiEngineClient, jobsRef)
+        .catch((err) => log.error('Failed to reload cron jobs', { error: err.message }));
+    }, DEBOUNCE_MS);
+  }
+
   const channel = supabase
     .channel('orchestrator-realtime')
     .on(
@@ -244,10 +308,9 @@ function subscribeRealtime(supabase, workerClient, aiEngineClient) {
     .on(
       'postgres_changes',
       { event: '*', schema: 'wm_admin', table: 'service_config' },
-      () => {
-        log.debug('service_config changed, reloading cron');
-        scheduleCronJobs(supabase, workerClient, aiEngineClient, jobsRef)
-          .catch((err) => log.error('Failed to reload cron jobs', { error: err.message }));
+      (payload) => {
+        if (!isSchedulingChange(payload)) return;
+        debouncedReload();
       }
     )
     .subscribe((status) => {
