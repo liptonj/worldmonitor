@@ -1,15 +1,10 @@
 'use strict';
 
-// AI generator: Article summarization
-// Fetches articles from news:digest:v1:full:en, calls LLM to generate summaries and key points per article.
-// Returns hash-map keyed by FNV-1a hash of title (matches frontend lookupRelaySummary expectations).
-
-const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMForFunction } = require('@worldmonitor/shared/llm.cjs');
 const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
 const REDIS_NEWS_KEY = 'news:digest:v1:full:en';
 
-// FNV-1a — matches fnv1aHash() in src/services/summarization.ts and simpleHash() in ais-relay.cjs
 function fnv1aHash(str) {
   let hash = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -18,7 +13,11 @@ function fnv1aHash(str) {
   }
   return hash.toString(36);
 }
+
 const MAX_ARTICLES = 10;
+
+const FALLBACK_SYSTEM_PROMPT =
+  'You are a skilled content summarizer. For each article provided, create a concise summary (2-3 sentences) and extract 3-5 key points. You MUST respond with ONLY valid JSON, no prose, no markdown fences, no explanation. Use this exact structure: { "summaries": [{ "url": string, "title": string, "summary": string, "keyPoints": string[] }] }. Preserve the exact url and title from each input article.';
 
 module.exports = async function generateArticleSummaries({ supabase, redis, log, http }) {
   if (!supabase || !redis || !http) {
@@ -41,30 +40,26 @@ module.exports = async function generateArticleSummaries({ supabase, redis, log,
       };
     }
 
-    const systemPrompt =
-      'You are a skilled content summarizer. For each article provided, create a concise summary (2-3 sentences) and extract 3-5 key points. Output valid JSON with structure: { "summaries": [{ "url": string, "title": string, "summary": string, "keyPoints": string[] }] }. Preserve the exact url and title from each input article.';
-
     const batch = articles.slice(0, MAX_ARTICLES).map((a) => ({
       title: a.title ?? '',
       url: a.url ?? a.link ?? '',
       text: a.description ?? a.content ?? '',
     }));
 
-    const userPrompt = `Summarize these articles:\n\n${JSON.stringify(batch, null, 2)}`;
-
-    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
-      temperature: 0.5,
-      maxTokens: 3000,
-    });
-    const responseText = result.content;
-
-    let parsed;
-    try {
-      parsed = JSON.parse(responseText);
-    } catch (parseErr) {
-      log.error('generateArticleSummaries malformed LLM JSON', { error: parseErr.message });
-      throw new Error('LLM returned invalid JSON');
-    }
+    const result = await callLLMForFunction(
+      supabase,
+      'news_summary',
+      'news_summary',
+      { articles: JSON.stringify(batch, null, 2) },
+      http,
+      {
+        temperature: 0.5,
+        maxTokens: 3000,
+        fallbackSystemPrompt: FALLBACK_SYSTEM_PROMPT,
+        fallbackUserPrompt: `Summarize these articles:\n\n${JSON.stringify(batch, null, 2)}`,
+      },
+    );
+    const parsed = result.parsed;
 
     const summaries = Array.isArray(parsed.summaries) ? parsed.summaries : [];
     const dateStr = new Date().toISOString().slice(0, 10);

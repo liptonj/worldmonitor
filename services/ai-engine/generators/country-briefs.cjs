@@ -4,7 +4,7 @@
 // Fetches news, strategic-risk, conflict from Redis, calls LLM to generate briefs per country.
 // Supports incremental: skips LLM when inputs unchanged.
 
-const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMForFunction, truncateContext } = require('@worldmonitor/shared/llm.cjs');
 const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
 const REDIS_KEYS = ['news:digest:v1:full:en', 'risk:scores:sebuf:v1', 'relay:conflict:v1'];
@@ -63,25 +63,25 @@ module.exports = async function generateCountryBriefs({ supabase, redis, log, ht
       };
     }
 
-    const systemPrompt =
-      'You are an intelligence analyst. Generate intelligence briefs for each country with significant activity in the data. For each country include: country name, ISO 3166-1 alpha-2 code (e.g. US, RU, CN), brief summary (2-4 sentences), key developments, risk level (low/medium/high/critical). Output valid JSON: { "briefs": [{ "country", "code", "summary", "developments", "riskLevel" }] }. Use standard ISO 2-letter country codes.';
+    const fallbackSystemPrompt =
+      'You are an intelligence analyst. Generate intelligence briefs for each country with significant activity in the data. For each country include: country name, ISO 3166-1 alpha-2 code (e.g. US, RU, CN), brief summary (2-4 sentences), key developments, risk level (low/medium/high/critical). You MUST respond with ONLY valid JSON, no prose, no markdown fences, no explanation. Output format: { "briefs": [{ "country", "code", "summary", "developments", "riskLevel" }] }. Use standard ISO 2-letter country codes.';
 
-    const previousBriefsStr = hasPreviousBriefs ? JSON.stringify(previousBriefs, null, 2) : '';
-    const userPrompt = hasPreviousBriefs
-      ? `Here are the previous country briefs:\n${previousBriefsStr}\n\nHere is the updated data. Update the briefs to reflect any changes:\n${JSON.stringify(context, null, 2)}`
-      : `Generate country briefs from this data:\n\n${JSON.stringify(context, null, 2)}`;
+    const truncatedContext = truncateContext(context);
+    const previousBriefsStr = hasPreviousBriefs ? truncateContext(previousBriefs, 2000) : '';
+    const fallbackUserPrompt = hasPreviousBriefs
+      ? `Here are the previous country briefs:\n${previousBriefsStr}\n\nHere is the updated data. Update the briefs to reflect any changes:\n${truncatedContext}`
+      : `Generate country briefs from this data:\n\n${truncatedContext}`;
 
-    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
+    const result = await callLLMForFunction(supabase, 'country_brief', 'intel_brief', {}, http, {
       temperature: 0.5,
       maxTokens: 3000,
+      fallbackSystemPrompt,
+      fallbackUserPrompt,
     });
-    const responseText = result.content;
 
-    let parsed;
-    try {
-      parsed = JSON.parse(responseText);
-    } catch (parseErr) {
-      log.error('generateCountryBriefs malformed LLM JSON', { error: parseErr.message });
+    let parsed = result.parsed;
+    if (!parsed) {
+      log.error('generateCountryBriefs missing parsed result');
       throw new Error('LLM returned invalid JSON');
     }
 

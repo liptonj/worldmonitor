@@ -4,7 +4,7 @@
 // Aggregates news, conflict, cyber, strategic-risk, strategic-posture from Redis.
 // Supports incremental: skips LLM when inputs unchanged.
 
-const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMForFunction, truncateContext } = require('@worldmonitor/shared/llm.cjs');
 const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
 const REDIS_KEYS = [
@@ -81,27 +81,48 @@ module.exports = async function generateRiskOverview({ supabase, redis, log, htt
       };
     }
 
-    const systemPrompt =
-      'You are a strategic risk analyst. Synthesize a comprehensive risk overview across all domains (cyber, military, political, economic, environmental). Identify top risks, interconnections between domains, and emerging threats. Output valid JSON: { "overview": string, "topRisks": [{ "domain", "risk", "severity", "trend" }], "interconnections": string[] }. Severity: low/medium/high/critical. Trend: stable/increasing/decreasing.';
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const contextJson = truncateContext(context);
+    const riskScore = riskArr.length ? (riskArr.reduce((s, r) => s + (r.score ?? r.cii ?? 0), 0) / riskArr.length).toFixed(1) : '';
+    const riskLevel = riskArr.length ? (riskArr.map((r) => r.level).filter(Boolean)[0] ?? '') : '';
+    const topFactors = riskArr.slice(0, 5).map((r) => `${r.country ?? r.code}: ${r.score ?? ''}`).join('; ') || '';
+    const postureSummary = truncateContext(postureArr, 1500);
+    const instabilitySummary = truncateContext({ conflict: conflictArr.slice(0, 5), risk: riskArr.slice(0, 5) }, 1500);
+    const headlines = newsArr.map((n) => n.title).filter(Boolean).slice(0, 10).join('\n');
 
-    const userPrompt = previousOverview
-      ? `Here is the previous risk overview:\n${previousOverview}\n\nHere is the updated data. Update the overview to reflect any changes:\n${JSON.stringify(context, null, 2)}`
-      : `Synthesize risk overview from:\n\n${JSON.stringify(context, null, 2)}`;
+    const fallbackSystemPrompt =
+      'You MUST respond with ONLY valid JSON, no prose, no markdown fences, no explanation. Use this exact structure: { "overview": string, "topRisks": [{ "domain", "risk", "severity", "trend" }], "interconnections": string[] }.';
+    const fallbackUserPrompt = previousOverview
+      ? `Here is the previous risk overview:\n${previousOverview}\n\nHere is the updated data. Update the overview to reflect any changes:\n${contextJson}`
+      : `Synthesize risk overview from:\n\n${contextJson}`;
 
-    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
-      temperature: 0.5,
-      maxTokens: 3500,
-    });
-    const responseText = result.content;
+    const result = await callLLMForFunction(
+      supabase,
+      'risk_overview',
+      'strategic_risk_overview',
+      {
+        date: dateStr,
+        riskScore,
+        riskLevel,
+        topFactors,
+        postureSummary,
+        instabilitySummary,
+        headlines,
+      },
+      http,
+      {
+        temperature: 0.5,
+        maxTokens: 3500,
+        fallbackSystemPrompt,
+        fallbackUserPrompt,
+      },
+    );
 
-    let parsed;
-    try {
-      parsed = JSON.parse(responseText);
-    } catch (parseErr) {
-      log.error('generateRiskOverview malformed LLM JSON', { error: parseErr.message });
+    const parsed = result.parsed;
+    if (!parsed) {
+      log.error('generateRiskOverview missing parsed result');
       throw new Error('LLM returned invalid JSON');
     }
-
     const overview = typeof parsed.overview === 'string' ? parsed.overview : '';
     const topRisks = Array.isArray(parsed.topRisks) ? parsed.topRisks : [];
     const interconnections = Array.isArray(parsed.interconnections) ? parsed.interconnections : [];

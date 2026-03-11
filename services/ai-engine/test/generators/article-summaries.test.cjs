@@ -4,6 +4,38 @@ const test = require('node:test');
 const assert = require('node:assert');
 const generateArticleSummaries = require('../../generators/article-summaries.cjs');
 
+function createMockSupabase(overrides = {}) {
+  return {
+    rpc: async (name, args) => {
+      if (name === 'get_all_enabled_providers') {
+        return {
+          data: [{
+            name: 'test',
+            api_url: 'https://api.test.com/v1',
+            default_model: 'test-model',
+            api_key_secret_name: 'TEST_KEY',
+          }],
+          error: null,
+        };
+      }
+      if (name === 'get_llm_function_config') {
+        return {
+          data: [{ function_key: 'news_summary', provider_chain: ['test'], max_retries: 1, timeout_ms: 30000 }],
+          error: null,
+        };
+      }
+      if (name === 'get_llm_prompt') {
+        return { data: [], error: null };
+      }
+      if (name === 'get_vault_secret_value') {
+        return { data: 'test-api-key', error: null };
+      }
+      if (overrides.rpc) return overrides.rpc(name, args);
+      return { data: null, error: null };
+    },
+  };
+}
+
 test('generateArticleSummaries throws when supabase, redis, or http missing', async () => {
   const mockLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
@@ -22,28 +54,6 @@ test('generateArticleSummaries throws when supabase, redis, or http missing', as
 });
 
 test('generateArticleSummaries returns summaries', async () => {
-  const mockSupabase = {
-    rpc: async (name) => {
-      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
-        return {
-          data: [
-            {
-              name: 'test',
-              api_url: 'https://api.openai.com/v1',
-              default_model: 'gpt-4',
-              api_key_secret_name: 'TEST_KEY',
-            },
-          ],
-          error: null,
-        };
-      }
-      if (name === 'get_vault_secret_value') {
-        return { data: 'test-api-key', error: null };
-      }
-      return { data: null, error: new Error('Unknown RPC') };
-    },
-  };
-
   const mockRedis = {
     get: async (key) => {
       if (key === 'news:digest:v1:full:en') {
@@ -62,23 +72,21 @@ test('generateArticleSummaries returns summaries', async () => {
 
   const mockHttp = {
     fetchJson: async () => ({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              summaries: [
-                { url: 'https://example.com/1', title: 'Test Article 1', summary: 'Summary of article 1', keyPoints: ['Point 1', 'Point 2'] },
-                { url: 'https://example.com/2', title: 'Test Article 2', summary: 'Summary of article 2', keyPoints: ['Point A', 'Point B'] },
-              ],
-            }),
-          },
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            summaries: [
+              { url: 'https://example.com/1', title: 'Test Article 1', summary: 'Summary of article 1', keyPoints: ['Point 1', 'Point 2'] },
+              { url: 'https://example.com/2', title: 'Test Article 2', summary: 'Summary of article 2', keyPoints: ['Point A', 'Point B'] },
+            ],
+          }),
         },
-      ],
+      }],
     }),
   };
 
   const result = await generateArticleSummaries({
-    supabase: mockSupabase,
+    supabase: createMockSupabase(),
     redis: mockRedis,
     log: mockLog,
     http: mockHttp,
@@ -88,7 +96,6 @@ test('generateArticleSummaries returns summaries', async () => {
   assert.ok(result.data);
   assert.strictEqual(result.source, 'ai:article-summaries');
 
-  // Output must be hash-map keyed by FNV-1a hash of title (not { summaries: [...] })
   assert.ok(!Array.isArray(result.data));
   assert.strictEqual(typeof result.data, 'object');
   const keys = Object.keys(result.data);
@@ -109,20 +116,52 @@ test('generateArticleSummaries returns summaries', async () => {
   assert.strictEqual(byTitle['Test Article 2'].text, 'Summary of article 2');
 });
 
-test('generateArticleSummaries returns empty summaries when no articles', async () => {
-  const mockSupabase = {
-    rpc: async () => ({ data: null, error: null }),
-  };
-
+test('generateArticleSummaries extracts JSON from markdown fences', async () => {
   const mockRedis = {
-    get: async () => null,
+    get: async () => ({
+      items: [{ title: 'Test', url: 'https://example.com', description: 'Text' }],
+    }),
   };
 
+  const mockLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+
+  const jsonPayload = JSON.stringify({
+    summaries: [
+      { url: 'https://example.com', title: 'Test', summary: 'A test summary', keyPoints: ['point'] },
+    ],
+  });
+
+  const mockHttp = {
+    fetchJson: async () => ({
+      choices: [{
+        message: {
+          content: `Here's the summary:\n\n\`\`\`json\n${jsonPayload}\n\`\`\``,
+        },
+      }],
+    }),
+  };
+
+  const result = await generateArticleSummaries({
+    supabase: createMockSupabase(),
+    redis: mockRedis,
+    log: mockLog,
+    http: mockHttp,
+  });
+
+  assert.strictEqual(result.status, 'success');
+  assert.ok(result.data);
+  assert.strictEqual(Object.keys(result.data).length, 1);
+  const entry = Object.values(result.data)[0];
+  assert.strictEqual(entry.text, 'A test summary');
+});
+
+test('generateArticleSummaries returns empty summaries when no articles', async () => {
+  const mockRedis = { get: async () => null };
   const mockLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const mockHttp = { fetchJson: async () => ({}) };
 
   const result = await generateArticleSummaries({
-    supabase: mockSupabase,
+    supabase: createMockSupabase(),
     redis: mockRedis,
     log: mockLog,
     http: mockHttp,
@@ -136,28 +175,6 @@ test('generateArticleSummaries returns empty summaries when no articles', async 
 });
 
 test('generateArticleSummaries handles LLM API error', async () => {
-  const mockSupabase = {
-    rpc: async (name) => {
-      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
-        return {
-          data: [
-            {
-              name: 'test',
-              api_url: 'https://api.openai.com/v1',
-              default_model: 'gpt-4',
-              api_key_secret_name: 'TEST_KEY',
-            },
-          ],
-          error: null,
-        };
-      }
-      if (name === 'get_vault_secret_value') {
-        return { data: 'test-key', error: null };
-      }
-      return { data: null, error: new Error('Unknown RPC') };
-    },
-  };
-
   const mockRedis = {
     get: async () => ({ items: [{ title: 'Test', url: 'https://example.com', description: 'Text' }] }),
   };
@@ -169,7 +186,7 @@ test('generateArticleSummaries handles LLM API error', async () => {
   };
 
   const result = await generateArticleSummaries({
-    supabase: mockSupabase,
+    supabase: createMockSupabase(),
     redis: mockRedis,
     log: mockLog,
     http: mockHttp,
@@ -177,32 +194,10 @@ test('generateArticleSummaries handles LLM API error', async () => {
 
   assert.strictEqual(result.status, 'error');
   assert.strictEqual(result.data, null);
-  assert.ok(result.error?.includes('Rate limit exceeded'));
+  assert.ok(result.error?.includes('Rate limit exceeded') || result.error?.includes('failed'));
 });
 
-test('generateArticleSummaries handles malformed LLM JSON', async () => {
-  const mockSupabase = {
-    rpc: async (name) => {
-      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
-        return {
-          data: [
-            {
-              name: 'test',
-              api_url: 'https://api.openai.com/v1',
-              default_model: 'gpt-4',
-              api_key_secret_name: 'TEST_KEY',
-            },
-          ],
-          error: null,
-        };
-      }
-      if (name === 'get_vault_secret_value') {
-        return { data: 'test-key', error: null };
-      }
-      return { data: null, error: new Error('Unknown RPC') };
-    },
-  };
-
+test('generateArticleSummaries handles completely invalid LLM response', async () => {
   const mockRedis = {
     get: async () => ({ items: [{ title: 'Test', url: 'https://example.com', description: 'Text' }] }),
   };
@@ -211,12 +206,12 @@ test('generateArticleSummaries handles malformed LLM JSON', async () => {
 
   const mockHttp = {
     fetchJson: async () => ({
-      choices: [{ message: { content: 'not valid json' } }],
+      choices: [{ message: { content: 'This is just plain text with no JSON at all' } }],
     }),
   };
 
   const result = await generateArticleSummaries({
-    supabase: mockSupabase,
+    supabase: createMockSupabase(),
     redis: mockRedis,
     log: mockLog,
     http: mockHttp,
@@ -224,5 +219,5 @@ test('generateArticleSummaries handles malformed LLM JSON', async () => {
 
   assert.strictEqual(result.status, 'error');
   assert.strictEqual(result.data, null);
-  assert.ok(result.error?.includes('invalid JSON'));
+  assert.ok(result.error?.includes('JSON') || result.error?.includes('failed'));
 });

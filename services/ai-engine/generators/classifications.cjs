@@ -1,16 +1,10 @@
 'use strict';
 
-// AI generator: Event classifications
-// Fetches events from telegram, news, and cyber Redis channels, calls LLM to classify by type,
-// severity, and region. Returns hash-map keyed by FNV-1a hash of title (matches frontend
-// lookupRelayClassification in threat-classifier.ts).
-
-const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMForFunction, truncateContext } = require('@worldmonitor/shared/llm.cjs');
 const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
-const MAX_EVENTS = 20;
+const MAX_EVENTS = 10;
 
-// FNV-1a — matches fnv1aHash() in src/services/threat-classifier.ts and simpleHash() in ais-relay.cjs
 function fnv1aHash(str) {
   let hash = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -19,6 +13,9 @@ function fnv1aHash(str) {
   }
   return hash.toString(36);
 }
+
+const FALLBACK_SYSTEM_PROMPT =
+  'You are an intelligence analyst. Classify each event by type (cyber, military, political, economic, social, environmental), severity (low, medium, high, critical), and region (Global, Asia, Europe, Middle East, Americas, Africa). Also provide a confidence score (0-1). You MUST respond with ONLY valid JSON, no prose, no markdown fences, no explanation. Use this exact structure: { "classifications": [{ "id": string|number, "type": string, "severity": string, "region": string, "confidence": number, "summary": string }] }. Preserve the id from each input event.';
 
 module.exports = async function generateClassifications({ supabase, redis, log, http }) {
   log.debug('generateClassifications executing');
@@ -77,44 +74,62 @@ module.exports = async function generateClassifications({ supabase, redis, log, 
       };
     }
 
-    const systemPrompt =
-      'You are an intelligence analyst. Classify each event by type (cyber, military, political, economic, social, environmental), severity (low, medium, high, critical), and region (Global, Asia, Europe, Middle East, Americas, Africa). Also provide a confidence score (0-1). Output valid JSON: { "classifications": [{ "id": string|number, "type": string, "severity": string, "region": string, "confidence": number, "summary": string }] }. Preserve the id from each input event.';
+    const batch = events.slice(0, MAX_EVENTS).map((e) => ({
+      id: e.id,
+      title: (e.title || e.text || '').slice(0, 120),
+      source: e.source,
+    }));
+    const batchStr = truncateContext(batch, 3000);
 
-    const batch = events.slice(0, MAX_EVENTS);
-    const userPrompt = `Classify these events:\n\n${JSON.stringify(batch, null, 2)}`;
-
-    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
-      temperature: 0.3,
-      maxTokens: 2000,
-    });
-    const responseText = result.content;
-
-    let parsed;
-    try {
-      parsed = JSON.parse(responseText);
-    } catch (parseErr) {
-      log.error('generateClassifications malformed LLM JSON', { error: parseErr.message });
-      throw new Error('LLM returned invalid JSON');
-    }
-
-    const parsedClassifications = Array.isArray(parsed.classifications) ? parsed.classifications : [];
+    const result = await callLLMForFunction(
+      supabase,
+      'classify_event',
+      'classify_event',
+      { title: batchStr },
+      http,
+      {
+        temperature: 0.3,
+        maxTokens: 2000,
+        fallbackSystemPrompt: FALLBACK_SYSTEM_PROMPT,
+        fallbackUserPrompt: `Classify these events:\n\n${batchStr}`,
+      },
+    );
+    const parsed = result.parsed;
     const dateStr = new Date().toISOString().slice(0, 10);
-
     const classificationsMap = {};
-    for (const c of parsedClassifications) {
-      const event = events.find((e) => String(e.id) === String(c.id));
-      if (!event) continue;
 
-      const title = event.title ?? event.text ?? '';
-      if (!title) continue;
+    const items = Array.isArray(parsed) ? parsed
+      : Array.isArray(parsed?.classifications) ? parsed.classifications
+      : null;
 
-      const hash = fnv1aHash(title.toLowerCase());
-      classificationsMap[hash] = {
-        level: c.severity ?? 'medium',
-        category: c.type ?? 'unknown',
-        title,
-        generatedAt: dateStr,
-      };
+    if (items) {
+      for (const c of items) {
+        const event = events.find((e) => String(e.id) === String(c.id));
+        if (!event) continue;
+        const title = event.title ?? event.text ?? '';
+        if (!title) continue;
+        const hash = fnv1aHash(title.toLowerCase());
+        classificationsMap[hash] = {
+          level: c.severity ?? c.level ?? 'medium',
+          category: c.type ?? c.category ?? 'unknown',
+          title,
+          generatedAt: dateStr,
+        };
+      }
+    } else if (parsed && typeof parsed === 'object') {
+      for (const [key, val] of Object.entries(parsed)) {
+        const event = events.find((e) => String(e.id) === key);
+        if (!event || typeof val !== 'object') continue;
+        const title = event.title ?? event.text ?? '';
+        if (!title) continue;
+        const hash = fnv1aHash(title.toLowerCase());
+        classificationsMap[hash] = {
+          level: val.severity ?? val.level ?? 'medium',
+          category: val.type ?? val.category ?? 'unknown',
+          title,
+          generatedAt: dateStr,
+        };
+      }
     }
 
     return {

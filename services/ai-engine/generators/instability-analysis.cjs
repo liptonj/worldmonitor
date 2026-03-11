@@ -4,7 +4,7 @@
 // Fetches conflict, political, economic data from Redis, calls LLM to assess instability.
 // Supports incremental: skips LLM when inputs unchanged.
 
-const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMForFunction, truncateContext } = require('@worldmonitor/shared/llm.cjs');
 const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
 const REDIS_KEYS = ['relay:conflict:v1', 'risk:scores:sebuf:v1', 'news:digest:v1:full:en'];
@@ -64,27 +64,33 @@ module.exports = async function generateInstabilityAnalysis({ supabase, redis, l
       };
     }
 
-    const systemPrompt =
-      'You are a geopolitical risk analyst. Assess regional instability from the data. For each region, identify: instability level (low/medium/high/critical), primary drivers, affected countries, trajectory (stable/increasing/decreasing). Output valid JSON: { "regions": [{ "region", "level", "drivers", "countries", "trajectory" }] }.';
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const countryData = truncateContext(context);
+    const fallbackSystemPrompt =
+      'You MUST respond with ONLY valid JSON, no prose, no markdown fences, no explanation. Use this exact structure: { "regions": [{ "region", "level", "drivers", "countries", "trajectory" }] }.';
+    const fallbackUserPrompt = hasPreviousRegions
+      ? `Here is the previous instability analysis:\n${JSON.stringify(previousRegions, null, 2)}\n\nHere is the updated data. Update the analysis to reflect any changes:\n${countryData}`
+      : `Assess regional instability:\n\n${countryData}`;
 
-    const userPrompt = hasPreviousRegions
-      ? `Here is the previous instability analysis:\n${JSON.stringify(previousRegions, null, 2)}\n\nHere is the updated data. Update the analysis to reflect any changes:\n${JSON.stringify(context, null, 2)}`
-      : `Assess regional instability:\n\n${JSON.stringify(context, null, 2)}`;
+    const result = await callLLMForFunction(
+      supabase,
+      'instability_analysis',
+      'country_instability_analysis',
+      { date: dateStr, countryData },
+      http,
+      {
+        temperature: 0.4,
+        maxTokens: 2500,
+        fallbackSystemPrompt,
+        fallbackUserPrompt,
+      },
+    );
 
-    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
-      temperature: 0.4,
-      maxTokens: 2500,
-    });
-    const responseText = result.content;
-
-    let parsed;
-    try {
-      parsed = JSON.parse(responseText);
-    } catch (parseErr) {
-      log.error('generateInstabilityAnalysis malformed LLM JSON', { error: parseErr.message });
+    const parsed = result.parsed;
+    if (!parsed) {
+      log.error('generateInstabilityAnalysis missing parsed result');
       throw new Error('LLM returned invalid JSON');
     }
-
     const regions = Array.isArray(parsed.regions) ? parsed.regions : [];
 
     return {

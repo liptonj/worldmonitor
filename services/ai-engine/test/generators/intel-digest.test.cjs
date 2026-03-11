@@ -7,23 +7,22 @@ const generateIntelDigest = require('../../generators/intel-digest.cjs');
 test('generateIntelDigest returns structured summary', async () => {
   const mockSupabase = {
     rpc: async (name, args) => {
-      if (name === 'get_active_llm_provider' || name === 'get_all_enabled_providers') {
+      if (name === 'get_all_enabled_providers') {
         return {
-          data: [
-            {
-              name: 'test',
-              api_url: 'https://api.openai.com/v1/chat/completions',
-              default_model: 'gpt-4',
-              api_key_secret_name: 'TEST_KEY',
-            },
-          ],
+          data: [{ name: 'test', api_url: 'https://api.openai.com/v1/chat/completions', default_model: 'gpt-4', api_key_secret_name: 'TEST_KEY' }],
           error: null,
         };
+      }
+      if (name === 'get_llm_function_config') {
+        return { data: [{ function_key: 'intel_digest', provider_chain: ['test'], max_retries: 1, timeout_ms: 120000 }], error: null };
+      }
+      if (name === 'get_llm_prompt') {
+        return { data: [], error: null };
       }
       if (name === 'get_vault_secret_value') {
         return { data: 'test-key', error: null };
       }
-      return { data: null, error: new Error('Unknown RPC') };
+      return { data: null, error: null };
     },
   };
 

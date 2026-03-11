@@ -1,13 +1,9 @@
 'use strict';
 
-// AI generator: Global intelligence digest
-// Aggregates news, conflict, cyber data from Redis, calls LLM, returns structured analysis
-// Supports incremental: reads previous output and news snapshot, skips LLM when unchanged.
-
-const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMForFunction, extractJson } = require('@worldmonitor/shared/llm.cjs');
 const { parseNewsFromRedis } = require('../utils/news-parse.cjs');
 
-const MAX_CONTEXT_CHARS = 8_000;
+const MAX_CONTEXT_CHARS = 3_000;
 
 function summariseItems(items, limit) {
   if (!Array.isArray(items)) return [];
@@ -24,6 +20,9 @@ function itemTitle(item) {
   if (typeof item === 'string') return item.slice(0, 200);
   return item?.title || item?.headline || item?.summary || item?.text || '';
 }
+
+const FALLBACK_SYSTEM_PROMPT =
+  'You are an intelligence analyst. Synthesize the following data sources into a concise global intelligence digest. Focus on significant developments, emerging patterns, and potential risks. You MUST respond with ONLY valid JSON, no prose, no markdown fences, no explanation. Use this exact structure: { "summary": string, "highlights": [string], "regions": [string] }.';
 
 module.exports = async function generateIntelDigest({ supabase, redis, log, http }) {
   log.debug('generateIntelDigest executing');
@@ -96,28 +95,57 @@ module.exports = async function generateIntelDigest({ supabase, redis, log, http
       contextStr = contextStr.slice(0, MAX_CONTEXT_CHARS);
     }
 
-    const systemPrompt =
-      'You are an intelligence analyst. Synthesize the following data sources into a concise global intelligence digest. Focus on significant developments, emerging patterns, and potential risks. Output valid JSON with fields: summary (string), highlights (array of strings), regions (array of strings).';
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const recentHeadlines = context.news.join('\n');
 
-    const userPrompt = previousSummary
+    const fallbackUserPrompt = previousSummary
       ? `Here is the previous intelligence digest:\n${previousSummary}\n\nHere are ${newItems.length} new developments since then. Update the digest to incorporate them:\n${JSON.stringify(summariseItems(newItems, 25))}`
       : `Analyze this data and create an intelligence digest:\n\n${contextStr}`;
 
-    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http);
+    const result = await callLLMForFunction(
+      supabase,
+      'intel_digest',
+      'intel_digest',
+      {
+        date: dateStr,
+        recentHeadlines,
+        classificationSummary: '',
+        countrySignals: '',
+      },
+      http,
+      {
+        jsonMode: false,
+        fallbackSystemPrompt: FALLBACK_SYSTEM_PROMPT,
+        fallbackUserPrompt,
+      },
+    );
+
     log.info('intel-digest LLM succeeded', { provider: result.provider_name, model: result.model_name });
 
-    const parsed = JSON.parse(result.content);
-    const summary = parsed.summary ?? '';
-    const highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
-    const regions = Array.isArray(parsed.regions) ? parsed.regions : [];
+    const content = result.content;
+    let summary = '';
+    let highlights = [];
+    let regions = [];
+    let digest = content;
 
-    const digest = [
-      summary,
-      highlights.length ? `\n\n## Highlights\n${highlights.map((h) => `- ${h}`).join('\n')}` : '',
-      regions.length ? `\n\n## Regions\n${regions.join(', ')}` : '',
-    ]
-      .filter(Boolean)
-      .join('');
+    let parsed = result.parsed;
+    if (!parsed) {
+      try { parsed = extractJson(content); } catch (_) { /* markdown output — use as-is */ }
+    }
+
+    if (parsed && typeof parsed === 'object' && parsed.summary) {
+      summary = parsed.summary ?? '';
+      highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
+      regions = Array.isArray(parsed.regions) ? parsed.regions : [];
+      digest = [
+        summary,
+        highlights.length ? `\n\n## Highlights\n${highlights.map((h) => `- ${h}`).join('\n')}` : '',
+        regions.length ? `\n\n## Regions\n${regions.join(', ')}` : '',
+      ].filter(Boolean).join('');
+    } else {
+      digest = content;
+      summary = content;
+    }
 
     return {
       timestamp: new Date().toISOString(),

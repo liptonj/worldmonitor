@@ -4,7 +4,10 @@
 // Fetches strategic-posture, conflict, military data from Redis, calls LLM to analyze postures.
 // Supports incremental: skips LLM when inputs unchanged.
 
-const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMForFunction, extractJson } = require('@worldmonitor/shared/llm.cjs');
+
+const FALLBACK_SYSTEM_PROMPT =
+  'You MUST respond with ONLY valid JSON, no prose, no markdown fences, no explanation. Use this exact structure: { "analyses": [{ "actor", "posture", "capabilities", "intentions", "locations" }] }.';
 
 const REDIS_KEYS = ['theater-posture:sebuf:v1', 'relay:conflict:v1', 'relay:ais-snapshot:v1'];
 
@@ -64,25 +67,39 @@ module.exports = async function generatePostureAnalysis({ supabase, redis, log, 
       };
     }
 
-    const systemPrompt =
-      'You are a military intelligence analyst. Analyze military and strategic postures from the data. Identify key actors, their capabilities, intentions, and force deployments. Output valid JSON: { "analyses": [{ "actor", "posture", "capabilities", "intentions", "locations" }] }.';
+    const theaterData = JSON.stringify(context, null, 2);
+    const placeholders = {
+      date: new Date().toISOString().slice(0, 10),
+      theaterData,
+    };
 
-    const userPrompt = hasPreviousAnalyses
-      ? `Here is the previous posture analysis:\n${JSON.stringify(previousAnalyses, null, 2)}\n\nHere is the updated data. Update the analysis to reflect any changes:\n${JSON.stringify(context, null, 2)}`
-      : `Analyze military postures:\n\n${JSON.stringify(context, null, 2)}`;
-
-    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http, {
-      temperature: 0.4,
-      maxTokens: 2500,
-    });
-    const responseText = result.content;
+    const result = await callLLMForFunction(
+      supabase,
+      'posture_analysis',
+      'strategic_posture_analysis',
+      placeholders,
+      http,
+      {
+        temperature: 0.4,
+        maxTokens: 2500,
+        jsonMode: false,
+        fallbackSystemPrompt: FALLBACK_SYSTEM_PROMPT,
+        fallbackUserPrompt: hasPreviousAnalyses
+          ? `Here is the previous posture analysis:\n${JSON.stringify(previousAnalyses, null, 2)}\n\nHere is the updated data. Update the analysis to reflect any changes:\n${theaterData}`
+          : `Analyze military postures:\n\n${theaterData}`,
+      },
+    );
 
     let parsed;
-    try {
-      parsed = JSON.parse(responseText);
-    } catch (parseErr) {
-      log.error('generatePostureAnalysis malformed LLM JSON', { error: parseErr.message });
-      throw new Error('LLM returned invalid JSON');
+    if (result.parsed) {
+      parsed = result.parsed;
+    } else {
+      try {
+        parsed = extractJson(result.content);
+      } catch (parseErr) {
+        log.error('generatePostureAnalysis malformed LLM JSON', { error: parseErr.message });
+        throw new Error('LLM returned invalid JSON');
+      }
     }
 
     const analyses = Array.isArray(parsed.analyses) ? parsed.analyses : [];

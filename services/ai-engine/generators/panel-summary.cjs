@@ -1,10 +1,6 @@
 'use strict';
 
-// AI generator: Dashboard panel summary
-// Aggregates data from multiple panels (news, telegram, markets, strategic-risk, cyber, conflict, natural)
-// into an executive summary. Supports incremental: skips LLM when inputs unchanged.
-
-const { callLLMWithFallback } = require('@worldmonitor/shared/llm.cjs');
+const { callLLMForFunction, extractJson, truncateContext } = require('@worldmonitor/shared/llm.cjs');
 const { parseNewsFromRedis, unwrapEnvelope } = require('../utils/news-parse.cjs');
 
 const REDIS_KEYS = [
@@ -26,14 +22,26 @@ function buildContext(results) {
     const label = KEY_LABELS[i];
     if (raw != null) {
       if (label === 'news') {
-        context[label] = parseNewsFromRedis(raw);
+        const items = parseNewsFromRedis(raw).slice(0, 8);
+        context[label] = items.map((a) => ({ title: (a.title || '').slice(0, 100) }));
+      } else if (label === 'telegram') {
+        const msgs = raw?.messages ?? raw?.data?.messages ?? [];
+        context[label] = (Array.isArray(msgs) ? msgs : []).slice(0, 5).map((m) => (m.text || '').slice(0, 100));
       } else {
-        context[label] = unwrapEnvelope(raw) ?? raw?.data ?? raw?.items ?? raw;
+        const data = unwrapEnvelope(raw) ?? raw?.data ?? raw?.items ?? raw;
+        if (Array.isArray(data)) {
+          context[label] = data.slice(0, 5);
+        } else {
+          context[label] = data;
+        }
       }
     }
   }
   return context;
 }
+
+const FALLBACK_SYSTEM_PROMPT =
+  'You are an intelligence analyst creating an executive summary from global intelligence panels. Synthesize all data sources into a concise, actionable intelligence summary. Focus on significant developments, emerging patterns, cross-domain correlations, and critical risks. You MUST respond with ONLY valid JSON, no prose, no markdown fences, no explanation. Use this exact structure: { "summary": string, "keyEvents": [string], "riskLevel": "low"|"medium"|"high"|"critical" }.';
 
 module.exports = async function generatePanelSummary({ supabase, redis, log, http }) {
   log.debug('generatePanelSummary executing');
@@ -69,22 +77,47 @@ module.exports = async function generatePanelSummary({ supabase, redis, log, htt
       return previousOutput;
     }
 
-    const systemPrompt =
-      'You are an intelligence analyst creating an executive summary from global intelligence panels. Synthesize all data sources into a concise, actionable intelligence summary. Focus on significant developments, emerging patterns, cross-domain correlations, and critical risks. Output valid JSON with fields: summary (string), keyEvents (array of strings), riskLevel (string: \'low\'|\'medium\'|\'high\'|\'critical\').';
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const panelData = truncateContext(context, 3000);
 
-    const userPrompt = previousSummary
-      ? `Here is the previous executive summary:\n${previousSummary}\n\nHere is the updated panel data. Update the summary to reflect any changes:\n${JSON.stringify(context, null, 2)}`
-      : `Analyze this panel data and create an executive summary:\n\n${JSON.stringify(context, null, 2)}`;
+    const fallbackUserPrompt = previousSummary
+      ? `Here is the previous executive summary:\n${previousSummary}\n\nHere is the updated panel data. Update the summary to reflect any changes:\n${panelData}`
+      : `Analyze this panel data and create an executive summary:\n\n${panelData}`;
 
-    const result = await callLLMWithFallback(supabase, systemPrompt, userPrompt, http);
-    const responseText = result.content;
+    const result = await callLLMForFunction(
+      supabase,
+      'panel_summary',
+      'view_summary',
+      {
+        date: dateStr,
+        panelData,
+      },
+      http,
+      {
+        jsonMode: false,
+        fallbackSystemPrompt: FALLBACK_SYSTEM_PROMPT,
+        fallbackUserPrompt,
+      },
+    );
 
-    const parsed = JSON.parse(responseText);
-    const summary = parsed.summary ?? '';
-    const keyEvents = Array.isArray(parsed.keyEvents) ? parsed.keyEvents : [];
-    const riskLevel = ['low', 'medium', 'high', 'critical'].includes(parsed.riskLevel)
-      ? parsed.riskLevel
-      : 'medium';
+    let summary = '';
+    let keyEvents = [];
+    let riskLevel = 'medium';
+
+    let parsed = result.parsed;
+    if (!parsed) {
+      try { parsed = extractJson(result.content); } catch (_) { /* markdown — use as-is */ }
+    }
+
+    if (parsed && typeof parsed === 'object' && parsed.summary) {
+      summary = parsed.summary ?? '';
+      keyEvents = Array.isArray(parsed.keyEvents) ? parsed.keyEvents : [];
+      riskLevel = ['low', 'medium', 'high', 'critical'].includes(parsed.riskLevel)
+        ? parsed.riskLevel
+        : 'medium';
+    } else {
+      summary = result.content;
+    }
 
     const contextSources = Object.keys(context).filter((k) => context[k] != null).length;
 

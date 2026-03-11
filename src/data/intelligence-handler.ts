@@ -250,7 +250,7 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
       let data = payload as OrefAlertsResponse;
       if (!('configured' in data) && !('alerts' in data)) {
         const raw = payload as Record<string, unknown>;
-        if ('error' in raw || raw.data === null || raw.data === undefined) {
+        if ('error' in raw || raw.data === null) {
           const errorMsg = typeof raw.error === 'string' ? raw.error : 'service unavailable';
           console.debug(`[wm:oref] error envelope received: ${errorMsg}`);
           renderOrefAlerts({ configured: false, alerts: [], historyCount24h: 0, timestamp: new Date().toISOString() });
