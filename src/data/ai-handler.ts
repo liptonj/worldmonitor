@@ -86,5 +86,15 @@ export function createAiHandlers(ctx: AppContext): Record<string, (payload: unkn
       }
       riskPanel.applyAiOverview(payload);
     },
+    'ai:telegram-summary': (payload: unknown) => {
+      if (!payload) { console.warn('[wm:ai:telegram-summary] null/undefined payload'); return; }
+      aiPayloadBuffer.set('ai:telegram-summary', payload);
+      const panel = ctx.panels['telegram-summary'] as { applyTelegramSummary?: (p: unknown) => void } | undefined;
+      if (!panel?.applyTelegramSummary) {
+        console.debug('[wm:ai:telegram-summary] panel not yet mounted — payload buffered');
+        return;
+      }
+      panel.applyTelegramSummary(payload);
+    },
   };
 }
