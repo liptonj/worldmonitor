@@ -1,8 +1,11 @@
 /**
- * AI domain handler — ai:intel-digest, ai:panel-summary, ai:article-summaries, ai:classifications, ai:country-briefs, ai:posture-analysis, ai:instability-analysis, ai:risk-overview.
+ * AI domain handler — ai:intel-digest, ai:panel-summary, ai:article-summaries, ai:classifications, ai:country-briefs, ai:posture-analysis, ai:instability-analysis, ai:risk-overview, temporal-anomalies.
  */
 
 import type { AppContext } from '@/app/app-context';
+import { signalAggregator } from '@/services/signal-aggregator';
+import { ingestTemporalAnomaliesForCII } from '@/services/country-instability';
+import type { TemporalAnomaly } from '@/services/temporal-baseline';
 
 const aiPayloadBuffer = new Map<string, unknown>();
 
@@ -95,6 +98,26 @@ export function createAiHandlers(ctx: AppContext): Record<string, (payload: unkn
         return;
       }
       panel.applyTelegramSummary(payload);
+    },
+    'temporal-anomalies': (payload: unknown) => {
+      if (!payload) { console.warn('[wm:temporal-anomalies] null/undefined payload'); return; }
+      const data = payload as {
+        anomalies?: Array<{
+          type: string;
+          region: string;
+          currentCount: number;
+          expectedCount: number;
+          zScore: number;
+          severity: 'medium' | 'high' | 'critical';
+          message: string;
+        }>;
+      };
+      const anomalies = data.anomalies ?? [];
+      if (anomalies.length === 0) return;
+      signalAggregator.ingestTemporalAnomalies(anomalies);
+      ingestTemporalAnomaliesForCII(anomalies as TemporalAnomaly[]);
+      const ciiPanel = ctx.panels['cii'] as { refresh?: () => void } | undefined;
+      ciiPanel?.refresh?.();
     },
   };
 }
