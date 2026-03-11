@@ -55,6 +55,7 @@ function loadChannelsFromSet(channelSet) {
 }
 
 const TELEGRAM_MAX_TEXT_CHARS = Math.max(200, Number(process.env.TELEGRAM_MAX_TEXT_CHARS || 800));
+const TELEGRAM_MAX_FEED_ITEMS = Math.max(50, Number(process.env.TELEGRAM_MAX_FEED_ITEMS || 200));
 
 const REDIS_KEY = 'relay:telegram:v1';
 const BUFFER_TTL = 3600;
@@ -64,6 +65,41 @@ const RECONNECT_DELAY_MS = 10_000;
 const MAX_RECONNECT_DELAY_MS = 300_000;
 
 const messageBuffer = [];
+
+const pollState = {
+  cursorByHandle: Object.create(null),
+  items: [],
+  lastPollAt: 0,
+  lastError: null,
+};
+
+function _resetPollState() {
+  pollState.cursorByHandle = Object.create(null);
+  pollState.items = [];
+  pollState.lastPollAt = 0;
+  pollState.lastError = null;
+}
+
+function getPollState() {
+  return {
+    items: [...pollState.items],
+    lastPollAt: pollState.lastPollAt,
+    lastError: pollState.lastError,
+  };
+}
+
+function mergeNewItems(newItems) {
+  if (!newItems.length) return;
+  const seen = new Set();
+  pollState.items = [...newItems, ...pollState.items]
+    .filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    })
+    .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
+    .slice(0, TELEGRAM_MAX_FEED_ITEMS);
+}
 
 function _resetBuffer() {
   messageBuffer.length = 0;
@@ -351,4 +387,7 @@ module.exports = {
   buildHandleToConfig,
   _resetBuffer,
   withTimeout,
+  _resetPollState,
+  getPollState,
+  mergeNewItems,
 };

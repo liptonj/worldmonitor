@@ -16,6 +16,9 @@ const {
   _resetBuffer,
   withTimeout,
   normalizeTelegramMessage,
+  _resetPollState,
+  getPollState,
+  mergeNewItems,
 } = require('../index.cjs');
 
 describe('withTimeout', () => {
@@ -339,5 +342,60 @@ describe('persistBuffer', () => {
     } finally {
       process.__REDIS_TEST_CLIENT__ = prev;
     }
+  });
+});
+
+describe('polling state management', () => {
+  beforeEach(() => {
+    _resetPollState();
+  });
+
+  it('starts with empty state', () => {
+    const state = getPollState();
+    assert.strictEqual(state.items.length, 0);
+    assert.strictEqual(state.lastPollAt, 0);
+    assert.strictEqual(state.lastError, null);
+  });
+
+  it('mergeNewItems adds and deduplicates items', () => {
+    const items1 = [
+      { id: 'ch:1', ts: '2026-03-10T10:00:00Z', text: 'first' },
+      { id: 'ch:2', ts: '2026-03-10T10:01:00Z', text: 'second' },
+    ];
+    mergeNewItems(items1);
+    const state1 = getPollState();
+    assert.strictEqual(state1.items.length, 2);
+
+    const items2 = [
+      { id: 'ch:2', ts: '2026-03-10T10:01:00Z', text: 'second-dup' },
+      { id: 'ch:3', ts: '2026-03-10T10:02:00Z', text: 'third' },
+    ];
+    mergeNewItems(items2);
+    const state2 = getPollState();
+    assert.strictEqual(state2.items.length, 3);
+    assert.strictEqual(state2.items[0].id, 'ch:3');
+  });
+
+  it('mergeNewItems sorts items by ts descending (newest first)', () => {
+    const items = [
+      { id: 'ch:1', ts: '2026-03-10T10:00:00Z', text: 'oldest' },
+      { id: 'ch:2', ts: '2026-03-10T10:02:00Z', text: 'newest' },
+      { id: 'ch:3', ts: '2026-03-10T10:01:00Z', text: 'middle' },
+    ];
+    mergeNewItems(items);
+    const state = getPollState();
+    assert.strictEqual(state.items[0].id, 'ch:2');
+    assert.strictEqual(state.items[1].id, 'ch:3');
+    assert.strictEqual(state.items[2].id, 'ch:1');
+  });
+
+  it('mergeNewItems caps at max feed size', () => {
+    const items = [];
+    for (let i = 0; i < 250; i++) {
+      items.push({ id: `ch:${i}`, ts: new Date(Date.now() + i * 1000).toISOString(), text: `msg ${i}` });
+    }
+    mergeNewItems(items);
+    const state = getPollState();
+    assert.ok(state.items.length <= 200);
   });
 });
