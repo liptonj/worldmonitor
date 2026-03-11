@@ -46,6 +46,7 @@
     "ai:posture-analysis": "ai:posture-analysis:v1",
     "ai:instability-analysis": "ai:instability-analysis:v1",
     "ai:risk-overview": "ai:risk-overview:v1",
+    "ai:telegram-summary": "ai:telegram-summary:v1",
     "news:full": "news:digest:v1:full:en",
     "news:tech": "news:digest:v1:tech:en",
     "news:finance": "news:digest:v1:finance:en",
@@ -67,5 +68,5 @@
     "techEvents": "relay:tech-events:v1",
     "iranAttacks": "conflict:iran-events:v1"
   },
-  "_generated": "2026-03-11T00:28:15.391Z"
+  "_generated": "2026-03-11T01:49:25.133Z"
 }
