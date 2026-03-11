@@ -250,6 +250,12 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
       let data = payload as OrefAlertsResponse;
       if (!('configured' in data) && !('alerts' in data)) {
         const raw = payload as Record<string, unknown>;
+        if ('error' in raw || raw.data === null || raw.data === undefined) {
+          const errorMsg = typeof raw.error === 'string' ? raw.error : 'service unavailable';
+          console.debug(`[wm:oref] error envelope received: ${errorMsg}`);
+          renderOrefAlerts({ configured: false, alerts: [], historyCount24h: 0, timestamp: new Date().toISOString() });
+          return;
+        }
         if ('current' in raw || 'history' in raw) {
           const current = raw.current as unknown[] | null;
           const history = raw.history as unknown[] | null;
@@ -260,7 +266,7 @@ export function createIntelligenceHandlers(ctx: AppContext): Record<string, Chan
             timestamp: new Date().toISOString(),
           };
         } else {
-          console.warn('[wm:oref] unrecognized payload shape — rendering as unconfigured');
+          console.warn('[wm:oref] unrecognized payload shape', { keys: Object.keys(raw).slice(0, 8) });
           renderOrefAlerts({ configured: false, alerts: [], historyCount24h: 0, timestamp: new Date().toISOString() });
           return;
         }
