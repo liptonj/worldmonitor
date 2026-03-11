@@ -51,7 +51,8 @@
     "news:tech": "news:digest:v1:tech:en",
     "news:finance": "news:digest:v1:finance:en",
     "news:happy": "news:digest:v1:happy:en",
-    "pizzint": "intel:pizzint:v1"
+    "pizzint": "intel:pizzint:v1",
+    "temporal-anomalies": "relay:temporal-anomalies:v1"
   },
   "mapKeys": {
     "flights": "relay:flights:v1",
@@ -68,5 +69,5 @@
     "techEvents": "relay:tech-events:v1",
     "iranAttacks": "conflict:iran-events:v1"
   },
-  "_generated": "2026-03-11T22:20:14.475Z"
+  "_generated": "2026-03-11T22:43:20.591Z"
 }

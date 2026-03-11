@@ -43,6 +43,7 @@ const CHANNEL_REGISTRY = {
   'spending': require('./spending.cjs'),
   'config:news-sources': require('./config-news-sources.cjs'),
   'config:feature-flags': require('./config-feature-flags.cjs'),
+  'temporal-anomalies': require('./temporal-anomalies.cjs'),
 };
 
 function getChannel(serviceKey) {

@@ -559,6 +559,15 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
     timeoutMs: 30_000,
     required: false,
   },
+  'temporal-anomalies': {
+    key: 'temporal-anomalies',
+    redisKey: 'relay:temporal-anomalies:v1',
+    panels: [],
+    domain: 'intelligence',
+    staleAfterMs: 5 * 60_000,
+    timeoutMs: 30_000,
+    required: false,
+  },
 };
 
 /** Channel keys for bootstrap and WebSocket subscription. Replaces RELAY_CHANNELS. */
