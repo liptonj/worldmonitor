@@ -76,8 +76,8 @@ async function _fetchFromRedisCache(secretName) {
     const client = getRedisClient();
     const cached = await client.get(`wm:vault:v1:${secretName}`);
     if (cached !== null && cached !== undefined) return cached;
-  } catch {
-    // Redis miss — non-fatal
+  } catch (err) {
+    log.debug('Redis cache fetch failed', { secret: secretName, error: err.message });
   }
   return undefined;
 }
@@ -87,40 +87,42 @@ async function _storeInRedisCache(secretName, value) {
   try {
     const client = getRedisClient();
     await client.setex(`wm:vault:v1:${secretName}`, REDIS_CACHE_TTL_SECONDS, value);
-  } catch {
-    // Non-fatal
+  } catch (err) {
+    log.debug('Redis cache store failed', { secret: secretName, error: err.message });
   }
 }
 
 async function getSecret(secretName) {
   if (ENV_ONLY.has(secretName)) {
-    return process.env[secretName] ?? undefined;
+    const value = process.env[secretName] ?? undefined;
+    return { value, source: value ? 'env' : undefined };
   }
 
   if (_cache.has(secretName) && (Date.now() - _cacheTs) < CACHE_TTL_MS) {
-    return _cache.get(secretName);
+    const value = _cache.get(secretName);
+    return { value, source: value ? 'cache' : undefined };
   }
 
   const fromRedis = await _fetchFromRedisCache(secretName);
   if (fromRedis) {
     _cache.set(secretName, fromRedis);
-    return fromRedis;
+    return { value: fromRedis, source: 'redis' };
   }
 
   const fromVault = await _fetchFromVault(secretName);
   if (fromVault) {
     _cache.set(secretName, fromVault);
     await _storeInRedisCache(secretName, fromVault);
-    return fromVault;
+    return { value: fromVault, source: 'vault' };
   }
 
   const fromEnv = process.env[secretName];
   if (fromEnv) {
     _cache.set(secretName, fromEnv);
-    return fromEnv;
+    return { value: fromEnv, source: 'env' };
   }
 
-  return undefined;
+  return { value: undefined, source: undefined };
 }
 
 async function initSecrets() {
@@ -130,11 +132,10 @@ async function initSecrets() {
 
   const results = await Promise.allSettled(
     KNOWN_SECRETS.map(async (name) => {
-      const value = await getSecret(name);
+      const { value, source } = await getSecret(name);
       if (value) {
-        const source = _cache.has(name) ? 'vault/redis' : 'env';
-        if (source !== 'env') vaultCount++;
-        else envCount++;
+        if (source === 'redis' || source === 'vault' || source === 'cache') vaultCount++;
+        else if (source === 'env') envCount++;
       }
       return { name, found: !!value };
     })
@@ -163,4 +164,14 @@ function getAllCachedSecrets() {
   return result;
 }
 
-module.exports = { getSecret, initSecrets, getSecretSync, getAllCachedSecrets, KNOWN_SECRETS };
+async function invalidateSecretCache(secretName) {
+  _cache.delete(secretName);
+  try {
+    const client = getRedisClient();
+    await client.del(`wm:vault:v1:${secretName}`);
+  } catch (err) {
+    log.debug('Redis cache invalidation failed', { secret: secretName, error: err.message });
+  }
+}
+
+module.exports = { getSecret, initSecrets, getSecretSync, getAllCachedSecrets, invalidateSecretCache, KNOWN_SECRETS };
