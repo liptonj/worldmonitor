@@ -58,21 +58,4 @@ describe('generateTelegramSummary', () => {
     assert.strictEqual(grouped['BNONews'].length, 2);
     assert.strictEqual(grouped['AuroraIntel'].length, 1);
   });
-
-  it('builds per-channel context string with character limit', async () => {
-    const { buildChannelContext } = require('../../generators/telegram-summary.cjs');
-    const grouped = {
-      TestChannel: [
-        {
-          channel: 'TestChannel',
-          channelTitle: 'Test Channel',
-          text: 'Hello world',
-          ts: '2026-03-11T00:00:00Z',
-        },
-      ],
-    };
-    const context = buildChannelContext(grouped, 5000);
-    assert.ok(context.includes('TestChannel'));
-    assert.ok(context.includes('Hello world'));
-  });
 });
