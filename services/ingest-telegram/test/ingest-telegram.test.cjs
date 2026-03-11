@@ -21,6 +21,7 @@ const {
   mergeNewItems,
   pollTelegramOnce,
   ingestTelegramHeadlines,
+  createGuardedPoll,
 } = require('../index.cjs');
 
 describe('withTimeout', () => {
@@ -486,6 +487,29 @@ describe('pollTelegramOnce', () => {
     const result = await pollTelegramOnce(mockClient, channels, handleToConfig);
     assert.strictEqual(result.channelsFailed, 1);
     assert.strictEqual(result.channelsPolled, 0);
+  });
+});
+
+describe('createGuardedPoll', () => {
+  beforeEach(() => {
+    _resetPollState();
+  });
+
+  it('executes poll function and prevents concurrent calls', async () => {
+    let callCount = 0;
+    const slowPoll = async () => {
+      callCount++;
+      await new Promise((r) => setTimeout(r, 100));
+      return { channelsPolled: 1, newItemCount: 1, channelsFailed: 0, mediaSkipped: 0 };
+    };
+
+    const guarded = createGuardedPoll(slowPoll);
+
+    const p1 = guarded();
+    const p2 = guarded();
+    await Promise.all([p1, p2]);
+
+    assert.strictEqual(callCount, 1, 'second call should be skipped while first is in-flight');
   });
 });
 

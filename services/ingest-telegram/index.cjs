@@ -85,6 +85,32 @@ function _resetPollState() {
   pollState.lastError = null;
 }
 
+function createGuardedPoll(pollFn) {
+  let inFlight = false;
+  let startedAt = 0;
+
+  return async function guardedPoll() {
+    if (inFlight) {
+      const stuck = Date.now() - startedAt;
+      if (stuck > TELEGRAM_POLL_CYCLE_TIMEOUT_MS + 30_000) {
+        log.warn('Poll stuck — force-clearing in-flight flag', { stuckMs: stuck });
+        inFlight = false;
+      } else {
+        return;
+      }
+    }
+    inFlight = true;
+    startedAt = Date.now();
+    try {
+      return await pollFn();
+    } catch (e) {
+      log.warn('Guarded poll error', { error: e?.message || String(e) });
+    } finally {
+      inFlight = false;
+    }
+  };
+}
+
 function getPollState() {
   return {
     items: [...pollState.items],
@@ -519,4 +545,5 @@ module.exports = {
   mergeNewItems,
   pollTelegramOnce,
   ingestTelegramHeadlines,
+  createGuardedPoll,
 };
