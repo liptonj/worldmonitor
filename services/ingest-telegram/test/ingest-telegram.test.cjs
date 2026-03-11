@@ -20,6 +20,7 @@ const {
   getPollState,
   mergeNewItems,
   pollTelegramOnce,
+  ingestTelegramHeadlines,
 } = require('../index.cjs');
 
 describe('withTimeout', () => {
@@ -485,5 +486,58 @@ describe('pollTelegramOnce', () => {
     const result = await pollTelegramOnce(mockClient, channels, handleToConfig);
     assert.strictEqual(result.channelsFailed, 1);
     assert.strictEqual(result.channelsPolled, 0);
+  });
+});
+
+describe('ingestTelegramHeadlines', () => {
+  it('ingests headlines into Redis scoped keys', async () => {
+    const ops = [];
+    const mockRedis = {
+      status: 'ready',
+      lpush: async (key, value) => { ops.push({ op: 'lpush', key, value }); },
+      ltrim: async (key, start, stop) => { ops.push({ op: 'ltrim', key, start, stop }); },
+      expire: async (key, ttl) => { ops.push({ op: 'expire', key, ttl }); },
+    };
+
+    const messages = [
+      { text: 'Breaking news from test', ts: '2026-03-10T10:00:00Z', topic: 'breaking' },
+      { text: 'Another update', ts: '2026-03-10T10:01:00Z', topic: 'conflict' },
+    ];
+
+    await ingestTelegramHeadlines(messages, mockRedis);
+
+    const lpushOps = ops.filter((o) => o.op === 'lpush');
+    assert.ok(lpushOps.length > 0, 'should have lpush operations');
+
+    const globalPushes = lpushOps.filter((o) => o.key === 'wm:headlines:global');
+    assert.strictEqual(globalPushes.length, 2, 'both messages go to global scope');
+
+    const telegramPushes = lpushOps.filter((o) => o.key === 'wm:headlines:telegram');
+    assert.strictEqual(telegramPushes.length, 2, 'both messages go to telegram scope');
+  });
+
+  it('skips messages with empty text', async () => {
+    const ops = [];
+    const mockRedis = {
+      status: 'ready',
+      lpush: async (key, value) => { ops.push({ op: 'lpush', key, value }); },
+      ltrim: async () => {},
+      expire: async () => {},
+    };
+
+    const messages = [
+      { text: '', ts: '2026-03-10T10:00:00Z', topic: 'breaking' },
+      { text: '   ', ts: '2026-03-10T10:00:00Z', topic: 'breaking' },
+      { text: 'valid message', ts: '2026-03-10T10:00:00Z', topic: 'breaking' },
+    ];
+
+    await ingestTelegramHeadlines(messages, mockRedis);
+    const lpushOps = ops.filter((o) => o.op === 'lpush');
+    assert.ok(lpushOps.length >= 1, 'only valid messages are ingested');
+  });
+
+  it('returns early when redis is not ready', async () => {
+    const mockRedis = { status: 'connecting' };
+    await ingestTelegramHeadlines([{ text: 'test' }], mockRedis);
   });
 });

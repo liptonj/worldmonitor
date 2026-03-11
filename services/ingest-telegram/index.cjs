@@ -248,6 +248,36 @@ function buildHandleToConfig(channels) {
   return map;
 }
 
+async function ingestTelegramHeadlines(messages, redisClient) {
+  if (!redisClient || redisClient.status !== 'ready' || !messages || messages.length === 0) return;
+
+  const headlines = messages
+    .filter((m) => m.text && m.text.trim())
+    .map((m) => ({
+      title: m.text.trim().slice(0, 500),
+      pubDate: m.ts ? Math.floor(new Date(m.ts).getTime() / 1000) : Math.floor(Date.now() / 1000),
+      scopes: [...new Set([m.topic || 'global', 'global', 'telegram'])],
+    }));
+
+  if (headlines.length === 0) return;
+
+  let ingested = 0;
+  for (const h of headlines) {
+    const item = JSON.stringify({ title: h.title, pubDate: h.pubDate });
+    for (const scope of h.scopes) {
+      if (!scope) continue;
+      try {
+        const key = `wm:headlines:${scope}`;
+        await redisClient.lpush(key, item);
+        await redisClient.ltrim(key, 0, 99);
+        await redisClient.expire(key, 86400);
+      } catch { /* swallow per-scope errors */ }
+    }
+    ingested++;
+  }
+  if (ingested > 0) log.info('Ingested telegram headlines', { count: ingested });
+}
+
 function normalizeTelegramMessage(msg, channel) {
   const handle = channel?.handle || 'unknown';
   const textRaw = String(msg?.message || '');
@@ -488,4 +518,5 @@ module.exports = {
   getPollState,
   mergeNewItems,
   pollTelegramOnce,
+  ingestTelegramHeadlines,
 };
