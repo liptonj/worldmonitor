@@ -13,7 +13,6 @@ type LlmPrompt = {
   prompt_key: string;
   variant: string | null;
   mode: string | null;
-  model_name: string | null;
   system_prompt: string;
   user_prompt: string | null;
   description: string | null;
@@ -283,7 +282,6 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
       ${fieldRow('Prompt Key *', textInput('prompt_key', '', 'e.g. news_summary'))}
       ${fieldRow('Variant', textInput('variant', '', 'e.g. tech  (blank = any)'))}
       ${fieldRow('Mode', textInput('mode', '', 'e.g. brief  (blank = any)'))}
-      ${fieldRow('Model Name', textInput('model_name', '', 'e.g. qwen3-wm  (blank = any model)'))}
       ${fieldRow('Description', textInput('description', '', 'Short description…'))}
       ${fieldRow('System Prompt *', textArea('system_prompt', '', 8))}
       ${fieldRow('User Prompt', textArea('user_prompt', '', 4))}
@@ -308,7 +306,6 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
         user_prompt: getField('user_prompt') || null,
         variant: getField('variant') || null,
         mode: getField('mode') || null,
-        model_name: getField('model_name') || null,
         description: getField('description') || null,
       };
       if (!body.prompt_key || !body.system_prompt) {
@@ -438,7 +435,6 @@ export function renderLlmConfigPage(container: HTMLElement, token: string): void
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px">
             ${badge(p.variant ?? 'any variant')}
             ${badge(p.mode ?? 'any mode')}
-            ${badge(p.model_name ?? 'any model')}
             ${p.description ? `<span style="font-size:12px;color:var(--text-muted)">${escHtml(p.description)}</span>` : ''}
           </div>
           <p style="color:var(--text-muted);font-size:11px;margin:0 0 10px">

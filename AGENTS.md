@@ -15,6 +15,13 @@
 - Panel channel naming must match backend channel keys exactly
 - Rotate credentials immediately if found in git (even if in .gitignore)
 - Strategic Posture and OpenSky channels use direct OAuth2 to OpenSky API (no relay proxy; credentials from Supabase Vault via secrets.cjs)
+- Fix broken code instead of removing it; do not delete panels on suspicion that data is missing
+- Write separate frontend and backend plans; be specific on naming, grouping, and filters so they match
+- Avoid stubs, todos, and helper-of-helper patterns in plans and code
+- Run code-reviewer and deslop before claiming completion
+- Use workers for server-side prefiltering; avoid relying on the client
+- Telegram AI: process each channel sequentially, then cross-channel synthesis pass
+- On the production server, the env file is `.env` (not `.env.production`)
 
 ## Learned Workspace Facts
 
@@ -34,3 +41,10 @@
 - Strategic Posture panel depends on OpenSky Network API for military aircraft tracking
 - Check Redis data without redis-cli using scripts/check-redis-data-nc.sh (uses netcat)
 - Redis key for Strategic Posture: theater-posture:sebuf:v1
+- Supabase project ID: fmultmlsevqgtnqzaylg; schema: wm_admin
+- Server layout: /home/ubuntu/worldmon — flat structure (docker-compose, .env, relay.sh in root)
+- Gateway IS the relay server; workers fetch from external APIs directly, store in Redis, gRPC broadcast to gateway, gateway pushes to WebSocket clients
+- Data flow: Worker → Redis (relay:channel:v1) → Gateway → WebSocket → Frontend panels
+- Most channels fetch from external APIs; config-news-sources, config-feature-flags, and markets query Supabase directly
+- scripts/ais-relay.cjs is DEPRECATED — do NOT modify or reference it; all logic has been ported to services/
+- .env.production is in .gitignore; credentials are not committed

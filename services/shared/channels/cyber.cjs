@@ -85,30 +85,34 @@ async function fetchUrlhausThreats(http, limit, cutoffMs) {
 module.exports = async function fetchCyber({ config, redis, log, http }) {
   log.debug('fetchCyber executing');
   const timestamp = new Date().toISOString();
+  const errors = [];
 
+  const cutoffMs = Date.now() - CUTOFF_DAYS * 24 * 60 * 60 * 1000;
+
+  let feodo = [];
   try {
-    const cutoffMs = Date.now() - CUTOFF_DAYS * 24 * 60 * 60 * 1000;
-    const [feodo, urlhaus] = await Promise.all([
-      fetchFeodoThreats(http, MAX_THREATS, cutoffMs),
-      fetchUrlhausThreats(http, MAX_THREATS, cutoffMs),
-    ]);
-    const combined = [...feodo, ...urlhaus];
-    const threats = combined.slice(0, MAX_THREATS).map(toProtoCyberThreat);
-
-    return {
-      timestamp,
-      source: 'cyber',
-      data: { threats },
-      status: 'success',
-    };
+    feodo = await fetchFeodoThreats(http, MAX_THREATS, cutoffMs);
   } catch (err) {
-    log.error('fetchCyber error', { error: err?.message ?? err });
-    return {
-      timestamp,
-      source: 'cyber',
-      data: { threats: [] },
-      status: 'error',
-      errors: [err?.message ?? String(err)],
-    };
+    log.warn('fetchCyber Feodo failed, continuing with URLhaus', { error: err?.message });
+    errors.push(`feodo: ${err?.message}`);
   }
+
+  let urlhaus = [];
+  try {
+    urlhaus = await fetchUrlhausThreats(http, MAX_THREATS, cutoffMs);
+  } catch (err) {
+    log.warn('fetchCyber URLhaus failed, continuing with Feodo', { error: err?.message });
+    errors.push(`urlhaus: ${err?.message}`);
+  }
+
+  const combined = [...feodo, ...urlhaus];
+  const threats = combined.slice(0, MAX_THREATS).map(toProtoCyberThreat);
+
+  return {
+    timestamp,
+    source: 'cyber',
+    data: { threats },
+    status: errors.length === 0 ? 'success' : threats.length > 0 ? 'partial' : 'error',
+    errors: errors.length > 0 ? errors : undefined,
+  };
 };

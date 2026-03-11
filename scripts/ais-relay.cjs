@@ -518,7 +518,6 @@ async function loadLlmPrompt(promptKey, variant = null, mode = null) {
       p_key: promptKey,
       p_variant: variant,
       p_mode: mode,
-      p_model: model,
     });
     if (error) {
       console.error(`[llm] get_llm_prompt error for ${promptKey}:`, error.message);

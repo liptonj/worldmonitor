@@ -59,6 +59,10 @@ const POSITIVE_TOPICS = [
 
 const ALL_TOPICS = [...INTEL_TOPICS, ...POSITIVE_TOPICS];
 
+const GDELT_RATE_LIMIT_MS = 5_500;
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
 async function fetchTopicArticles(http, log, topic, maxRecords, timespan) {
   const gdeltUrl = new URL(GDELT_API_URL);
   gdeltUrl.searchParams.set('query', topic.query);
@@ -94,7 +98,9 @@ module.exports = async function fetchGdelt({ config, redis, log, http }) {
   const results = {};
   const errors = [];
 
-  for (const topic of ALL_TOPICS) {
+  for (let i = 0; i < ALL_TOPICS.length; i++) {
+    const topic = ALL_TOPICS[i];
+    if (i > 0) await sleep(GDELT_RATE_LIMIT_MS);
     try {
       const articles = await fetchTopicArticles(http, log, topic, maxRecords, timespan);
       results[topic.id] = {

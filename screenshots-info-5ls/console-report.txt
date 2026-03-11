@@ -1,0 +1,33 @@
+=== CONSOLE ERRORS ===
+
+=== CONSOLE LOGS (sample) ===
+[debug] [TrendingKeywords] Suppressed non-entity term: "right"
+[debug] [TrendingKeywords] Suppressed non-entity term: "violence"
+[debug] [TrendingKeywords] Suppressed non-entity term: "refinery"
+[debug] [TrendingKeywords] Suppressed non-entity term: "airport"
+[debug] [TrendingKeywords] Suppressed non-entity term: "aid"
+[debug] [TrendingKeywords] Suppressed non-entity term: "worker"
+[debug] [TrendingKeywords] Suppressed non-entity term: "lessons"
+[debug] [TrendingKeywords] Suppressed non-entity term: "regime"
+[debug] [TrendingKeywords] Suppressed non-entity term: "era"
+[debug] [TrendingKeywords] Suppressed non-entity term: "layoffs"
+[debug] [TrendingKeywords] Suppressed non-entity term: "mass"
+[debug] [TrendingKeywords] Suppressed non-entity term: "workers"
+[debug] [TrendingKeywords] Suppressed non-entity term: "jobs"
+[debug] [TrendingKeywords] Suppressed non-entity term: "behind"
+[debug] [TrendingKeywords] Suppressed non-entity term: "making"
+[log] [CIIPanel] Focal points ready, calculating scores...
+[log] [CIIPanel] Calculated 67 countries with focal point intelligence
+[log] [CIIPanel] Focal points ready, calculating scores...
+[log] [CIIPanel] Calculated 69 countries with focal point intelligence
+[log] [CIIPanel] Focal points ready, calculating scores...
+[log] [CIIPanel] Calculated 71 countries with focal point intelligence
+[log] [CIIPanel] Focal points ready, calculating scores...
+[log] [CIIPanel] Calculated 96 countries with focal point intelligence
+[log] [CIIPanel] Calculated 96 countries with focal point intelligence
+[log] [CIIPanel] Calculated 96 countries with focal point intelligence
+[log] [CIIPanel] Calculated 96 countries with focal point intelligence
+[warning] [wm:climate] 0 climate anomalies received
+[warning] [wm:conflict] 0 conflict events received
+[log] [CIIPanel] Calculated 96 countries with focal point intelligence
+[debug] [wm:oref] error envelope received: OREF_PROXY_AUTH not configured

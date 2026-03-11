@@ -23,6 +23,78 @@ const FUNCTION_CONFIG_TTL_MS = 5 * 60_000;
 const MAX_PROMPT_CHARS = 3_000;
 
 // ---------------------------------------------------------------------------
+// Complexity tier ordering
+// ---------------------------------------------------------------------------
+
+const COMPLEXITY_RANK = { light: 1, medium: 2, heavy: 3 };
+
+function meetsComplexity(providerCap, functionComplexity) {
+  return (COMPLEXITY_RANK[providerCap] ?? 3) >= (COMPLEXITY_RANK[functionComplexity] ?? 2);
+}
+
+// ---------------------------------------------------------------------------
+// Token estimation (chars / 4 heuristic)
+// ---------------------------------------------------------------------------
+
+function estimateTokens(text) {
+  return Math.ceil(String(text || '').length / 4);
+}
+
+// ---------------------------------------------------------------------------
+// In-memory rate tracking — sliding-window RPM counter
+// ---------------------------------------------------------------------------
+
+const _rateLedger = {};
+
+function isRateLimited(providerName, rpm) {
+  if (!rpm || rpm <= 0) return false;
+  const now = Date.now();
+  const window = _rateLedger[providerName] ?? [];
+  const recent = window.filter((t) => now - t < 60_000);
+  _rateLedger[providerName] = recent;
+  return recent.length >= rpm;
+}
+
+function recordCall(providerName) {
+  if (!_rateLedger[providerName]) _rateLedger[providerName] = [];
+  _rateLedger[providerName].push(Date.now());
+}
+
+// ---------------------------------------------------------------------------
+// Exponential backoff on HTTP 429
+// ---------------------------------------------------------------------------
+
+const _backoffState = {};
+
+function markProviderRateLimited(providerName) {
+  const state = _backoffState[providerName] ?? { count: 0, cooldownUntil: 0 };
+  state.count++;
+  const delay = Math.min(300_000, 15_000 * Math.pow(2, state.count - 1));
+  state.cooldownUntil = Date.now() + delay;
+  _backoffState[providerName] = state;
+  log.warn('Provider rate-limited with backoff', {
+    provider: providerName,
+    backoffMs: delay,
+    consecutiveHits: state.count,
+  });
+}
+
+function isInCooldown(providerName) {
+  const state = _backoffState[providerName];
+  if (!state) return false;
+  if (Date.now() >= state.cooldownUntil) {
+    state.count = Math.max(0, state.count - 1);
+    return false;
+  }
+  return true;
+}
+
+function is429Error(err) {
+  const msg = String(err?.message ?? '');
+  return msg.includes('429') || msg.includes('rate limit') || msg.includes('Too Many Requests');
+}
+
+// ---------------------------------------------------------------------------
 // Context truncation — keeps prompts within model context limits
 // ---------------------------------------------------------------------------
 
@@ -62,11 +134,10 @@ function interpolate(template, vars) {
   });
 }
 
-async function fetchPrompt(supabase, promptKey, { variant, mode, modelName } = {}) {
+async function fetchPrompt(supabase, promptKey, { variant, mode } = {}) {
   const args = { p_key: promptKey };
   if (variant !== undefined) args.p_variant = variant;
   if (mode !== undefined) args.p_mode = mode;
-  if (modelName !== undefined) args.p_model = modelName;
 
   const { data, error } = await supabase.rpc('get_llm_prompt', args);
 
@@ -193,6 +264,10 @@ async function buildProviderConfig(supabase, row) {
     provider_name: providerName,
     bearer_token: bearerToken,
     max_tokens: row.max_tokens ?? 3000,
+    requests_per_minute: row.requests_per_minute ?? 60,
+    tokens_per_minute: row.tokens_per_minute ?? 0,
+    context_window: row.context_window ?? 8192,
+    complexity_cap: row.complexity_cap ?? 'heavy',
   };
 }
 
@@ -372,7 +447,6 @@ async function callLLMForFunction(supabase, functionKey, promptKey, placeholders
     const promptOpts = {
       variant: options.variant ?? null,
       mode: options.mode ?? null,
-      modelName: provider.model_name,
     };
 
     const dbPrompt = await fetchPrompt(supabase, promptKey, promptOpts);

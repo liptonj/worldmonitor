@@ -33,7 +33,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'POST') {
     const body = (await req.json()) as {
       prompt_key: string; system_prompt: string; user_prompt?: string;
-      variant?: string; mode?: string; description?: string; model_name?: string;
+      variant?: string; mode?: string; description?: string;
     };
     if (!body.prompt_key || !body.system_prompt)
       return new Response(JSON.stringify({ error: 'prompt_key and system_prompt required' }), { status: 400, headers });
@@ -44,7 +44,6 @@ export default async function handler(req: Request): Promise<Response> {
       p_variant: body.variant ?? null,
       p_mode: body.mode ?? null,
       p_description: body.description ?? null,
-      p_model_name: body.model_name ?? null,
     });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
     await invalidateLlmCache();
