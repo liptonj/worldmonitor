@@ -6,6 +6,8 @@ import type { SecurityAdvisory } from '@/services/security-advisories';
 type AdvisoryFilter = 'all' | 'critical' | 'US' | 'AU' | 'UK' | 'NZ' | 'health';
 
 export class SecurityAdvisoriesPanel extends Panel {
+  override readonly channelKeys = ['security-advisories'];
+
   private advisories: SecurityAdvisory[] = [];
   private activeFilter: AdvisoryFilter = 'all';
   private refreshInterval: ReturnType<typeof setInterval> | null = null;

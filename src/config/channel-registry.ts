@@ -74,7 +74,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
   oil: {
     key: 'oil',
     redisKey: 'relay:oil:v1',
-    panels: ['commodities'],
+    panels: ['commodities', 'economic'],
     domain: 'economic',
     staleAfterMs: 5 * 60_000,
     timeoutMs: 30_000,
@@ -116,7 +116,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
   natural: {
     key: 'natural',
     redisKey: 'relay:natural:v1',
-    panels: ['map'],
+    panels: ['map', 'satellite-fires'],
     domain: 'geo',
     staleAfterMs: 10 * 60_000,
     timeoutMs: 30_000,
@@ -309,7 +309,7 @@ export const CHANNEL_REGISTRY: Record<string, ChannelDefinition> = {
   spending: {
     key: 'spending',
     redisKey: 'relay:spending:v1',
-    panels: ['map'],
+    panels: ['map', 'economic'],
     domain: 'economic',
     staleAfterMs: 15 * 60_000,
     timeoutMs: 30_000,

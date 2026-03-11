@@ -22,9 +22,21 @@ export function getHydratedData(key: string): unknown | undefined {
 export async function fetchBootstrapData(variant: string = 'full'): Promise<void> {
   const cacheKey = `bootstrap:v2:${variant}`;
 
-  // Phase 1: Load stale data from IndexedDB for instant hydration
+  // Mark all channels loading immediately so panels see state transitions
+  // even if the IndexedDB phase below is slow.
+  const bootstrapChannels = [...RELAY_CHANNELS, `news:${variant}`];
+  for (const ch of bootstrapChannels) {
+    setChannelState(ch, 'loading', 'bootstrap');
+  }
+
+  // Phase 1: Load stale data from IndexedDB for instant hydration.
+  // Guard with a timeout — IndexedDB can hang on some browsers/devices.
   try {
-    const cached = await getPersistentCache<Record<string, unknown>>(cacheKey);
+    const cachePromise = getPersistentCache<Record<string, unknown>>(cacheKey);
+    const cached = await Promise.race([
+      cachePromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_000)),
+    ]);
     if (cached?.data && typeof cached.data === 'object') {
       const age = Date.now() - (cached.updatedAt ?? 0);
       if (age < STALE_THRESHOLD_MS) {
@@ -38,16 +50,11 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
   }
 
   // Phase 2: Fetch fresh data from relay
-  const bootstrapChannels = [...RELAY_CHANNELS, `news:${variant}`];
-  for (const ch of bootstrapChannels) {
-    setChannelState(ch, 'loading', 'bootstrap');
-  }
-
   try {
     const channelsParam = bootstrapChannels.join(',');
     const url = `${RELAY_HTTP_BASE}/bootstrap?variant=${encodeURIComponent(variant)}&channels=${encodeURIComponent(channelsParam)}`;
     const resp = await fetch(url, {
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(10_000),
       headers: getRelayFetchHeaders(),
     });
     if (!resp.ok) {
@@ -58,7 +65,6 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
       return;
     }
     const json = (await resp.json()) as Record<string, unknown>;
-    // Relay returns { channel: data }; Vercel returns { data: Record }. Support both.
     const data = (json.data as Record<string, unknown>) ?? json;
     const channelsWithData = new Set<string>();
     for (const [k, v] of Object.entries(data)) {
@@ -67,11 +73,8 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
         channelsWithData.add(k);
       }
     }
-    // Save for next visit (fire-and-forget)
     void setPersistentCache(cacheKey, data).catch(() => {});
 
-    // Only mark channels as ready if they received data. Channels with no data
-    // stay loading until WebSocket push or timeout (Task 3.3).
     for (const ch of bootstrapChannels) {
       if (channelsWithData.has(ch)) {
         setChannelState(ch, 'ready', 'bootstrap');
@@ -82,7 +85,6 @@ export async function fetchBootstrapData(variant: string = 'full'): Promise<void
     for (const ch of bootstrapChannels) {
       setChannelState(ch, 'error', 'bootstrap', { error: errMsg });
     }
-    // If server fetch failed but we had stale data, panels will use that
   }
 }
 

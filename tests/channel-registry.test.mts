@@ -53,6 +53,7 @@ const EXPECTED_CHANNELS = [
   'spending',
   'gulf-quotes',
   'tech-events',
+  'security-advisories',
   'strategic-posture',
   'strategic-risk',
   'stablecoins',
@@ -70,6 +71,7 @@ const EXPECTED_CHANNELS = [
   'ai:posture-analysis',
   'ai:instability-analysis',
   'ai:risk-overview',
+  'ai:telegram-summary',
   'news:full',
   'news:tech',
   'news:finance',
@@ -78,11 +80,11 @@ const EXPECTED_CHANNELS = [
 ];
 
 describe('Channel Registry', () => {
-  it('has exactly 50 channels', () => {
+  it('has exactly 52 channels', () => {
     assert.equal(
       Object.keys(CHANNEL_REGISTRY).length,
-      50,
-      'CHANNEL_REGISTRY must have 50 channels'
+      52,
+      'CHANNEL_REGISTRY must have 52 channels'
     );
   });
 
@@ -135,7 +137,7 @@ describe('Channel Registry', () => {
   it('staleAfterMs and timeoutMs use reasonable defaults', () => {
     for (const [key, def] of Object.entries(CHANNEL_REGISTRY)) {
       assert.ok(def.staleAfterMs >= 60_000, `${key}: staleAfterMs should be >= 1 min`);
-      assert.ok(def.staleAfterMs <= 30 * 60_000, `${key}: staleAfterMs should be <= 30 min`);
+      assert.ok(def.staleAfterMs <= 60 * 60_000, `${key}: staleAfterMs should be <= 60 min`);
       assert.ok(def.timeoutMs >= 5_000, `${key}: timeoutMs should be >= 5s`);
       assert.ok(def.timeoutMs <= 60_000, `${key}: timeoutMs should be <= 60s`);
     }

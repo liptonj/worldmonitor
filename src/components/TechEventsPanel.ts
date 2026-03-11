@@ -11,6 +11,8 @@ import { buildNewsContext } from '@/utils/news-context';
 type ViewMode = 'upcoming' | 'conferences' | 'earnings' | 'all';
 
 export class TechEventsPanel extends Panel {
+  override readonly channelKeys = ['tech-events'];
+
   private viewMode: ViewMode = 'upcoming';
   private events: TechEvent[] = [];
   private loading = true;

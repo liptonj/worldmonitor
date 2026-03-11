@@ -48,7 +48,7 @@ export class TelegramSummaryPanel extends Panel {
   constructor() {
     super({
       id: 'telegram-summary',
-      title: t('panels.telegramSummary') ?? 'Telegram Summary',
+      title: 'Telegram Intelligence',
       showCount: false,
       trackActivity: true,
       infoTooltip: t('components.telegramSummary.infoTooltip') ?? 'AI-generated summaries of monitored Telegram channels with cross-channel digest and early warnings.',

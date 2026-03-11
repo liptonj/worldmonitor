@@ -303,7 +303,7 @@ export class Panel {
     queueMicrotask(() => this.subscribeToChannelState());
   }
 
-  private clearLoadingTimeout(): void {
+  protected clearLoadingTimeout(): void {
     if (this._loadingTimeoutId !== null) {
       clearTimeout(this._loadingTimeoutId);
       this._loadingTimeoutId = null;
@@ -312,12 +312,9 @@ export class Panel {
 
   private subscribeToChannelState(): void {
     if (this.destroyed || this.channelKeys.length === 0) return;
-    for (const channel of this.channelKeys) {
-      const unsub = subscribeChannelState(channel, (status: ChannelStatus) => {
-        this.handleChannelStatus(channel, status);
-      });
-      this.channelUnsubscribes.push(unsub);
-    }
+
+    // Create timeout BEFORE subscribing so that the immediate callback
+    // from subscribeChannelState can clear it if data is already ready.
     this._loadingTimeoutId = setTimeout(() => {
       this._loadingTimeoutId = null;
       if (this.destroyed) return;
@@ -331,6 +328,13 @@ export class Panel {
         this.setDataBadge('unavailable', t('common.dataTimeout'));
       }
     }, Panel.LOADING_TIMEOUT_MS);
+
+    for (const channel of this.channelKeys) {
+      const unsub = subscribeChannelState(channel, (status: ChannelStatus) => {
+        this.handleChannelStatus(channel, status);
+      });
+      this.channelUnsubscribes.push(unsub);
+    }
   }
 
   private handleChannelStatus(channel: string, status: ChannelStatus): void {

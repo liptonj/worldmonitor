@@ -2,6 +2,7 @@
   "name": "@worldmonitor/shared",
   "version": "1.0.0",
   "dependencies": {
+    "@supabase/supabase-js": "^2",
     "ioredis": "^5.4.0",
     "xml2js": "^0.6.2",
     "@grpc/grpc-js": "^1.12.0",

@@ -40,6 +40,7 @@ export class CascadePanel extends Panel {
       const stats = getGraphStats();
       this.setCount(stats.nodes);
       this.render();
+      this.clearLoadingTimeout();
     } catch (error) {
       console.error('[CascadePanel] Init error:', error);
       this.showError(t('common.failedDependencyGraph'));

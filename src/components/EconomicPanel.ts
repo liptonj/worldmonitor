@@ -10,6 +10,8 @@ import { getCSSColor } from '@/utils';
 type TabId = 'indicators' | 'oil' | 'spending' | 'centralBanks';
 
 export class EconomicPanel extends Panel {
+  override readonly channelKeys = ['fred', 'oil', 'bis', 'spending'];
+
   private fredData: FredSeries[] = [];
   private oilData: OilAnalytics | null = null;
   private spendingData: SpendingSummary | null = null;

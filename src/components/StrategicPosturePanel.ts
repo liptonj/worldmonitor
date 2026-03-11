@@ -1,10 +1,11 @@
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
 import { getBufferedAiPayload } from '@/data/ai-handler';
-import { adaptPosturePayload, fetchCachedTheaterPosture, type CachedTheaterPosture } from '@/services/cached-theater-posture';
+import { adaptPosturePayload, type CachedTheaterPosture } from '@/services/cached-theater-posture';
 import { fetchMilitaryVessels } from '@/services/military-vessels';
 import { recalcPostureWithVessels, type TheaterPostureSummary } from '@/services/military-surge';
 import { isDesktopRuntime } from '@/services/runtime';
+import { fetchRelayPanel } from '@/services/relay-http';
 import { t } from '../services/i18n';
 import type { NewsItem, DeductContextDetail } from '@/types';
 import { buildNewsContext } from '@/utils/news-context';
@@ -14,6 +15,7 @@ export class StrategicPosturePanel extends Panel {
 
   private postures: TheaterPostureSummary[] = [];
   private vesselTimeouts: ReturnType<typeof setTimeout>[] = [];
+  private vesselTimersStarted = false;
   private loadingElapsedInterval: ReturnType<typeof setInterval> | null = null;
   private loadingStartTime: number = 0;
   private onLocationClick?: (lat: number, lon: number) => void;
@@ -29,21 +31,9 @@ export class StrategicPosturePanel extends Panel {
       trackActivity: true,
       infoTooltip: t('components.strategicPosture.infoTooltip'),
     });
-    this.init();
 
     const bufferedPosture = getBufferedAiPayload('ai:posture-analysis');
     if (bufferedPosture) this.applyAiAnalysis(bufferedPosture);
-  }
-
-  private init(): void {
-    this.showLoading();
-    void this.fetchAndRender();
-    // Re-augment with vessels after stream has had time to populate
-    // AIS data accumulates gradually - check at 30s, 60s, 90s, 120s
-    this.vesselTimeouts.push(setTimeout(() => this.reaugmentVessels(), 30 * 1000));
-    this.vesselTimeouts.push(setTimeout(() => this.reaugmentVessels(), 60 * 1000));
-    this.vesselTimeouts.push(setTimeout(() => this.reaugmentVessels(), 90 * 1000));
-    this.vesselTimeouts.push(setTimeout(() => this.reaugmentVessels(), 120 * 1000));
   }
 
   private isPanelVisible(): boolean {
@@ -104,64 +94,6 @@ export class StrategicPosturePanel extends Panel {
     if (this.loadingElapsedInterval) {
       clearInterval(this.loadingElapsedInterval);
       this.loadingElapsedInterval = null;
-    }
-  }
-
-  private showLoadingStage(stage: 'aircraft' | 'vessels' | 'analysis'): void {
-    const stages = this.content.querySelectorAll('.posture-stage');
-    if (stages.length === 0) return;
-
-    stages.forEach((el, i) => {
-      el.classList.remove('active', 'complete');
-      if (stage === 'aircraft' && i === 0) el.classList.add('active');
-      else if (stage === 'vessels') {
-        if (i === 0) el.classList.add('complete');
-        else if (i === 1) el.classList.add('active');
-      } else if (stage === 'analysis') {
-        if (i <= 1) el.classList.add('complete');
-        else if (i === 2) el.classList.add('active');
-      }
-    });
-  }
-
-  private async fetchAndRender(): Promise<void> {
-    if (!this.isPanelVisible()) return;
-
-    try {
-      // Fetch aircraft data from server
-      this.showLoadingStage('aircraft');
-      const data = await fetchCachedTheaterPosture(this.signal);
-      if (!data || data.postures.length === 0) {
-        this.showNoData();
-        return;
-      }
-
-      // Deep clone to avoid mutating cached data
-      this.postures = data.postures.map((p) => ({
-        ...p,
-        byOperator: { ...p.byOperator },
-      }));
-      this.lastTimestamp = data.timestamp;
-      this.isStale = data.stale || false;
-
-      // Try to augment with vessel data (client-side)
-      this.showLoadingStage('vessels');
-      await this.augmentWithVessels();
-
-      this.showLoadingStage('analysis');
-      this.updateBadges();
-      this.render();
-
-      // If we rendered stale localStorage data, re-fetch fresh after a short delay
-      if (this.isStale) {
-        setTimeout(() => {
-          void this.fetchAndRender();
-        }, 3000);
-      }
-    } catch (error) {
-      if (this.isAbortError(error)) return;
-      console.error('[StrategicPosturePanel] Fetch error:', error);
-      this.showFetchError();
     }
   }
 
@@ -288,7 +220,6 @@ export class StrategicPosturePanel extends Panel {
       this.showNoData();
       return;
     }
-    // Deep clone to avoid mutating cached data
     this.postures = data.postures.map((p) => ({
       ...p,
       byOperator: { ...p.byOperator },
@@ -298,7 +229,16 @@ export class StrategicPosturePanel extends Panel {
     this.augmentWithVessels().then(() => {
       this.updateBadges();
       this.render();
+      this.startVesselTimers();
     });
+  }
+
+  private startVesselTimers(): void {
+    if (this.vesselTimersStarted) return;
+    this.vesselTimersStarted = true;
+    for (const delay of [30_000, 60_000, 90_000, 120_000]) {
+      this.vesselTimeouts.push(setTimeout(() => this.reaugmentVessels(), delay));
+    }
   }
 
   private updateBadges(): void {
@@ -314,7 +254,19 @@ export class StrategicPosturePanel extends Panel {
   }
 
   public async refresh(): Promise<void> {
-    return this.fetchAndRender();
+    this.showLoading();
+    try {
+      const payload = await fetchRelayPanel<unknown>('strategic-posture');
+      if (payload) {
+        this.applyPush(payload);
+      } else {
+        this.showNoData();
+      }
+    } catch (error) {
+      if (this.isAbortError(error)) return;
+      console.error('[StrategicPosturePanel] Refresh error:', error);
+      this.showFetchError();
+    }
   }
 
   private showNoData(): void {
@@ -555,8 +507,8 @@ export class StrategicPosturePanel extends Panel {
   public override show(): void {
     const wasHidden = this.element.classList.contains('hidden');
     super.show();
-    if (wasHidden) {
-      void this.fetchAndRender();
+    if (wasHidden && this.postures.length > 0) {
+      this.render();
     }
   }
 
