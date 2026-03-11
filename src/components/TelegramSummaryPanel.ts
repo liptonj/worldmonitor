@@ -61,15 +61,26 @@ export class TelegramSummaryPanel extends Panel {
     if (buffered) this.applyTelegramSummary(buffered);
   }
 
+  private ensureContentAttached(): void {
+    if (!this.content.contains(this.contentEl)) {
+      replaceChildren(this.content, this.contentEl, this.footerEl);
+    }
+  }
+
   applyTelegramSummary(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
     const raw = payload as Record<string, unknown>;
     const data = (raw.data ?? raw) as TelegramSummaryData;
 
     if (!data.channelSummaries && !data.crossChannelDigest) {
+      this.ensureContentAttached();
       replaceChildren(this.contentEl, h('div', { className: 'summary-empty' }, 'Waiting for Telegram summary...'));
       return;
     }
+
+    this.ensureContentAttached();
+    this.hasContent = true;
+    this.clearLoadingTimeout();
 
     const sections: HTMLElement[] = [];
 

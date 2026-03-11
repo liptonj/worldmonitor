@@ -337,6 +337,14 @@ export class Panel {
     }
   }
 
+  /**
+   * Whether the panel has received any data or rendered content beyond the
+   * initial loading state.  When true, channel-state transitions to 'loading'
+   * or 'error' will NOT destroy existing content — they only update the
+   * data-badge so users still see the last-known-good state with an indicator.
+   */
+  protected hasContent = false;
+
   private handleChannelStatus(channel: string, status: ChannelStatus): void {
     if (this.destroyed) return;
     if (status.state !== 'loading' && status.state !== 'idle') {
@@ -344,18 +352,23 @@ export class Panel {
     }
     switch (status.state) {
       case 'ready':
+        this.hasContent = true;
         this.onChannelReady(channel, { status });
         this.setDataBadge('live');
         break;
       case 'error':
-        this.onChannelError(channel, status.error ?? 'Unknown error');
+        if (!this.hasContent) {
+          this.onChannelError(channel, status.error ?? 'Unknown error');
+        }
         this.setDataBadge('unavailable', status.error ?? undefined);
         break;
       case 'stale':
         this.setDataBadge('cached');
         break;
       case 'loading':
-        this.showLoading();
+        if (!this.hasContent) {
+          this.showLoading();
+        }
         this.clearDataBadge();
         break;
       case 'idle':

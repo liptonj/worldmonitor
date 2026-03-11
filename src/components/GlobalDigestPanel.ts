@@ -10,8 +10,9 @@ import DOMPurify from 'dompurify';
 const client = new IntelligenceServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 
 export class GlobalDigestPanel extends Panel {
-  override readonly channelKeys = ['intelligence'];
+  override readonly channelKeys = ['ai:intel-digest'];
 
+  private containerEl: HTMLElement;
   private contentEl: HTMLElement;
   private footerEl: HTMLElement;
   private refreshBtn: HTMLButtonElement;
@@ -32,7 +33,7 @@ export class GlobalDigestPanel extends Panel {
     this.contentEl = h('div', { className: 'digest-content' });
     this.footerEl = h('div', { className: 'digest-footer' });
 
-    const container = h('div', { className: 'digest-panel-content' },
+    this.containerEl = h('div', { className: 'digest-panel-content' },
       h('div', { className: 'digest-panel-header' }, this.refreshBtn),
       this.contentEl,
       this.footerEl,
@@ -40,7 +41,7 @@ export class GlobalDigestPanel extends Panel {
 
     this.refreshBtn.addEventListener('click', () => this.fetch(true));
 
-    replaceChildren(this.content, container);
+    replaceChildren(this.content, this.containerEl);
 
     replaceChildren(this.contentEl, h('div', { className: 'digest-loading' }, 'Loading…'));
 
@@ -80,13 +81,22 @@ export class GlobalDigestPanel extends Panel {
     this.setDigest(data);
   }
 
+  private ensureContentAttached(): void {
+    if (!this.content.contains(this.contentEl)) {
+      replaceChildren(this.content, this.containerEl);
+    }
+  }
+
   setDigest(data: GetGlobalIntelDigestResponse): void {
+    this.ensureContentAttached();
     if (!data?.digest) {
       this.lastDigestText = null;
       replaceChildren(this.contentEl, h('div', { className: 'digest-empty' }, 'No digest available.'));
       return;
     }
     this.lastDigestText = data.digest;
+    this.hasContent = true;
+    this.clearLoadingTimeout();
     void Promise.resolve(marked.parse(data.digest)).then((html) => {
       const safe = DOMPurify.sanitize(String(html));
       const contentDiv = document.createElement('div');
@@ -104,7 +114,9 @@ export class GlobalDigestPanel extends Panel {
   private async fetch(forceRefresh: boolean): Promise<void> {
     if (this.isLoading) return;
     this.isLoading = true;
+    this.hasContent = false;
     this.refreshBtn.disabled = true;
+    this.ensureContentAttached();
     replaceChildren(this.contentEl, h('div', { className: 'digest-loading' }, forceRefresh ? 'Synthesizing intelligence…' : 'Loading…'));
     replaceChildren(this.footerEl);
 
@@ -124,6 +136,7 @@ export class GlobalDigestPanel extends Panel {
       }
 
       this.lastDigestText = res.digest;
+      this.hasContent = true;
       const html = DOMPurify.sanitize(await marked.parse(res.digest));
       const contentDiv = document.createElement('div');
       contentDiv.className = 'digest-body';

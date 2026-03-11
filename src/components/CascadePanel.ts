@@ -37,6 +37,7 @@ export class CascadePanel extends Panel {
     this.showLoading();
     try {
       this.graph = buildDependencyGraph();
+      this.hasContent = true;
       const stats = getGraphStats();
       this.setCount(stats.nodes);
       this.render();
@@ -271,6 +272,7 @@ export class CascadePanel extends Panel {
   public refresh(): void {
     clearGraphCache();
     this.graph = null;
+    this.hasContent = false;
     this.cascadeResult = null;
     this.init();
   }
