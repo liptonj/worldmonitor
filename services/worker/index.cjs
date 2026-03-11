@@ -10,6 +10,7 @@ const { createGatewayClient, safeBroadcast } = require('@worldmonitor/shared/grp
 const { createLogger } = require('@worldmonitor/shared/logger.cjs');
 
 const log = createLogger('worker');
+const { initSecrets } = require('@worldmonitor/shared/secrets.cjs');
 
 const PROTO_PATH = path.resolve(__dirname, '../proto/relay/v1/worker.proto');
 const loaderOpts = { keepCase: true, longs: String, enums: String, defaults: true, oneofs: true };
@@ -114,9 +115,16 @@ function handleExecute(call, callback, deps) {
   }
 }
 
-function main() {
+async function main() {
   const config = require('@worldmonitor/shared/config.cjs');
   const port = config.WORKER_GRPC_PORT;
+
+  try {
+    const { loaded, missing } = await initSecrets();
+    log.info('Vault secrets ready', { loaded, missing: missing.length });
+  } catch (err) {
+    log.warn('Vault secret init failed — falling back to env vars', { error: err.message });
+  }
 
   const server = new grpc.Server();
   server.addService(WorkerService.service, {
@@ -151,7 +159,10 @@ function main() {
 }
 
 if (require.main === module) {
-  main();
+  main().catch((err) => {
+    log.error('Worker startup failed', { error: err.message });
+    process.exit(1);
+  });
 }
 
 module.exports = { createGrpcBroadcast, handleExecute, handleHealthCheck };
