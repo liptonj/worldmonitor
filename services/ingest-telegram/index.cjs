@@ -54,6 +54,8 @@ function loadChannelsFromSet(channelSet) {
   }
 }
 
+const TELEGRAM_MAX_TEXT_CHARS = Math.max(200, Number(process.env.TELEGRAM_MAX_TEXT_CHARS || 800));
+
 const REDIS_KEY = 'relay:telegram:v1';
 const BUFFER_TTL = 3600;
 const MAX_BUFFER_SIZE = 500;
@@ -111,6 +113,25 @@ function buildHandleToConfig(channels) {
     map.set(ch.handle.toLowerCase(), ch);
   }
   return map;
+}
+
+function normalizeTelegramMessage(msg, channel) {
+  const handle = channel?.handle || 'unknown';
+  const textRaw = String(msg?.message || '');
+  const text = textRaw.slice(0, TELEGRAM_MAX_TEXT_CHARS);
+  const ts = msg?.date ? new Date(msg.date * 1000).toISOString() : new Date().toISOString();
+  return {
+    id: `${handle}:${msg.id}`,
+    source: 'telegram',
+    channel: handle,
+    channelTitle: channel?.label || handle,
+    url: `https://t.me/${handle}/${msg.id}`,
+    ts,
+    text,
+    topic: channel?.topic || 'other',
+    tags: [channel?.region].filter(Boolean),
+    earlySignal: true,
+  };
 }
 
 function formatMessage(event, channelConfig) {
@@ -326,6 +347,7 @@ module.exports = {
   persistBuffer,
   startTelegramClient,
   formatMessage,
+  normalizeTelegramMessage,
   buildHandleToConfig,
   _resetBuffer,
   withTimeout,

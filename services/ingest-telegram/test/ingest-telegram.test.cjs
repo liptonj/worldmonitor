@@ -15,6 +15,7 @@ const {
   buildHandleToConfig,
   _resetBuffer,
   withTimeout,
+  normalizeTelegramMessage,
 } = require('../index.cjs');
 
 describe('withTimeout', () => {
@@ -209,6 +210,61 @@ describe('formatMessage', () => {
     assert.strictEqual(result.topic, 'unknown');
     assert.strictEqual(result.region, 'unknown');
     assert.strictEqual(result.tier, 3);
+  });
+});
+
+describe('normalizeTelegramMessage', () => {
+  it('normalizes a GramJS message with channel config', () => {
+    const msg = {
+      id: 42,
+      message: 'Breaking: test event occurred',
+      date: 1709251200,
+      media: null,
+    };
+    const channel = {
+      handle: 'BNONews',
+      label: 'BNO News',
+      topic: 'breaking',
+      region: 'global',
+      tier: 2,
+      maxMessages: 25,
+    };
+
+    const result = normalizeTelegramMessage(msg, channel);
+    assert.strictEqual(result.id, 'BNONews:42');
+    assert.strictEqual(result.source, 'telegram');
+    assert.strictEqual(result.channel, 'BNONews');
+    assert.strictEqual(result.channelTitle, 'BNO News');
+    assert.strictEqual(result.url, 'https://t.me/BNONews/42');
+    assert.strictEqual(result.text, 'Breaking: test event occurred');
+    assert.strictEqual(result.topic, 'breaking');
+    assert.deepStrictEqual(result.tags, ['global']);
+    assert.strictEqual(result.earlySignal, true);
+    assert.ok(result.ts);
+  });
+
+  it('truncates text to configurable max chars', () => {
+    const msg = { id: 1, message: 'x'.repeat(1000), date: 1709251200 };
+    const channel = { handle: 'test', tier: 3 };
+    const result = normalizeTelegramMessage(msg, channel);
+    assert.strictEqual(result.text.length, 800);
+  });
+
+  it('handles missing channel config gracefully', () => {
+    const msg = { id: 1, message: 'test', date: 1709251200 };
+    const result = normalizeTelegramMessage(msg, null);
+    assert.strictEqual(result.channel, 'unknown');
+    assert.strictEqual(result.channelTitle, 'unknown');
+    assert.strictEqual(result.topic, 'other');
+    assert.deepStrictEqual(result.tags, []);
+    assert.strictEqual(result.earlySignal, true);
+  });
+
+  it('marks earlySignal true for all items (all are early signals)', () => {
+    const msg = { id: 1, message: 'test', date: 1709251200 };
+    const channel = { handle: 'test', tier: 3 };
+    const result = normalizeTelegramMessage(msg, channel);
+    assert.strictEqual(result.earlySignal, true);
   });
 });
 
