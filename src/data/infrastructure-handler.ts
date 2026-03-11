@@ -14,8 +14,7 @@ import { parseCableHealthPayload, setCableHealthCache } from '@/services/cable-h
 import { parseFlightDelaysPayload } from '@/services/aviation';
 import { dataFreshness } from '@/services/data-freshness';
 import { signalAggregator } from '@/services/signal-aggregator';
-import { updateAndCheck } from '@/services/temporal-baseline';
-import { ingestCyberThreatsForCII, ingestAviationForCII, ingestAisDisruptionsForCII, ingestTemporalAnomaliesForCII } from '@/services/country-instability';
+import { ingestCyberThreatsForCII, ingestAviationForCII, ingestAisDisruptionsForCII } from '@/services/country-instability';
 import type { ListCyberThreatsResponse } from '@/generated/client/worldmonitor/cyber/v1/service_client';
 import type { CIIPanel } from '@/components/CIIPanel';
 import type { TechEventsPanel } from '@/components/TechEventsPanel';
@@ -202,13 +201,6 @@ export function createInfrastructureHandlers(ctx: AppContext): Record<string, (p
       signalAggregator.ingestAisDisruptions(snap.disruptions);
       ingestAisDisruptionsForCII(snap.disruptions);
       (ctx.panels['cii'] as CIIPanel)?.refresh();
-      updateAndCheck([{ type: 'ais_gaps', region: 'global', count: snap.disruptions.length }]).then(anomalies => {
-        if (anomalies.length > 0) {
-          signalAggregator.ingestTemporalAnomalies(anomalies);
-          ingestTemporalAnomaliesForCII(anomalies);
-          (ctx.panels['cii'] as CIIPanel)?.refresh();
-        }
-      }).catch(() => { });
 
       const hasData = snap.disruptions.length > 0 || snap.density.length > 0;
       ctx.map?.setLayerReady('ais', hasData);

@@ -10,8 +10,6 @@ import { dataFreshness } from '@/services/data-freshness';
 import { flattenFires, computeRegionStats, toMapFires } from '@/services/wildfires';
 import { ingestClimateForCII, ingestSatelliteFiresForCII, ingestGpsJammingForCII } from '@/services/country-instability';
 import { signalAggregator } from '@/services/signal-aggregator';
-import { updateAndCheck } from '@/services/temporal-baseline';
-import { ingestTemporalAnomaliesForCII } from '@/services/country-instability';
 import type { ListFireDetectionsResponse } from '@/generated/client/worldmonitor/wildfire/v1/service_client';
 import type { CIIPanel } from '@/components/CIIPanel';
 import type { ClimateAnomalyPanel } from '@/components/ClimateAnomalyPanel';
@@ -70,13 +68,6 @@ export function createGeoHandlers(ctx: AppContext, callbacks?: HandlerCallbacks)
     ctx.map?.setFires(toMapFires(flat));
     (ctx.panels['satellite-fires'] as SatelliteFiresPanel)?.update(stats, flat.length);
     dataFreshness.recordUpdate('firms', flat.length);
-    updateAndCheck([{ type: 'satellite_fires', region: 'global', count: flat.length }]).then(anomalies => {
-      if (anomalies.length > 0) {
-        signalAggregator.ingestTemporalAnomalies(anomalies);
-        ingestTemporalAnomaliesForCII(anomalies);
-        (ctx.panels['cii'] as CIIPanel)?.refresh();
-      }
-    }).catch(() => { });
     ctx.statusPanel?.updateApi('FIRMS', { status: 'ok' });
   }
 

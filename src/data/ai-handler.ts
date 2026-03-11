@@ -5,7 +5,7 @@
 import type { AppContext } from '@/app/app-context';
 import { signalAggregator } from '@/services/signal-aggregator';
 import { ingestTemporalAnomaliesForCII } from '@/services/country-instability';
-import type { TemporalAnomaly } from '@/services/temporal-baseline';
+import type { TemporalAnomaly } from '@/services/country-instability';
 
 const aiPayloadBuffer = new Map<string, unknown>();
 

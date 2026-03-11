@@ -12,10 +12,7 @@ import { tokenizeForMatch, matchKeyword } from '@/utils/keyword-match';
 import { checkBatchForBreakingAlerts } from '@/services/breaking-news-alerts';
 import { mlWorker } from '@/services/ml-worker';
 import { clusterNewsHybrid } from '@/services/clustering';
-import { signalAggregator } from '@/services/signal-aggregator';
 import { updateBaseline, calculateDeviation } from '@/services';
-import { updateAndCheck } from '@/services/temporal-baseline';
-import { ingestTemporalAnomaliesForCII } from '@/services/country-instability';
 import { canQueueAiClassification, AI_CLASSIFY_MAX_PER_FEED } from '@/services/ai-classify-queue';
 import { classifyWithAI } from '@/services/threat-classifier';
 import { ingestHeadlines } from '@/services/trending-keywords';
@@ -24,7 +21,6 @@ import { t } from '@/services/i18n';
 import { analysisWorker } from '@/services';
 import type { ListFeedDigestResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
 import type { InsightsPanel } from '@/components/InsightsPanel';
-import type { CIIPanel } from '@/components/CIIPanel';
 import type { MonitorPanel } from '@/components/MonitorPanel';
 import type { HeadlinesPanel } from '@/components/HeadlinesPanel';
 import type { ChannelHandler } from './types';
@@ -326,16 +322,6 @@ export function createNewsHandlers(
 
     newsStore.allNews = collectedNews;
     ctx.initialLoadComplete = true;
-
-    updateAndCheck([
-      { type: 'news', region: 'global', count: collectedNews.length },
-    ]).then(anomalies => {
-      if (anomalies.length > 0) {
-        signalAggregator.ingestTemporalAnomalies(anomalies);
-        ingestTemporalAnomaliesForCII(anomalies);
-        (ctx.panels['cii'] as CIIPanel)?.refresh();
-      }
-    }).catch(() => { });
 
     ctx.map?.updateHotspotActivity(newsStore.allNews);
     updateMonitorResults();

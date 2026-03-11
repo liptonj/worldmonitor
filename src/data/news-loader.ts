@@ -11,9 +11,6 @@ import { fetchCategoryFeeds, getFeedFailures, updateBaseline, calculateDeviation
 import { checkBatchForBreakingAlerts } from '@/services/breaking-news-alerts';
 import { mlWorker } from '@/services/ml-worker';
 import { clusterNewsHybrid } from '@/services/clustering';
-import { signalAggregator } from '@/services/signal-aggregator';
-import { updateAndCheck } from '@/services/temporal-baseline';
-import { ingestTemporalAnomaliesForCII } from '@/services/country-instability';
 import { analysisWorker } from '@/services';
 import { t } from '@/services/i18n';
 import { tryFetchDigest, flashMapForNews, renderNewsForCategory } from './news-handler';
@@ -25,7 +22,6 @@ import { fetchKindnessData } from '@/services/kindness-data';
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
 import { isFeatureEnabled } from '@/services/runtime-config';
 import type { InsightsPanel } from '@/components/InsightsPanel';
-import type { CIIPanel } from '@/components/CIIPanel';
 import type { MonitorPanel } from '@/components/MonitorPanel';
 import type { HeadlinesPanel } from '@/components/HeadlinesPanel';
 
@@ -249,14 +245,6 @@ export const newsLoader = {
 
     newsStore.allNews = collectedNews;
     ctx.initialLoadComplete = true;
-
-    updateAndCheck([{ type: 'news', region: 'global', count: collectedNews.length }]).then(anomalies => {
-      if (anomalies.length > 0) {
-        signalAggregator.ingestTemporalAnomalies(anomalies);
-        ingestTemporalAnomaliesForCII(anomalies);
-        (ctx.panels['cii'] as CIIPanel)?.refresh();
-      }
-    }).catch(() => {});
 
     ctx.map?.updateHotspotActivity(newsStore.allNews);
 

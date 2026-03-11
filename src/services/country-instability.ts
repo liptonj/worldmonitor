@@ -1,7 +1,17 @@
 import type { SocialUnrestEvent, MilitaryFlight, MilitaryVessel, ClusteredEvent, InternetOutage, AisDisruptionEvent, CyberThreat } from '@/types';
 import type { AirportDelayAlert } from '@/services/aviation';
 import type { SecurityAdvisory } from '@/services/security-advisories';
-import type { TemporalAnomaly } from '@/services/temporal-baseline';
+
+/** Temporal anomaly from relay channel (temporal-anomalies). */
+export interface TemporalAnomaly {
+  type: string;
+  region: string;
+  currentCount: number;
+  expectedCount: number;
+  zScore: number;
+  message: string;
+  severity: 'medium' | 'high' | 'critical';
+}
 import { tokenizeForMatch, matchKeyword } from '@/utils/keyword-match';
 import { INTEL_HOTSPOTS, CONFLICT_ZONES, STRATEGIC_WATERWAYS } from '@/config/geo';
 import { CURATED_COUNTRIES, DEFAULT_BASELINE_RISK, DEFAULT_EVENT_MULTIPLIER, getHotspotCountries } from '@/config/countries';

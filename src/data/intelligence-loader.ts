@@ -16,9 +16,8 @@ import {
   getProtestStatus,
 } from '@/services';
 import { isMilitaryVesselTrackingConfigured } from '@/services';
-import { ingestOutagesForCII, ingestMilitaryForCII, ingestUcdpForCII, ingestHapiForCII, ingestDisplacementForCII, ingestClimateForCII, ingestAdvisoriesForCII, ingestGpsJammingForCII, ingestTemporalAnomaliesForCII, isInLearningMode } from '@/services/country-instability';
+import { ingestOutagesForCII, ingestMilitaryForCII, ingestUcdpForCII, ingestHapiForCII, ingestDisplacementForCII, ingestClimateForCII, ingestAdvisoriesForCII, ingestGpsJammingForCII, isInLearningMode } from '@/services/country-instability';
 import { signalAggregator } from '@/services/signal-aggregator';
-import { updateAndCheck } from '@/services/temporal-baseline';
 import { analyzeFlightsForSurge, surgeAlertToSignal, detectForeignMilitaryPresence, foreignPresenceToSignal } from '@/services/military-surge';
 import { fetchCachedTheaterPosture } from '@/services/cached-theater-posture';
 import { fetchGpsInterference } from '@/services/gps-interference';
@@ -123,16 +122,6 @@ export const intelligenceLoader = {
         signalAggregator.ingestFlights(flightData.flights);
         signalAggregator.ingestVessels(vesselData.vessels);
         dataFreshness.recordUpdate('opensky', flightData.flights.length);
-        updateAndCheck([
-          { type: 'military_flights', region: 'global', count: flightData.flights.length },
-          { type: 'vessels', region: 'global', count: vesselData.vessels.length },
-        ]).then(anomalies => {
-          if (anomalies.length > 0) {
-            signalAggregator.ingestTemporalAnomalies(anomalies);
-            ingestTemporalAnomaliesForCII(anomalies);
-            (ctx.panels['cii'] as CIIPanel)?.refresh();
-          }
-        }).catch(() => {});
         if (ctx.mapLayers.military) {
           ctx.map?.setMilitaryFlights(flightData.flights, flightData.clusters);
           ctx.map?.setMilitaryVessels(vesselData.vessels, vesselData.clusters);
@@ -365,16 +354,6 @@ export const intelligenceLoader = {
       ingestMilitaryForCII(flightData.flights, vesselData.vessels);
       signalAggregator.ingestFlights(flightData.flights);
       signalAggregator.ingestVessels(vesselData.vessels);
-      updateAndCheck([
-        { type: 'military_flights', region: 'global', count: flightData.flights.length },
-        { type: 'vessels', region: 'global', count: vesselData.vessels.length },
-      ]).then(anomalies => {
-        if (anomalies.length > 0) {
-          signalAggregator.ingestTemporalAnomalies(anomalies);
-          ingestTemporalAnomaliesForCII(anomalies);
-          (ctx.panels['cii'] as CIIPanel)?.refresh();
-        }
-      }).catch(() => {});
       ctx.map?.updateMilitaryForEscalation(flightData.flights, vesselData.vessels);
       (ctx.panels['cii'] as CIIPanel)?.refresh();
       if (!isInLearningMode()) {
