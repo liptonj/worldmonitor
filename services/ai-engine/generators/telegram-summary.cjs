@@ -3,6 +3,7 @@
 const { callLLMForFunction, extractJson } = require('@worldmonitor/shared/llm.cjs');
 
 const MAX_CHANNEL_MSGS = 15; // Messages per channel for summarization
+const MIN_NEW_MESSAGES = 3;
 
 function groupMessagesByChannel(messages) {
   const grouped = Object.create(null);
@@ -25,9 +26,10 @@ module.exports = async function generateTelegramSummary({ supabase, redis, log, 
       throw new Error('supabase and http are required');
     }
 
-    const [telegramData, previousSummaryRaw] = await Promise.all([
+    const [telegramData, previousSummaryRaw, metaRaw] = await Promise.all([
       redis.get('relay:telegram:v1'),
       redis.get('ai:telegram-summary:v1'),
+      redis.get('ai:telegram-summary:meta'),
     ]);
 
     const messages = telegramData?.messages || telegramData?.items || [];
@@ -54,10 +56,7 @@ module.exports = async function generateTelegramSummary({ supabase, redis, log, 
       };
     }
 
-    const MIN_NEW_MESSAGES = 3;
-
     // Delta detection: skip if not enough new messages since last run
-    const metaRaw = await redis.get('ai:telegram-summary:meta');
     let lastSummarizedAt = null;
     if (metaRaw) {
       try {

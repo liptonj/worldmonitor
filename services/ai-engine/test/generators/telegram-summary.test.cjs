@@ -89,7 +89,7 @@ describe('generateTelegramSummary', () => {
       log: mockLog,
       http: {},
     });
-    assert.equal(result.status, 'skipped');
+    assert.strictEqual(result.status, 'skipped');
     assert.ok(result.error.includes('insufficient new'));
   });
 });
