@@ -18,6 +18,7 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'strategic-risk': { name: 'Strategic Risk Overview', enabled: true, priority: 1, channels: ['strategic-risk'] },
   intel: { name: 'Intel Feed', enabled: true, priority: 1 },
   'telegram-intel': { name: 'Telegram Intel', enabled: true, priority: 1, channels: ['telegram'] },
+  'telegram-summary': { name: 'Telegram Summary', enabled: true, priority: 1, channels: ['ai:telegram-summary'] },
   'gdelt-intel': { name: 'Live Intelligence', enabled: true, priority: 1 },
   'global-digest': { name: 'Intelligence Digest', enabled: true, priority: 1 },
   cascade: { name: 'Infrastructure Cascade', enabled: true, priority: 1 },
@@ -620,7 +621,7 @@ export const PANEL_CATEGORY_MAP: Record<string, { labelKey: string; panelKeys: s
   // Full (geopolitical) variant
   intelligence: {
     labelKey: 'header.panelCatIntelligence',
-    panelKeys: ['cii', 'strategic-risk', 'intel', 'gdelt-intel', 'global-digest', 'cascade', 'telegram-intel'],
+    panelKeys: ['cii', 'strategic-risk', 'intel', 'gdelt-intel', 'global-digest', 'cascade', 'telegram-intel', 'telegram-summary'],
     variants: ['full'],
   },
   regionalNews: {

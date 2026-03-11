@@ -562,6 +562,10 @@ export class PanelLayoutManager implements AppModule {
       const { TelegramIntelPanel } = await import('@/components/TelegramIntelPanel');
       const telegramIntelPanel = new TelegramIntelPanel();
       this.ctx.panels['telegram-intel'] = telegramIntelPanel;
+
+      const { TelegramSummaryPanel } = await import('@/components/TelegramSummaryPanel');
+      const telegramSummaryPanel = new TelegramSummaryPanel();
+      this.ctx.panels['telegram-summary'] = telegramSummaryPanel;
     }
 
     let GulfEconomiesPanel: (typeof import('@/components/GulfEconomiesPanel'))['GulfEconomiesPanel'] | undefined;
