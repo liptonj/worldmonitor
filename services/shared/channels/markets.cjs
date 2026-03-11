@@ -113,7 +113,7 @@ module.exports = async function fetchMarkets({ config, redis, log, http }) {
       : [];
     const allFinnhubSymbols = [...finnhubStockSymbols, ...(apiKey ? sectorSymbols : [])];
 
-    const yahooOnlyStocks = apiKey ? [] : stockSymbols.filter((s) => !INDEX_PROXY[s]);
+    const yahooOnlyStocks = apiKey ? [] : stockSymbols;
     const yahooCommodityList = commoditySymbols;
 
     const [finnhubResults, yahooCommodityResults, yahooStockResults, cryptoResults] =
