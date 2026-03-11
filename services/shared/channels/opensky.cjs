@@ -1,13 +1,11 @@
 'use strict';
 
-// Extracted from scripts/ais-relay.cjs - OpenSky Network aircraft tracking
-// API: OpenSky Network (https://opensky-network.org/api/states/all)
-// Anonymous access supported; optional bbox for regional fetch.
+const { getOpenSkyToken } = require('../opensky-auth.cjs');
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+const USER_AGENT = 'WorldMonitor/1.0';
+const OPENSKY_API_URL = 'https://opensky-network.org/api/states/all';
 const OPENSKY_TIMEOUT_MS = 15_000;
 
-// Default bbox: Europe (lamin, lomin, lamax, lomax)
 const DEFAULT_BBOX = [35, -10, 71, 40];
 
 function parseBbox(bboxStr) {
@@ -39,14 +37,23 @@ module.exports = async function fetchOpensky({ config, redis, log, http }) {
   const bboxStr = config?.OPENSKY_BBOX || process.env.OPENSKY_BBOX;
   const [lamin, lomin, lamax, lomax] = parseBbox(bboxStr);
 
-  let url = 'https://opensky-network.org/api/states/all';
+  let url = OPENSKY_API_URL;
   if (lamin != null && lomin != null && lamax != null && lomax != null) {
     url += `?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
   }
 
+  const headers = { 'User-Agent': USER_AGENT, Accept: 'application/json' };
+
+  const token = await getOpenSkyToken(config);
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else {
+    log.info('fetchOpensky: no OAuth2 token, using unauthenticated access (rate-limited)');
+  }
+
   try {
     const raw = await http.fetchJson(url, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      headers,
       timeout: OPENSKY_TIMEOUT_MS,
     });
 
@@ -55,10 +62,7 @@ module.exports = async function fetchOpensky({ config, redis, log, http }) {
     return {
       timestamp,
       source: 'opensky',
-      data: {
-        time: raw?.time ?? Date.now(),
-        states,
-      },
+      data: { time: raw?.time ?? Date.now(), states },
       status: 'success',
     };
   } catch (err) {
